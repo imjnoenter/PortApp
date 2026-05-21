@@ -902,6 +902,30 @@ body {
 .pm-name { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pm-close { width: 30px; height: 30px; border: none; background: var(--track); color: var(--muted); border-radius: var(--radius-pill); cursor: pointer; font-size: 18px; line-height: 1; }
 .pm-close:hover { background: var(--line); color: var(--ink); }
+/* ── Gemini chat panel ── */
+#geminiChatPanel { position: fixed; bottom: 24px; right: 24px; width: 360px; height: 520px; background: var(--card); border: 1px solid var(--card-edge); border-radius: var(--radius); box-shadow: var(--shadow-lg); display: none; flex-direction: column; z-index: 2100; overflow: hidden; }
+#geminiChatPanel.open { display: flex; }
+.gc-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.gc-title { flex: 1; font-family: var(--font-display); font-size: 14px; font-weight: 600; letter-spacing: -.2px; }
+.gc-close { width: 28px; height: 28px; border: none; background: var(--track); color: var(--muted); border-radius: var(--radius-pill); cursor: pointer; font-size: 18px; line-height: 1; flex-shrink: 0; }
+.gc-close:hover { background: var(--line); color: var(--ink); }
+.gc-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.gc-msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.gc-msg.user { background: var(--terracotta); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+.gc-msg.ai { background: var(--track); color: var(--ink); align-self: flex-start; border-bottom-left-radius: 4px; }
+.gc-msg.dots { display: inline-flex; align-items: center; gap: 4px; padding: 10px 14px; }
+.gc-msg.dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: gc-bounce .9s infinite; }
+.gc-msg.dots span:nth-child(2) { animation-delay: .18s; }
+.gc-msg.dots span:nth-child(3) { animation-delay: .36s; }
+@keyframes gc-bounce { 0%,80%,100% { transform: translateY(0) } 40% { transform: translateY(-5px) } }
+.gc-input-row { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); flex-shrink: 0; }
+.gc-input { flex: 1; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--track); color: var(--ink); font-family: var(--font-ui); font-size: 13px; outline: none; }
+.gc-input:focus { border-color: var(--terracotta); }
+.gc-send { padding: 8px 16px; background: var(--terracotta); color: #fff; border: none; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+.gc-send:disabled { opacity: .45; cursor: default; }
+.gc-gemini-btn { background: none; border: none; cursor: pointer; padding: 0 0 0 5px; line-height: 1; vertical-align: middle; opacity: .75; display: inline-flex; align-items: center; }
+.gc-gemini-btn:hover { opacity: 1; }
+@media (max-width: 480px) { #geminiChatPanel { bottom: 0; right: 0; left: 0; width: auto; border-radius: var(--radius) var(--radius) 0 0; height: 72vh; } }
 .plan-bar-wrap { margin: 16px 0 20px; }
 .plan-bar-track { position: relative; height: 22px; background: var(--track); border-radius: var(--radius-sm); overflow: hidden; }
 .plan-bar-seg { position: absolute; top: 0; bottom: 0; }
@@ -2293,7 +2317,7 @@ window.openSymbolDetail = function(sym) {
       <div style="display:flex;align-items:center;gap:10px">
         ${logoCell(sym, color)}
         <div>
-          <div style="font-size:15px;font-weight:700">${sym}</div>
+          <div style="font-size:15px;font-weight:700">${sym}${_activeProfile()?.geminiKey ? `<button class="gc-gemini-btn" onclick="openGeminiChat('${sym}')" title="Chat with Gemini">${GEMINI_ICON}</button>` : ''}</div>
           <div style="font-size:11px;color:var(--muted)">${pos.name||''}</div>
           <div style="font-size:11px;margin-top:3px;display:flex;gap:10px;flex-wrap:wrap">
             ${pos.price    != null    ? `<span style="color:var(--muted)">Last <strong style="color:var(--ink)">${fmtCurr(pos.price)}</strong></span>` : ''}
@@ -3076,6 +3100,7 @@ window.updateActionChartsPreview = function() {
 
 // ── Action modal (per-symbol hub) ────────────────────────────────────────────
 const ACTION_ICON = `<svg viewBox="0 0 14 4" width="14" height="4" fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/><circle cx="12" cy="2" r="1.8"/></svg><span class="pb-label">Actions</span>`;
+const GEMINI_ICON = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2c-.3 3.4-1.8 6.2-4 8.3C5.8 12.4 3 13.8 0 14c3 .2 5.8 1.6 8 3.7 2.2 2.1 3.7 4.9 4 8.3.3-3.4 1.8-6.2 4-8.3 2.2-2.1 5-3.5 8-3.7-3-.2-5.8-1.6-8-3.7C13.8 8.2 12.3 5.4 12 2z" fill="#4285f4"/></svg>`;
 
 window.openActionModal = function(sym) {
   if (!currentModel) return;
@@ -3104,7 +3129,7 @@ window.openActionModal = function(sym) {
       <div style="display:flex;align-items:center;gap:10px">
         ${logoCell(sym, color)}
         <div>
-          <div style="font-size:15px;font-weight:700">${sym}</div>
+          <div style="font-size:15px;font-weight:700">${sym}${_activeProfile()?.geminiKey ? `<button class="gc-gemini-btn" onclick="openGeminiChat('${sym}')" title="Chat with Gemini">${GEMINI_ICON}</button>` : ''}</div>
           <div style="font-size:11px;color:var(--muted)">${pos?.name||''}</div>
           ${(pos?.price||pos?.qty||pos?.avgPrice) ? `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
             ${pos.price  != null ? `<span>Last&nbsp;<strong style="color:var(--ink)">${fmtCurr(pos.price)}</strong></span>` : ''}
@@ -7133,6 +7158,18 @@ function buildShell() {
   </div>
   <div id="allocMgmtModal" class="tx-overlay"></div>
   <div id="planModal" class="plan-overlay"></div>
+  <div id="geminiChatPanel">
+    <div class="gc-header">
+      ${GEMINI_ICON}
+      <span class="gc-title" id="gcTitle">Gemini</span>
+      <button class="gc-close" onclick="closeGeminiChat()">×</button>
+    </div>
+    <div class="gc-messages" id="gcMessages"></div>
+    <div class="gc-input-row">
+      <input class="gc-input" id="gcInput" placeholder="ถามอะไรก็ได้..." onkeydown="if(event.key==='Enter'&&!event.shiftKey)sendGeminiMessage()">
+      <button class="gc-send" id="gcSend" onclick="sendGeminiMessage()">ส่ง</button>
+    </div>
+  </div>
   <div id="txModal" class="tx-overlay"></div>
   <div id="txHistoryModal" class="tx-overlay"></div>
   <div id="editCashModal" class="tx-overlay"></div>
@@ -7185,6 +7222,11 @@ function showSetupModal(mode = 'first') {
         <input class="tx-input" id="setupWriteKey" type="password" placeholder="${keyHint}" autocomplete="new-password">
         <div style="font-size:10px;color:var(--muted);margin-top:4px">Protects all write operations. Never stored in code.</div>
       </div>
+      <div class="tx-field">
+        <label class="tx-label">Gemini API key <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input class="tx-input" id="setupGeminiKey" type="password" placeholder="${isEdit ? 'Leave blank to keep current key' : 'AIza…'}" autocomplete="new-password">
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">Enables Gemini chat on each symbol. Stored in localStorage only.</div>
+      </div>
       <button class="tx-submit" onclick="submitSetup()">${btn}</button>
       ${(isAdd || isEdit) ? `<button onclick="closeSetupModal()" style="width:100%;margin-top:8px;padding:10px;background:transparent;border:1px solid var(--line);border-radius:var(--radius-pill);color:var(--muted);font-family:var(--font-ui);font-size:13px;font-weight:600;cursor:pointer">Cancel</button>` : ''}
       <div id="setupError" style="font-size:12px;color:var(--loss);text-align:center;margin-top:8px;min-height:18px"></div>
@@ -7235,8 +7277,11 @@ window.submitSetup = function() {
     errEl.textContent = 'Write key is required (set WRITE_KEY in Apps Script → Script Properties).'; return;
   }
 
+  const geminiKey = document.getElementById('setupGeminiKey')?.value.trim() || '';
+
   const profileData = { profileName: name, sheetId, recordUrl };
   if (writeKey) profileData.writeKey = writeKey;
+  if (geminiKey) profileData.geminiKey = geminiKey;
 
   if (_setupMode === 'edit') {
     const idx = _cfg?.profiles.findIndex(p => p.id === _cfg.activeProfileId);
@@ -8552,6 +8597,162 @@ function isMarketOpen() {
   });
   try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch(_) {}
 })();
+
+// ── Gemini Chat ───────────────────────────────────────────────────────────────
+let geminiSessions = {};   // { [sym]: { chat, messages: [{role, text}] } }
+let geminiChat = null;
+let geminiCurrentSym = null;
+let geminiLoading = false;
+
+function buildGeminiContext(sym) {
+  const pos = currentModel?.positions?.find(p => p.symbol === sym) ||
+              currentModel?.watchlist?.find(w => w.symbol === sym);
+  const m   = currentModel;
+  const plan = planCache?.[sym];
+
+  let ctx = `คุณเป็นผู้ช่วยการเงินส่วนตัวสำหรับพอร์ตหุ้นของฉัน\n\n`;
+  ctx += `สัญลักษณ์: ${sym}\n`;
+  if (pos) {
+    if (pos.name)     ctx += `ชื่อ: ${pos.name}\n`;
+    if (pos.sector)   ctx += `กลุ่ม: ${pos.sector}`;
+    if (pos.category) ctx += ` | ประเภท: ${pos.category}`;
+    if (pos.sector || pos.category) ctx += '\n';
+    ctx += `ราคาล่าสุด: ${pos.price != null ? fmtCurr(pos.price) : '—'}\n`;
+    if (pos.qty > 0) {
+      const totalCost    = pos.qty * pos.avgPrice;
+      const currentValue = pos.qty * pos.price;
+      const pnl          = currentValue - totalCost;
+      const pnlPct       = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+      ctx += `ราคาต้นทุนเฉลี่ย: ${fmtCurr(pos.avgPrice)} | จำนวน: ${pos.qty} หุ้น\n`;
+      ctx += `มูลค่าต้นทุนรวม: ${fmtCurr(totalCost)} | มูลค่าปัจจุบัน: ${fmtCurr(currentValue)}\n`;
+      ctx += `กำไร/ขาดทุน: ${pnl >= 0 ? '+' : ''}${fmtCurr(pnl)} (${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)\n`;
+      if (pos.dayChange != null)
+        ctx += `เปลี่ยนแปลงวันนี้: ${pos.dayChange >= 0 ? '+' : ''}${fmtCurr(pos.dayChange)} (${pos.dayChangePct != null ? (pos.dayChangePct >= 0 ? '+' : '') + pos.dayChangePct.toFixed(2) + '%' : '?'})\n`;
+      if (m?.totalCurrent > 0) {
+        const allocPct = currentValue / m.totalCurrent * 100;
+        ctx += `สัดส่วนพอร์ต: ${allocPct.toFixed(1)}%`;
+        if (pos.target > 0) ctx += ` | เป้าหมาย: ${(pos.target * 100).toFixed(1)}% | ต่างจากเป้า: ${(allocPct - pos.target * 100).toFixed(1)}%`;
+        ctx += '\n';
+      }
+    }
+    if (pos.preMarketPrice)  ctx += `ราคา Pre-market: ${fmtCurr(pos.preMarketPrice)}\n`;
+    if (pos.postMarketPrice) ctx += `ราคา After-hours: ${fmtCurr(pos.postMarketPrice)}\n`;
+  }
+  if (plan) {
+    if (plan.sl)   ctx += `Stop Loss: ${fmtCurr(plan.sl)}\n`;
+    if (plan.note) ctx += `โน้ต: ${plan.note}\n`;
+    const entries = plan.tranches?.filter(t => t.price > 0 || t.cumPct > 0);
+    if (entries?.length) ctx += `แผนซื้อ: ${entries.map((t,i) => `T${i+1} ${fmtCurr(t.price)} (สะสม ${t.cumPct}%)`).join(', ')}\n`;
+    const tps = plan.trimTranches?.filter(t => t.price > 0);
+    if (tps?.length) ctx += `เป้าขาย: ${tps.map((t,i) => `TP${i+1} ${fmtCurr(t.price)}${t.pct ? ' ('+t.pct+'%)' : ''}`).join(', ')}\n`;
+  }
+  ctx += `\nคุยเป็นภาษาไทย`;
+  return ctx;
+}
+
+function _gcAppendMsg(role, text) {
+  const msgs = document.getElementById('gcMessages');
+  if (!msgs) return;
+  const div = document.createElement('div');
+  div.className = `gc-msg ${role}`;
+  div.textContent = text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  if (geminiCurrentSym && geminiSessions[geminiCurrentSym])
+    geminiSessions[geminiCurrentSym].messages.push({ role, text });
+}
+
+function _gcShowDots() {
+  const msgs = document.getElementById('gcMessages');
+  if (!msgs || document.getElementById('gcDotsEl')) return;
+  const d = document.createElement('div');
+  d.className = 'gc-msg ai dots';
+  d.id = 'gcDotsEl';
+  d.innerHTML = '<span></span><span></span><span></span>';
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function _gcHideDots() { document.getElementById('gcDotsEl')?.remove(); }
+
+async function openGeminiChat(sym) {
+  const key = _activeProfile()?.geminiKey;
+  if (!key) { alert('เพิ่ม Gemini API key ใน Settings → Edit config ก่อนนะ'); return; }
+
+  geminiCurrentSym = sym;
+  document.getElementById('gcTitle').textContent = `Gemini · ${sym}`;
+  document.getElementById('gcInput').value = '';
+  document.getElementById('geminiChatPanel').classList.add('open');
+
+  // Restore existing session — no API call
+  if (geminiSessions[sym]) {
+    geminiChat = geminiSessions[sym].chat;
+    const msgs = document.getElementById('gcMessages');
+    msgs.innerHTML = '';
+    for (const m of geminiSessions[sym].messages) {
+      const div = document.createElement('div');
+      div.className = `gc-msg ${m.role}`;
+      div.textContent = m.text;
+      msgs.appendChild(div);
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+    document.getElementById('gcInput').focus();
+    return;
+  }
+
+  // New session
+  document.getElementById('gcMessages').innerHTML = '';
+  geminiChat = null;
+  geminiLoading = true;
+  document.getElementById('gcSend').disabled = true;
+  _gcShowDots();
+
+  try {
+    const { GoogleGenAI } = await import('https://esm.sh/@google/genai');
+    const ai = new GoogleGenAI({ apiKey: key });
+    const chat = ai.chats.create({ model: 'gemini-2.5-flash' });
+    geminiSessions[sym] = { chat, messages: [] };
+    geminiChat = chat;
+    const resp = await chat.sendMessage({ message: buildGeminiContext(sym) });
+    _gcHideDots();
+    _gcAppendMsg('ai', resp.text);
+  } catch(err) {
+    _gcHideDots();
+    _gcAppendMsg('ai', 'Error: ' + (err.message || 'ไม่สามารถเชื่อมต่อ Gemini ได้'));
+    delete geminiSessions[sym];
+  }
+  geminiLoading = false;
+  document.getElementById('gcSend').disabled = false;
+  document.getElementById('gcInput').focus();
+}
+
+window.closeGeminiChat = function() {
+  document.getElementById('geminiChatPanel')?.classList.remove('open');
+  // sessions stay alive — no reset
+};
+
+window.sendGeminiMessage = async function() {
+  if (geminiLoading || !geminiChat) return;
+  const input = document.getElementById('gcInput');
+  const text  = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  _gcAppendMsg('user', text);
+  geminiLoading = true;
+  document.getElementById('gcSend').disabled = true;
+  _gcShowDots();
+  try {
+    const resp = await geminiChat.sendMessage({ message: text });
+    _gcHideDots();
+    _gcAppendMsg('ai', resp.text);
+  } catch(err) {
+    _gcHideDots();
+    _gcAppendMsg('ai', 'Error: ' + (err.message || 'ไม่ได้รับคำตอบ'));
+  }
+  geminiLoading = false;
+  document.getElementById('gcSend').disabled = false;
+  input.focus();
+};
 
 setInterval(() => {
   if (!_cfg) return;
