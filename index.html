@@ -237,6 +237,7 @@ body {
   cursor: pointer; user-select: none;
 }
 .header-title:hover { opacity: .75; }
+.header-title.open  { opacity: .75; }
 .header-title-input {
   font-family: var(--font-display);
   font-size: 22px; font-weight: 600; letter-spacing: -.5px;
@@ -919,6 +920,21 @@ body {
 .tranche-input { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--ink); font-family: var(--font-ui); font-size: 12px; font-weight: 600; outline: none; width: 100%; transition: border-color .15s; }
 .tranche-input:focus { border-color: var(--terracotta); }
 .tranche-input.warn { border-color: var(--honey); background: rgba(199,144,56,.1); }
+@media (max-width: 600px) {
+  .tx-overlay { padding: 10px 10px; }
+  .tx-modal { padding: 14px; }
+  .tranche-row { grid-template-columns: 32px 1fr 1fr 1fr 1fr 22px; gap: 3px; }
+  .tranche-input { font-size: 12px; padding: 5px 4px; }
+  .tranche-input-wrap.has-prefix .tranche-input { padding-left: 13px; }
+  .tranche-input-wrap.has-suffix .tranche-input { padding-right: 13px; }
+  .ti-prefix { left: 4px; font-size: 9px; }
+  .ti-suffix { right: 4px; font-size: 9px; }
+  .tranche-label { font-size: 10px; gap: 3px; }
+  .tl-dot { width: 6px; height: 6px; }
+  .tranche-remove { width: 22px; height: 22px; font-size: 13px; }
+  .plan-add-btn { padding: 7px; font-size: 11px; }
+}
+[id^="tranche-avg-"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tranche-remove { width: 30px; height: 30px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); font-size: 16px; line-height: 1; }
 .tranche-remove:hover:not(:disabled) { background: var(--track); color: var(--loss); }
 .tranche-remove:disabled { opacity: .25; cursor: not-allowed; }
@@ -1060,7 +1076,7 @@ body {
 }
 .tw-reset:hover { color: var(--terracotta); border-color: var(--terracotta); }
 .tw-float-close {
-  position: fixed; top: 16px; right: 16px; z-index: 1200;
+  position: fixed; top: 76px; right: 16px; z-index: 1200;
   display: none;
   width: 48px; height: 48px; border: none;
   background: var(--card); color: var(--ink);
@@ -2438,6 +2454,16 @@ window.openSymbolDetail = function(sym) {
         areaSeries.setData(seriesData);
         tvChart.timeScale().fitContent();
 
+        // Last price dashed line
+        const lastPx = seriesData[seriesData.length - 1]?.value;
+        if (lastPx) {
+          areaSeries.createPriceLine({
+            price: lastPx, color: symColor,
+            lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: false, title: '',
+          });
+        }
+
         // Tranche & SL price lines
         const available = TRANCHE_COLORS.filter(c => c !== symColor);
         tranches.forEach((t, i) => {
@@ -2833,6 +2859,14 @@ function updateActionTvLines() {
   if (!actionTvSeries) return;
   actionTvLines.forEach(l => { try { actionTvSeries.removePriceLine(l); } catch(_) {} });
   actionTvLines = [];
+  const _lastPx = findPos(planState.symbol)?.price;
+  if (_lastPx) {
+    actionTvLines.push(actionTvSeries.createPriceLine({
+      price: _lastPx, color: colorFor(planState.symbol),
+      lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: false, title: '',
+    }));
+  }
   const available = TRANCHE_COLORS.filter(c => c !== colorFor(planState.symbol));
   (planState.tranches || []).forEach((t, i) => {
     if (!t.price || t.price <= 0) return;
@@ -3193,7 +3227,7 @@ function renderActionTabContent() {
       return `<div class="tranche-row" data-idx="${i}">
         <div class="tranche-label" style="color:${c2}"><span class="tl-dot" style="background:${c2}"></span>T${i+1}</div>
         <div class="tranche-input-wrap has-prefix"><span class="ti-prefix">$</span>
-          <input class="tranche-input" type="number" step="any" min="0" placeholder="${pos.price?Number(pos.price).toFixed(2):''}" value="${entry}" oninput="onTranchePrice(${i},this.value)" data-role="entry">
+          <input class="tranche-input" type="number" step="any" min="0" placeholder="${pos.price?Number(pos.price).toFixed(2):''}" value="${entry}" oninput="onTranchePrice(${i},this.value)" onblur="onTranchePriceBlur()" data-role="entry">
         </div>
         <div class="tranche-input-wrap has-suffix">
           <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(1)}" oninput="onTranchePct(${i},this.value)" data-role="pct">
@@ -3414,6 +3448,7 @@ function renderTrimSection() {
           placeholder="shares" value="" oninput="onTrimQty(${i},this.value)">
       </div>
       <div id="trimPnl_${i}" style="display:flex;align-items:center;justify-content:center"><span style="color:var(--muted)">—</span></div>
+      <button class="tranche-remove" onclick="clearTrimRow(${i})" title="Clear TP${i+1}">×</button>
     </div>`;
   }).join('');
   updateTrimCalcs();
@@ -3499,6 +3534,18 @@ window.onTrimQty = function(idx, val) {
   planState.trimTranches[idx].pct = afterPct;
   const pctEl = document.getElementById(`trimPct_${idx}`);
   if (pctEl && document.activeElement !== pctEl) pctEl.value = afterPct.toFixed(1);
+  updateTrimCalcs();
+};
+
+window.clearTrimRow = function(idx) {
+  if (!planState.trimTranches) planState.trimTranches = [{},{},{}];
+  planState.trimTranches[idx] = {};
+  const p = document.getElementById(`trimPrice_${idx}`);
+  const pct = document.getElementById(`trimPct_${idx}`);
+  const qty = document.getElementById(`trimQty_${idx}`);
+  if (p) p.value = '';
+  if (pct) pct.value = '';
+  if (qty) qty.value = '';
   updateTrimCalcs();
 };
 
@@ -3784,7 +3831,7 @@ function renderPlanModal() {
       <div class="tranche-label" style="color:${c2}"><span class="tl-dot" style="background:${c2}"></span>T${i+1}</div>
       <div class="tranche-input-wrap has-prefix">
         <span class="ti-prefix">$</span>
-        <input class="tranche-input" type="number" step="any" min="0" placeholder="${currPrice?Number(currPrice).toFixed(2):''}" value="${entryVal}" oninput="onTranchePrice(${i},this.value)" data-role="entry" title="Entry price">
+        <input class="tranche-input" type="number" step="any" min="0" placeholder="${currPrice?Number(currPrice).toFixed(2):''}" value="${entryVal}" oninput="onTranchePrice(${i},this.value)" onblur="onTranchePriceBlur()" data-role="entry" title="Entry price">
       </div>
       <div class="tranche-input-wrap has-suffix">
         <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(1)}" oninput="onTranchePct(${i},this.value)" data-role="pct" title="% of target allocation">
@@ -3903,6 +3950,20 @@ function renderPlanBar() {
   ).join('');
   updateNewAvgs();
 }
+
+function sortTranchesByPrice() {
+  planState.tranches.sort((a, b) => {
+    if (a.price == null && b.price == null) return 0;
+    if (a.price == null) return 1;
+    if (b.price == null) return -1;
+    return b.price - a.price;
+  });
+}
+
+window.onTranchePriceBlur = function() {
+  sortTranchesByPrice();
+  renderPlanModal();
+};
 
 window.onTranchePrice = function(idx, val) {
   const num = parseFloat(val);
@@ -6329,28 +6390,6 @@ function initMarketClock() {
   _clockTimer = setInterval(drawClock, 1000);
 }
 
-function startEditTitle() {
-  const el = document.getElementById('headerTitle');
-  if (!el || el.querySelector('input')) return;
-  const current = localStorage.getItem('portfolioName') || 'Juno';
-  el.onclick = null;
-  el.innerHTML = '';
-  const inp = document.createElement('input');
-  inp.className = 'header-title-input';
-  inp.value = current;
-  inp.maxLength = 24;
-  el.appendChild(inp);
-  inp.focus();
-  inp.select();
-  function save() {
-    const name = inp.value.trim() || 'Juno';
-    localStorage.setItem('portfolioName', name);
-    el.textContent = name;
-    el.onclick = startEditTitle;
-  }
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { inp.value = current; inp.blur(); } });
-  inp.addEventListener('blur', save);
-}
 
 function applyTheme(dark) {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -6897,7 +6936,7 @@ function buildShell() {
       <div class="header-left">
         <div class="brand-mark" aria-label="Juno"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 24 L10 17 L15 20 L22 10 L28 6" stroke="#faf3e0" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 6 L28 6 L28 12" stroke="#faf3e0" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="5" y="25" width="3" height="4" rx="1" fill="rgba(250,243,224,.45)"/><rect x="11" y="22" width="3" height="7" rx="1" fill="rgba(250,243,224,.55)"/><rect x="17" y="20" width="3" height="9" rx="1" fill="rgba(250,243,224,.65)"/><rect x="23" y="17" width="3" height="12" rx="1" fill="rgba(250,243,224,.75)"/></svg></div>
         <div class="header-title-group">
-          <div class="header-title" id="headerTitle" onclick="startEditTitle()">${localStorage.getItem('portfolioName') || 'Juno'}</div>
+          <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}</div>
           <div class="header-sub">${t('portfolio')}</div>
         </div>
         <div class="header-divider"></div>
@@ -6911,11 +6950,6 @@ function buildShell() {
       </div>
       <div class="header-actions">
         <div class="last-updated" id="lastUpdated"></div>
-        <div class="account-pill" id="accountPill" onclick="toggleAccountMenu(event)" title="Account">
-          <span class="ap-dot" style="background:${colorFor(_activeProfile()?.profileName||'Portfolio')}"></span>
-          <span>${_activeProfile()?.profileName || 'Portfolio'}</span>
-          <svg class="ap-chevron" viewBox="0 0 10 6" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 1 5 5 9 1"/></svg>
-        </div>
         <div class="header-tools">
           <button class="currency-btn" id="currencyBtn" onclick="toggleCurrency()"></button>
           <div class="lang-toggle" title="Switch language">
@@ -7240,7 +7274,7 @@ function _accountMenuEl() {
     menu.className = 'account-menu';
     document.body.appendChild(menu);
     document.addEventListener('click', e => {
-      if (!e.target.closest('#accountPill') && !e.target.closest('#accountMenuEl')) {
+      if (!e.target.closest('#headerTitle') && !e.target.closest('#accountMenuEl')) {
         _closeAccountMenu();
       }
     });
@@ -7249,11 +7283,11 @@ function _accountMenuEl() {
 }
 function _closeAccountMenu() {
   _accountMenuEl().classList.remove('open');
-  document.getElementById('accountPill')?.classList.remove('open');
+  document.getElementById('headerTitle')?.classList.remove('open');
 }
 window.toggleAccountMenu = function(e) {
   e.stopPropagation();
-  const pill = document.getElementById('accountPill');
+  const trigger = document.getElementById('headerTitle');
   const menu = _accountMenuEl();
   if (menu.classList.contains('open')) { _closeAccountMenu(); return; }
 
@@ -7279,12 +7313,12 @@ window.toggleAccountMenu = function(e) {
     <span style="width:8px"></span><span>Sign out</span>
   </button>`;
 
-  const rect = pill.getBoundingClientRect();
+  const rect = trigger.getBoundingClientRect();
   menu.style.top   = (rect.bottom + 6) + 'px';
-  menu.style.right = (window.innerWidth - rect.right) + 'px';
-  menu.style.left  = 'auto';
+  menu.style.left  = rect.left + 'px';
+  menu.style.right = 'auto';
   menu.classList.add('open');
-  pill.classList.add('open');
+  trigger.classList.add('open');
 };
 
 window.switchToProfile = function(profileId) {
