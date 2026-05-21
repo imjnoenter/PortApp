@@ -1,0 +1,19 @@
+{
+  "name": "Portfolio Tracker",
+  "short_name": "Portfolio",
+  "description": "Personal stock portfolio tracker",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#efe5d0",
+  "theme_color": "#3a2a1c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
