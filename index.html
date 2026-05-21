@@ -6642,6 +6642,16 @@ async function loadBenchmark(retry = 0) {
       if (!_lastTxDate[tx.ticker] || tx.dateStr > _lastTxDate[tx.ticker]) _lastTxDate[tx.ticker] = tx.dateStr;
     }
 
+    // Trim any post-sell history already in the sheet so it doesn't pollute the cache
+    for (const tk of Object.keys(hist.prices)) {
+      if ((_netQty[tk] ?? 1) < 1e-9 && _lastTxDate[tk]) {
+        const sellDate = _lastTxDate[tk];
+        for (const d of Object.keys(hist.prices[tk])) {
+          if (d > sellDate) delete hist.prices[tk][d];
+        }
+      }
+    }
+
     const missing = tickers.filter(tk => {
       const dates = hist.prices[tk];
       if (!dates || !Object.keys(dates).length) return true;
