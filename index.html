@@ -6645,8 +6645,9 @@ async function loadBenchmark(retry = 0) {
     const missing = tickers.filter(tk => {
       const dates = hist.prices[tk];
       if (!dates || !Object.keys(dates).length) return true;
-      const neededThrough = (_netQty[tk] ?? 1) < 1e-9 ? _lastTxDate[tk] : targetDate;
-      return Object.keys(dates).sort().pop() < neededThrough;
+      if ((_netQty[tk] ?? 1) < 1e-9)
+        return !nearestPrice(dates, _lastTxDate[tk]); // sold out: any price on/before sell date is enough
+      return Object.keys(dates).sort().pop() < targetDate;
     });
 
     if (missing.length > 0) {
