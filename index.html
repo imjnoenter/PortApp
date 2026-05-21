@@ -894,6 +894,7 @@ body {
 
 /* ── Plan modal ── */
 .plan-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 600px) { .plan-overlay { padding-top: 59px; } }
 .plan-overlay.open { display: flex; }
 .plan-modal { background: var(--card); color: var(--ink); border-radius: var(--radius); border: 1px solid var(--card-edge); box-shadow: var(--shadow-lg); width: 100%; max-width: 500px; padding: 22px; max-height: calc(100vh - 80px); overflow-y: auto; }
 .plan-modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
@@ -925,7 +926,7 @@ body {
 .gc-send:disabled { opacity: .45; cursor: default; }
 .gc-gemini-btn { background: none; border: none; cursor: pointer; padding: 0 0 0 5px; line-height: 1; vertical-align: middle; opacity: .75; display: inline-flex; align-items: center; }
 .gc-gemini-btn:hover { opacity: 1; }
-@media (max-width: 480px) { #geminiChatPanel { bottom: 0; right: 0; left: 0; width: auto; border-radius: var(--radius) var(--radius) 0 0; height: 72vh; } }
+@media (max-width: 480px) { #geminiChatPanel { bottom: 0; right: 0; left: 0; width: auto; border-radius: var(--radius) var(--radius) 0 0; height: calc(100vh - 59px); max-height: calc(100vh - 59px); } }
 .plan-bar-wrap { margin: 16px 0 20px; }
 .plan-bar-track { position: relative; height: 22px; background: var(--track); border-radius: var(--radius-sm); overflow: hidden; }
 .plan-bar-seg { position: absolute; top: 0; bottom: 0; }
@@ -945,7 +946,7 @@ body {
 .tranche-input:focus { border-color: var(--terracotta); }
 .tranche-input.warn { border-color: var(--honey); background: rgba(199,144,56,.1); }
 @media (max-width: 600px) {
-  .tx-overlay { padding: 10px 10px; }
+  .tx-overlay { padding: 59px 10px 10px; }
   .tx-modal { padding: 14px; }
   .tranche-row { grid-template-columns: 32px 1fr 1fr 1fr 1fr 22px; gap: 3px; }
   .tranche-input { font-size: 12px; padding: 5px 4px; }
