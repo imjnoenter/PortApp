@@ -1333,9 +1333,19 @@ function _applyActiveProfile() {
   RECORD_URL = u.RECORD_URL; _WRITE_KEY = u.WRITE_KEY;
 }
 
+function _syncProfilePrefsToStorage() {
+  const p = _activeProfile();
+  if (!p) return;
+  if (p.theme)    localStorage.setItem('theme', p.theme);
+  if (p.lang)     localStorage.setItem('lang', p.lang);
+  if (p.currency) localStorage.setItem('currency', p.currency);
+  if (p.tone)     localStorage.setItem('tone', p.tone);
+}
+
 // #reset hash clears config (escape hatch)
 if (location.hash === '#reset') { localStorage.removeItem(_CFG_KEY); history.replaceState(null, '', location.pathname); }
 let _cfg = _loadCfg();
+_syncProfilePrefsToStorage();
 let _u   = (() => { const a = _activeProfile(); return a ? _buildUrls(a) : {}; })();
 let SHEET_URL       = _u.SHEET_URL       || '';
 let TRANSACTION_URL = _u.TRANSACTION_URL || '';
@@ -1704,6 +1714,7 @@ function t(key) {
 function setLang(lang) {
   currentLang = lang;
   localStorage.setItem('lang', lang);
+  const p = _activeProfile(); if (p) { p.lang = lang; _saveCfg(_cfg); }
   location.reload();
 }
 
@@ -4919,6 +4930,25 @@ function logoCell(symbol, color) {
   </div>`;
 }
 
+function renderIndexReturns(quotes) {
+  const el = document.getElementById('posIndexReturn');
+  if (!el) return;
+  const indices = [
+    { sym: '^GSPC', label: 'S&P 500' },
+    { sym: '^IXIC', label: 'Nasdaq' },
+    { sym: '^RUT',  label: 'Russell 2000' },
+  ];
+  const parts = indices.map(({ sym, label }) => {
+    const q = quotes[sym];
+    const pct = q?.regularMarketChangePercent ?? null;
+    if (pct == null) return null;
+    const up = pct >= 0;
+    const col = `var(${up ? '--gain' : '--loss'})`;
+    return `${label}: <span style="color:${col};font-weight:600">${up ? '+' : ''}${pct.toFixed(2)}%</span>`;
+  }).filter(Boolean);
+  el.innerHTML = parts.join('<span style="color:var(--line);margin:0 5px">|</span>');
+}
+
 function renderTable(model) {
   const titleEl = document.getElementById('posTitle');
   if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
@@ -6421,7 +6451,9 @@ function applyTheme(dark) {
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   const btn = document.getElementById('themeBtn');
   if (btn) btn.innerHTML = dark ? SUN : MOON;
-  localStorage.setItem('theme', dark ? 'dark' : 'light');
+  const v = dark ? 'dark' : 'light';
+  localStorage.setItem('theme', v);
+  const p = _activeProfile(); if (p) { p.theme = v; _saveCfg(_cfg); }
 }
 window.toggleTheme = () => { applyTheme(document.documentElement.getAttribute('data-theme') !== 'dark'); rerenderAllCharts(); };
 applyTheme(localStorage.getItem('theme') === 'dark');
@@ -6432,7 +6464,9 @@ function applyTone(cool) {
   document.documentElement.setAttribute('data-tone', cool ? 'cool' : 'warm');
   const btn = document.getElementById('toneBtn');
   if (btn) btn.innerHTML = cool ? TONE_WARM_ICON : TONE_COOL_ICON;
-  localStorage.setItem('tone', cool ? 'cool' : 'warm');
+  const v = cool ? 'cool' : 'warm';
+  localStorage.setItem('tone', v);
+  const p = _activeProfile(); if (p) { p.tone = v; _saveCfg(_cfg); }
 }
 window.toggleTone = () => { applyTone(document.documentElement.getAttribute('data-tone') !== 'cool'); rerenderAllCharts(); };
 applyTone(localStorage.getItem('tone') === 'cool');
@@ -6466,6 +6500,7 @@ function applyCurrencyBtn() {
 window.toggleCurrency = function() {
   currency = currency === 'USD' ? 'THB' : 'USD';
   localStorage.setItem('currency', currency);
+  const p = _activeProfile(); if (p) { p.currency = currency; _saveCfg(_cfg); }
   applyCurrencyBtn();
   if (currentModel) {
     renderStatCards(currentModel, lastTxData);
@@ -7046,6 +7081,7 @@ function buildShell() {
           <div>
             <div class="card-title" id="posTitle" style="margin-bottom:2px">${t('positions_title')}</div>
             <div id="posDayReturn" class="card-header-extra" style="font-size:11px;color:var(--muted)"></div>
+            <div id="posIndexReturn" class="card-header-extra" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
           </div>
           <div class="card-header-extra" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
             <input id="symbolSearch" type="text" placeholder="${t('search_placeholder')}"
@@ -7292,7 +7328,12 @@ window.submitSetup = function() {
     _applyActiveProfile();
     shellBuilt = false;
   } else if (_setupMode === 'add') {
-    const newProfile = { id: 'p' + Date.now(), ...profileData };
+    const newProfile = { id: 'p' + Date.now(), ...profileData,
+      theme:    localStorage.getItem('theme')    || 'light',
+      lang:     localStorage.getItem('lang')     || 'EN',
+      currency: localStorage.getItem('currency') || 'USD',
+      tone:     localStorage.getItem('tone')     || 'warm',
+    };
     if (!newProfile.writeKey) newProfile.writeKey = '';
     _cfg.profiles.push(newProfile);
     _cfg.activeProfileId = newProfile.id;
@@ -7371,6 +7412,7 @@ window.switchToProfile = function(profileId) {
   if (!_cfg || _cfg.activeProfileId === profileId) return;
   _cfg.activeProfileId = profileId;
   _saveCfg(_cfg);
+  _syncProfilePrefsToStorage();
   location.reload();
 };
 
@@ -8245,8 +8287,8 @@ async function init() {
     currentModel = model;
 
     // Fetch live quotes for day change + pre/post market (non-blocking)
-    fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[])])
-      .then(quotes => { attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); });
+    fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
+      .then(quotes => { attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); });
 
     if (isFirstLoad) {
       buildShell();
@@ -8409,6 +8451,19 @@ function isMarketOpen() {
   const day = days[parts.weekday] ?? 0;
   const min = (+parts.hour % 24) * 60 + (+parts.minute);
   return day >= 1 && day <= 5 && min >= 570 && min < 960; // 9:30 AM–4:00 PM ET
+}
+function isExtendedHours() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false,
+    }).formatToParts(new Date()).map(p => [p.type, p.value])
+  );
+  const days = { Mon:1, Tue:2, Wed:3, Thu:4, Fri:5 };
+  const day = days[parts.weekday] ?? 0;
+  const min = (+parts.hour % 24) * 60 + (+parts.minute);
+  // Pre-market 4:00–9:30 AM ET; post-market 4:00–8:00 PM ET
+  return day >= 1 && day <= 5 && ((min >= 240 && min < 570) || (min >= 960 && min < 1200));
 }
 // ── Tweaks panel (donut design) ──────────────────────────────────────────────
 (function setupTweaksPanel() {
@@ -8755,12 +8810,16 @@ window.sendGeminiMessage = async function() {
   input.focus();
 };
 
+let _lastExtRefresh = 0;
 setInterval(() => {
   if (!_cfg) return;
-  if (!isMarketOpen()) return;
   const anyOpen = document.querySelector('.tx-overlay.open, .plan-overlay.open');
   if (anyOpen) return;
-  init();
+  if (isMarketOpen()) { init(); return; }
+  if (isExtendedHours()) {
+    const now = Date.now();
+    if (now - _lastExtRefresh >= 5 * 60 * 1000) { _lastExtRefresh = now; init(); }
+  }
 }, 60_000);
 </script>
 <script>
