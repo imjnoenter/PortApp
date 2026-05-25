@@ -6350,31 +6350,29 @@ let _clockTimer = null;
 function drawClock() {
   const canvas = document.getElementById('marketClock');
   if (!canvas) { clearInterval(_clockTimer); _clockTimer = null; return; }
-  const ctx = canvas.getContext('2d');
-  const sz = 56, dpr = window.devicePixelRatio || 1;
+
+  const sz  = 72, dpr = window.devicePixelRatio || 1;
   if (canvas.width !== sz * dpr) {
     canvas.width = sz * dpr; canvas.height = sz * dpr;
     canvas.style.width = sz + 'px'; canvas.style.height = sz + 'px';
-    ctx.scale(dpr, dpr);
   }
-  const cx = sz/2, cy = sz/2, R = sz/2 - 2;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const now = new Date();
-  // Clock hands: Bangkok time (UTC+7)
-  const bkk = new Date(now.toLocaleString('en-US', {timeZone:'Asia/Bangkok'}));
+  const bkk = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const et  = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const h = bkk.getHours(), m = bkk.getMinutes(), s = bkk.getSeconds();
-  // Market status: US Eastern time
-  const et       = new Date(now.toLocaleString('en-US', {timeZone:'America/New_York'}));
-  const etMin    = et.getHours() * 60 + et.getMinutes();
-  const totalMin = etMin;
-  const isWeekend = et.getDay() === 0 || et.getDay() === 6;
+  const etMin      = et.getHours() * 60 + et.getMinutes() + et.getSeconds() / 60;
+  const etMinFloor = Math.floor(etMin);
+  const isWeekend  = et.getDay() === 0 || et.getDay() === 6;
 
   let status, statusColor;
-  if (isWeekend || etMin < 240 || etMin >= 1200) {
+  if (isWeekend || etMinFloor < 240 || etMinFloor >= 1200) {
     status = isWeekend ? t('weekend_status') : t('closed_status'); statusColor = '#8a7458';
-  } else if (etMin < 570) {
+  } else if (etMinFloor < 570) {
     status = t('pre_market_status'); statusColor = '#c79038';
-  } else if (etMin < 960) {
+  } else if (etMinFloor < 960) {
     status = t('market_open_status'); statusColor = '#6b8e5a';
   } else {
     status = t('after_hours_status'); statusColor = '#6b7eb8';
@@ -6384,60 +6382,131 @@ function drawClock() {
   if (stEl) { stEl.textContent = status; stEl.style.color = statusColor; }
   const etEl = document.getElementById('marketClockET');
   if (etEl) {
+    const timeStr = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
     const wd  = bkk.toLocaleDateString('en-US', { weekday: 'short' });
     const dd  = String(bkk.getDate()).padStart(2, '0');
     const mon = bkk.toLocaleDateString('en-US', { month: 'short' });
     const yr  = String(bkk.getFullYear() % 100).padStart(2, '0');
-    etEl.textContent = `${wd}. ${dd} ${mon} ${yr}`;
+    etEl.innerHTML = '<span style="font-weight:600;font-size:11px;color:var(--ink-soft)">' + timeStr + '<\/span> <span>' + wd + '. ' + dd + ' ' + mon + ' \'' + yr + '<\/span>';
   }
 
-  const bgC   = css('--card')  || '#161b22';
-  const inkC  = css('--ink')   || '#e6edf3';
-  const mutC  = css('--muted') || '#8b949e';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const cx = sz / 2, cy = sz / 2;
+  const arcT  = 7;
+  const R     = sz / 2 - 2;
+  const faceR = R - arcT - 2;
 
   ctx.clearRect(0, 0, sz, sz);
-  ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI); ctx.fillStyle = bgC; ctx.fill();
 
-  // Zone arc sectors (all zones faint, active brighter)
-  // Angles use raw minutes so 12h wrapping works correctly via canvas modulo
-  const tA = min => (min/720)*2*Math.PI - Math.PI/2;
-  const zones = [
-    {s:240,  e:570,  base:'rgba(199,144,56,0.12)',  hi:'rgba(199,144,56,0.28)'},
-    {s:570,  e:960,  base:'rgba(107,142,90,0.12)',   hi:'rgba(107,142,90,0.28)'},
-    {s:960,  e:1200, base:'rgba(107,126,184,0.12)',  hi:'rgba(107,126,184,0.28)'},
-  ];
-  const activeIdx = totalMin<570 ? 0 : totalMin<960 ? 1 : 2;
-  zones.forEach((z,i) => {
-    ctx.beginPath(); ctx.moveTo(cx,cy);
-    ctx.arc(cx,cy,R-2,tA(z.s),tA(z.e),false);
-    ctx.closePath();
-    ctx.fillStyle = (!isWeekend && totalMin>=240 && totalMin<1200 && i===activeIdx) ? z.hi : z.base;
-    ctx.fill();
-  });
+  // Arc zone pre-computation (DST-aware: all offsets derived from live BKK vs ET times)
+  const bkkNow   = h * 60 + m + s / 60;
+  const tzOffset = (bkkNow - etMin + 1440) % 1440;
+  const bkkOf    = etM => (etM + tzOffset) % 1440;
+  const clockAngle = bm => ((bm % 720) / 720) * 2 * Math.PI - Math.PI / 2;
+  const A_PM     = clockAngle(bkkOf(240));
+  const A_OP     = clockAngle(bkkOf(570));
+  const A_AH_END = clockAngle(bkkOf(1200));
+  const isAM     = h < 12;
+  const rOuter   = R - arcT / 2;
+  const arcT2    = Math.max(2, Math.round(arcT * 0.38));
+  const rInner   = faceR * 0.60;
 
-  // Outer status ring
-  ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI);
-  ctx.strokeStyle = statusColor; ctx.lineWidth = 2; ctx.stroke();
-
-  // Hour ticks
-  for (let i=0; i<12; i++) {
-    const a = (i/12)*2*Math.PI - Math.PI/2;
-    ctx.beginPath();
-    ctx.moveTo(cx+Math.cos(a)*(R-2), cy+Math.sin(a)*(R-2));
-    ctx.lineTo(cx+Math.cos(a)*(R-2-(i%3===0?4:2)), cy+Math.sin(a)*(R-2-(i%3===0?4:2)));
-    ctx.strokeStyle = mutC; ctx.lineWidth = i%3===0?1.5:0.7; ctx.stroke();
+  // 1. Face background (gradient)
+  const inkC = isDark ? 'rgba(240,228,205,.90)' : (css('--ink') || '#3a2a1c');
+  if (isDark) {
+    const g = ctx.createRadialGradient(cx, cy - faceR*.1, 1, cx, cy+4, faceR);
+    g.addColorStop(0, '#36281c'); g.addColorStop(1, '#1a1008');
+    ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, 2*Math.PI); ctx.fillStyle = g; ctx.fill();
+  } else {
+    const g = ctx.createRadialGradient(cx, cy - faceR*.1, 1, cx, cy+4, faceR);
+    g.addColorStop(0, '#fdf8ee'); g.addColorStop(1, '#ecddb8');
+    ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, 2*Math.PI); ctx.fillStyle = g; ctx.fill();
   }
 
-  // Hands
-  const hA = ((h%12+m/60+s/3600)/12)*2*Math.PI - Math.PI/2;
-  const mA = ((m+s/60)/60)*2*Math.PI - Math.PI/2;
-  const sA = (s/60)*2*Math.PI - Math.PI/2;
+  // 2. Inner arc ring — AM: yellow pre-market, PM: blue after-hours
+  const innerColor = isAM ? 'rgba(199,144,56,.45)' : 'rgba(107,126,184,.48)';
+  const innerEnd   = isAM ? A_OP : A_AH_END;
+  ctx.lineWidth = arcT2; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.arc(cx, cy, rInner, 0, 2*Math.PI, false);
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,.06)' : 'rgba(200,185,155,.30)'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, rInner, A_PM, innerEnd, false);
+  ctx.strokeStyle = innerColor; ctx.stroke();
+
+  // 3. Hour tick marks
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * 2 * Math.PI - Math.PI / 2;
+    const isMain = i % 3 === 0;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (faceR - 1), cy + Math.sin(a) * (faceR - 1));
+    ctx.lineTo(cx + Math.cos(a) * (faceR - 1 - (isMain ? 5 : 2.5)),
+               cy + Math.sin(a) * (faceR - 1 - (isMain ? 5 : 2.5)));
+    ctx.strokeStyle = isDark
+      ? (isMain ? 'rgba(240,228,205,.50)' : 'rgba(240,228,205,.18)')
+      : (isMain ? 'rgba(58,42,28,.52)'    : 'rgba(58,42,28,.18)');
+    ctx.lineWidth = isMain ? 1.6 : 0.8; ctx.lineCap = 'butt'; ctx.stroke();
+  }
+
+  // 4. Hands with shadows
   ctx.lineCap = 'round';
-  [[hA,R*.50,2,inkC],[mA,R*.75,1.5,inkC],[sA,R*.82,1,'#c46a4a']].forEach(([a,len,w,c]) => {
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*len, cy+Math.sin(a)*len);
-    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.stroke();
+  const hA = ((h % 12 + m/60 + s/3600) / 12) * 2 * Math.PI - Math.PI / 2;
+  const mA = ((m + s/60) / 60) * 2 * Math.PI - Math.PI / 2;
+  const sA = (s / 60) * 2 * Math.PI - Math.PI / 2;
+  ctx.shadowColor = isDark ? 'rgba(0,0,0,.45)' : 'rgba(58,42,28,.18)';
+  ctx.shadowBlur = 3; ctx.shadowOffsetY = 1.2;
+  ctx.beginPath(); ctx.moveTo(cx - Math.cos(hA)*3, cy - Math.sin(hA)*3);
+  ctx.lineTo(cx + Math.cos(hA)*faceR*.46, cy + Math.sin(hA)*faceR*.46);
+  ctx.strokeStyle = inkC; ctx.lineWidth = 2.8; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - Math.cos(mA)*3, cy - Math.sin(mA)*3);
+  ctx.lineTo(cx + Math.cos(mA)*faceR*.69, cy + Math.sin(mA)*faceR*.69);
+  ctx.strokeStyle = inkC; ctx.lineWidth = 1.9; ctx.stroke();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+  const sLen = faceR * .75;
+  ctx.beginPath(); ctx.moveTo(cx - Math.cos(sA)*6, cy - Math.sin(sA)*6);
+  ctx.lineTo(cx + Math.cos(sA)*sLen, cy + Math.sin(sA)*sLen);
+  ctx.strokeStyle = '#c46a4a'; ctx.lineWidth = 1.1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx + Math.cos(sA)*sLen, cy + Math.sin(sA)*sLen, 2.8, 0, 2*Math.PI);
+  ctx.fillStyle = '#c46a4a'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 3.2, 0, 2*Math.PI); ctx.fillStyle = '#c46a4a'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 1.6, 0, 2*Math.PI);
+  ctx.fillStyle = isDark ? '#2c2218' : '#fdf8ee'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, 2*Math.PI);
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,.06)' : 'rgba(58,42,28,.07)';
+  ctx.lineWidth = 0.5; ctx.lineCap = 'butt'; ctx.stroke();
+
+  // 5. Outer arc ring — green open, yellow pre-market (PM) / blue after-hours (AM)
+  ctx.lineWidth = arcT; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.arc(cx, cy, rOuter, 0, 2*Math.PI, false);
+  ctx.strokeStyle = isDark ? 'rgba(255,255,255,.08)' : '#e0d4b8'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, rOuter, A_OP, A_PM + 2*Math.PI, false);
+  ctx.strokeStyle = 'rgba(107,142,90,.78)'; ctx.stroke();
+  if (isAM) {
+    ctx.beginPath(); ctx.arc(cx, cy, rOuter, A_PM, A_AH_END, false);
+    ctx.strokeStyle = 'rgba(107,126,184,.78)'; ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(cx, cy, rOuter, A_PM, A_OP, false);
+    ctx.strokeStyle = 'rgba(199,144,56,.74)'; ctx.stroke();
+  }
+  // Zone divider ticks
+  (isAM ? [A_PM, A_AH_END, A_OP] : [A_PM, A_OP]).forEach(a => {
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a)*(rOuter-arcT/2+.5), cy + Math.sin(a)*(rOuter-arcT/2+.5));
+    ctx.lineTo(cx + Math.cos(a)*(rOuter+arcT/2-.5), cy + Math.sin(a)*(rOuter+arcT/2-.5));
+    ctx.strokeStyle = isDark ? '#1a1008' : '#fdf8ee'; ctx.lineWidth = 1.4; ctx.lineCap = 'butt'; ctx.stroke();
   });
-  ctx.beginPath(); ctx.arc(cx,cy,2,0,2*Math.PI); ctx.fillStyle='#c46a4a'; ctx.fill();
+  // Glowing bead tracks current time on the outer ring
+  if (!isWeekend) {
+    const ba = clockAngle(bkkNow);
+    const bx = cx + Math.cos(ba)*rOuter, by = cy + Math.sin(ba)*rOuter;
+    const gr = arcT / 2 + 1.5;
+    const glow = ctx.createRadialGradient(bx, by, 0, bx, by, gr+4);
+    glow.addColorStop(0, statusColor+'cc'); glow.addColorStop(1, statusColor+'00');
+    ctx.beginPath(); ctx.arc(bx, by, gr+4, 0, 2*Math.PI); ctx.fillStyle = glow; ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by, gr, 0, 2*Math.PI); ctx.fillStyle = statusColor; ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, by, gr-2, 0, 2*Math.PI); ctx.fillStyle = '#fff'; ctx.fill();
+  }
+  // Status ring border
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2*Math.PI);
+  ctx.strokeStyle = statusColor; ctx.lineWidth = 1.8; ctx.lineCap = 'butt'; ctx.stroke();
 }
 
 function initMarketClock() {
@@ -7105,7 +7174,7 @@ function buildShell() {
       <div class="card" data-mob-tab="holding">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <div class="card-title" style="margin-bottom:0">${t('holdings_performance_title')}</div>
-          <button id="hpModeToggle" class="card-header-extra" onclick="toggleHpMode()" style="font-size:10px;font-weight:700;font-family:var(--font-mono);padding:2px 6px;border-radius:4px;background:rgba(196,106,74,.13);color:var(--terracotta);border:1px solid rgba(196,106,74,.28);cursor:pointer;line-height:1.6;letter-spacing:.3px">%</button>
+          <button id="hpModeToggle" class="add-tx-btn" onclick="toggleHpMode()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center;font-size:11px;font-weight:700;font-family:var(--font-mono);letter-spacing:.3px">%</button>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
           <button class="hp-tab active" data-tab="all"       onclick="setHpTab('all')">${t('All')}</button>
@@ -7122,7 +7191,7 @@ function buildShell() {
           <div class="card-title" style="margin-bottom:0">${t('transactions_title')}<span class="tx-count-badge" id="txPanelCount"></span></div>
           <div class="card-header-extra" style="display:flex;gap:6px">
             <button class="add-tx-btn" onclick="openAddTx()"><span class="atx-plus">+</span><span class="atx-label">Transaction</span></button>
-            <button class="add-tx-btn" id="txPanelRefreshBtn" onclick="refreshTxPanel()" style="background:var(--track);color:var(--ink)">
+            <button class="add-tx-btn" id="txPanelRefreshBtn" onclick="refreshTxPanel()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
             </button>
           </div>
