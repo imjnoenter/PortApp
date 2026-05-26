@@ -2647,7 +2647,8 @@ window.sdSetRange = async function(range) {
 
   let dates = Object.keys(priceMap).sort();
   let clipped = dates.filter(d => d >= fromStr && d <= toStr);
-  if (clipped.length < 2) {
+  const needsYahoo = clipped.length < 2 || dates[0] > fromStr;
+  if (needsYahoo) {
     const sym = window._sdTvSym;
     const series = window._sdTvSeries;
     if (sym && series) {
