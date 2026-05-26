@@ -6416,7 +6416,7 @@ function drawClock() {
   const rInner   = faceR * 0.60;
 
   // 1. Face background (light theme always)
-  const inkC = css('--ink') || '#3a2a1c';
+  const inkC = _isDark ? '#1a1a1a' : (css('--ink') || '#3a2a1c');
   const g = ctx.createRadialGradient(cx, cy - faceR*.1, 1, cx, cy+4, faceR);
   g.addColorStop(0, '#fdf8ee'); g.addColorStop(1, '#ecddb8');
   ctx.beginPath(); ctx.arc(cx, cy, faceR, 0, 2*Math.PI); ctx.fillStyle = g; ctx.fill();
