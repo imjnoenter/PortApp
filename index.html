@@ -6394,7 +6394,7 @@ function drawClock() {
     const mon = bkk.toLocaleDateString('en-US', { month: 'short' });
     const yr  = String(bkk.getFullYear() % 100).padStart(2, '0');
     if (timeEl) timeEl.innerHTML = '<span style="font-weight:600;font-size:11px;color:var(--ink-soft)">' + timeStr + '<\/span>';
-    if (dateEl) dateEl.textContent = wd + '. ' + dd + ' ' + mon + ' '' + yr;
+    if (dateEl) dateEl.textContent = wd + '. ' + dd + ' ' + mon + " '" + yr;
   }
 
   const cx = sz / 2, cy = sz / 2;
