@@ -2570,6 +2570,7 @@ window.openSymbolDetail = function(sym) {
       window._sdTvChart     = tvChart;
       window._sdTvSeries    = areaSeries;
       window._sdTvPriceMap  = priceMap || {};
+      window._sdTvSym       = sym;
       sdSetRange('1Y');
 
       symbolDetailCharts.push({ destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
@@ -2615,7 +2616,7 @@ window.closeSymbolDetail = function() {
   document.getElementById('symbolDetailModal')?.classList.remove('open');
 };
 
-window.sdSetRange = function(range) {
+window.sdSetRange = async function(range) {
   const chart    = window._sdTvChart;
   const priceMap = window._sdTvPriceMap;
   if (!chart || !priceMap) return;
@@ -2644,9 +2645,36 @@ window.sdSetRange = function(range) {
   const fromStr = from.toISOString().slice(0,10);
   const toStr   = now.toISOString().slice(0,10);
 
-  const dates = Object.keys(priceMap).sort();
-  const clipped = dates.filter(d => d >= fromStr && d <= toStr);
-  if (clipped.length < 2) { chart.timeScale().fitContent(); return; }
+  let dates = Object.keys(priceMap).sort();
+  let clipped = dates.filter(d => d >= fromStr && d <= toStr);
+  if (clipped.length < 2) {
+    const sym = window._sdTvSym;
+    const series = window._sdTvSeries;
+    if (sym && series) {
+      const p2 = Math.floor(Date.now() / 1000);
+      const p1 = p2 - 2 * 365 * 86400;
+      const yahoo = await fetchYahooPrices(sym, p1, p2);
+      if (yahoo) {
+        const merged = Object.assign({}, yahoo, priceMap);
+        if (!historyCache) historyCache = { prices: {}, dividends: {} };
+        if (!historyCache.prices) historyCache.prices = {};
+        historyCache.prices[sym] = merged;
+        window._sdTvPriceMap = merged;
+        const livePrice = findPos(sym)?.price;
+        const todayStr  = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
+        let seriesData = Object.entries(merged)
+          .map(([date, value]) => ({ time: date, value }))
+          .sort((a, b) => a.time.localeCompare(b.time));
+        if (livePrice && todayStr >= (seriesData[seriesData.length-1]?.time || '')) {
+          seriesData = [...seriesData.filter(d => d.time !== todayStr), { time: todayStr, value: livePrice }];
+        }
+        series.setData(seriesData);
+        dates   = seriesData.map(d => d.time);
+        clipped = dates.filter(d => d >= fromStr && d <= toStr);
+      }
+    }
+    if (clipped.length < 2) { chart.timeScale().fitContent(); return; }
+  }
 
   chart.timeScale().setVisibleRange({ from: clipped[0], to: clipped[clipped.length - 1] });
 };
@@ -2852,11 +2880,15 @@ async function buildActionTvChart(sym) {
   legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
   el.appendChild(legend);
 
-  let priceMap = historyCache?.prices?.[sym];
-  if (!priceMap) {
-    const p2 = Math.floor(Date.now() / 1000);
-    const p1 = p2 - 2 * 365 * 86400;
-    priceMap = await fetchYahooPrices(sym, p1, p2);
+  let priceMap = historyCache?.prices?.[sym] ? { ...historyCache.prices[sym] } : null;
+  const p2 = Math.floor(Date.now() / 1000);
+  const p1 = p2 - 2 * 365 * 86400;
+  const yahoo = await fetchYahooPrices(sym, p1, p2);
+  if (yahoo) {
+    priceMap = Object.assign({}, yahoo, priceMap || {});
+    if (!historyCache) historyCache = { prices: {}, dividends: {} };
+    if (!historyCache.prices) historyCache.prices = {};
+    historyCache.prices[sym] = priceMap;
   }
   if (priceMap && Object.keys(priceMap).length) {
     let seriesData = Object.entries(priceMap)
