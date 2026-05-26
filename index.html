@@ -6385,14 +6385,16 @@ function drawClock() {
 
   const stEl = document.getElementById('marketStatusText');
   if (stEl) { stEl.textContent = status; stEl.style.color = statusColor; }
-  const etEl = document.getElementById('marketClockET');
-  if (etEl) {
+  const timeEl = document.getElementById('marketClockTime');
+  const dateEl = document.getElementById('marketClockDate');
+  if (timeEl || dateEl) {
     const timeStr = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
     const wd  = bkk.toLocaleDateString('en-US', { weekday: 'short' });
     const dd  = String(bkk.getDate()).padStart(2, '0');
     const mon = bkk.toLocaleDateString('en-US', { month: 'short' });
     const yr  = String(bkk.getFullYear() % 100).padStart(2, '0');
-    etEl.innerHTML = '<span style="font-weight:600;font-size:11px;color:var(--ink-soft)">' + timeStr + '<\/span> <span>' + wd + '. ' + dd + ' ' + mon + ' \'' + yr + '<\/span>';
+    if (timeEl) timeEl.innerHTML = '<span style="font-weight:600;font-size:11px;color:var(--ink-soft)">' + timeStr + '<\/span>';
+    if (dateEl) dateEl.textContent = wd + '. ' + dd + ' ' + mon + ' '' + yr;
   }
 
   const cx = sz / 2, cy = sz / 2;
@@ -7071,7 +7073,8 @@ function buildShell() {
           <canvas id="marketClock"></canvas>
           <div>
             <div id="marketStatusText" class="mc-status">—</div>
-            <div id="marketClockET" class="mc-et">—</div>
+            <div id="marketClockTime" class="mc-et">—</div>
+            <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
           </div>
         </div>
       </div>
