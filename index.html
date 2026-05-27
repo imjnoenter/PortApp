@@ -1343,6 +1343,13 @@ function _activeProfile() {
   if (!_cfg?.profiles?.length) return null;
   return _cfg.profiles.find(p => p.id === _cfg.activeProfileId) || _cfg.profiles[0];
 }
+function profileIconSrc() {
+  const name = (_activeProfile()?.profileName || '').toLowerCase().trim();
+  if (name === 'juno')    return 'juno.png';
+  if (name === 'hygieia') return 'hygieia.png';
+  if (name === 'hector')  return 'hector.png';
+  return 'icon.png';
+}
 function isReadOnly() {
   const p = _activeProfile();
   return !!(p && (!p.recordUrl || !p.writeKey));
@@ -7674,7 +7681,7 @@ function buildShell() {
   <div class="app mob-tab-overview">
     <div class="header">
       <div class="header-left">
-        <div class="brand-mark" aria-label="Portfolio"><img src="icon.png" alt="Portfolio" style="width:42px;height:42px;border-radius:14px;display:block;object-fit:cover;"></div>
+        <div class="brand-mark" aria-label="Portfolio"><img src="${profileIconSrc()}" alt="Portfolio" style="width:42px;height:42px;border-radius:14px;display:block;object-fit:cover;"></div>
         <div class="header-title-group">
           <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}${isReadOnly() ? '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:5px;vertical-align:middle">(view)</span>' : ''}</div>
           <div class="header-sub">${t('portfolio')}</div>
