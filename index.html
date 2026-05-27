@@ -1320,6 +1320,10 @@ function _activeProfile() {
   if (!_cfg?.profiles?.length) return null;
   return _cfg.profiles.find(p => p.id === _cfg.activeProfileId) || _cfg.profiles[0];
 }
+function isReadOnly() {
+  const p = _activeProfile();
+  return !!(p && (!p.recordUrl || !p.writeKey));
+}
 function _buildUrls(c) {
   const b = `https://docs.google.com/spreadsheets/d/${c.sheetId}/gviz/tq?tqx=out:json&sheet=`;
   return { SHEET_URL: b+'Claude', TRANSACTION_URL: b+'transactions', TX_LIST_URL: b+'transactions',
@@ -1346,6 +1350,26 @@ function _syncProfilePrefsToStorage() {
 
 // #reset hash clears config (escape hatch)
 if (location.hash === '#reset') { localStorage.removeItem(_CFG_KEY); history.replaceState(null, '', location.pathname); }
+
+// Share-link onboarding: ?sheet=ID&name=Name auto-creates a Level 1 (read-only) profile
+(function() {
+  const sp = new URLSearchParams(location.search);
+  const sheetParam = sp.get('sheet');
+  const nameParam  = sp.get('name') || 'Portfolio';
+  if (!sheetParam || !/^[A-Za-z0-9_-]{20,}$/.test(sheetParam)) return;
+  const existing = _loadCfg();
+  if (existing?.profiles?.some(p => p.sheetId === sheetParam)) {
+    history.replaceState(null, '', location.pathname);
+    return;
+  }
+  const newProfile = { id: 'p' + Date.now(), profileName: nameParam, sheetId: sheetParam };
+  const newCfg = existing
+    ? { ...existing, profiles: [...existing.profiles, newProfile], activeProfileId: newProfile.id }
+    : { profiles: [newProfile], activeProfileId: newProfile.id };
+  localStorage.setItem(_CFG_KEY, JSON.stringify(newCfg));
+  history.replaceState(null, '', location.pathname);
+})();
+
 let _cfg = _loadCfg();
 _syncProfilePrefsToStorage();
 let _u   = (() => { const a = _activeProfile(); return a ? _buildUrls(a) : {}; })();
@@ -1359,7 +1383,42 @@ let RECORD_URL      = _u.RECORD_URL      || '';
 let _WRITE_KEY      = _u.WRITE_KEY       || '';
 
 // ── Write helper — injects auth key on every mutating request ─────────────────
+function _showToast(msg, duration = 3500) {
+  let toast = document.getElementById('globalToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'globalToast';
+    toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 20px;border-radius:20px;font-size:13px;font-weight:500;z-index:9999;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, duration);
+}
+
+function _showReadOnlyMsg() {
+  const openOverlay = document.querySelector('.tx-overlay.open, .plan-overlay.open');
+  if (openOverlay) {
+    let msg = openOverlay.querySelector('.ro-inline-msg');
+    if (!msg) {
+      msg = document.createElement('div');
+      msg.className = 'ro-inline-msg';
+      msg.style.cssText = 'font-size:12px;color:var(--loss);text-align:center;padding:8px 12px;background:rgba(196,106,74,.1);border-radius:6px;margin-top:10px';
+      msg.textContent = 'Read-only access — open Edit config to add Level 2 credentials and enable saving.';
+      const modal = openOverlay.querySelector('.tx-modal, .plan-modal');
+      if (modal) modal.appendChild(msg);
+    }
+    msg.style.display = 'block';
+    clearTimeout(msg._t);
+    msg._t = setTimeout(() => { msg.style.display = 'none'; }, 5000);
+  } else {
+    _showToast('Read-only — edit config to enable saving.');
+  }
+}
+
 async function recordFetch(params, needsResponse = false) {
+  if (isReadOnly()) { _showReadOnlyMsg(); return needsResponse ? null : undefined; }
   const p = params instanceof URLSearchParams ? params : new URLSearchParams(params);
   p.set('key', _WRITE_KEY);
   const url = `${RECORD_URL}?${p}`;
@@ -7096,7 +7155,7 @@ function buildShell() {
       <div class="header-left">
         <div class="brand-mark" aria-label="Portfolio"><img src="icon.png" alt="Portfolio" style="width:42px;height:42px;border-radius:14px;display:block;object-fit:cover;"></div>
         <div class="header-title-group">
-          <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}</div>
+          <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}${isReadOnly() ? '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:5px;vertical-align:middle">(view)</span>' : ''}</div>
           <div class="header-sub">${t('portfolio')}</div>
         </div>
         <div class="header-divider"></div>
@@ -7350,12 +7409,16 @@ function showSetupModal(mode = 'first') {
         <input class="tx-input" id="setupSheetId" placeholder="11pdwfY3j…" autocomplete="off" value="${cur?.sheetId || ''}">
         <div style="font-size:10px;color:var(--muted);margin-top:4px">From the sheet URL: /spreadsheets/d/<strong style="color:var(--terracotta)">THIS_PART</strong>/edit</div>
       </div>
+      <div style="font-size:10px;color:var(--muted);padding:6px 10px;background:rgba(107,126,184,.08);border-radius:6px;margin-bottom:14px;line-height:1.5">
+        <strong style="color:var(--ink)">Level 1 (view only)</strong> — Sheet ID only.<br>
+        <strong style="color:var(--ink)">Level 2 (full access)</strong> — add Apps Script URL + Write key below.
+      </div>
       <div class="tx-field">
-        <label class="tx-label">Apps Script URL *</label>
+        <label class="tx-label">Apps Script URL <span style="font-weight:400;color:var(--muted)">(Level 2)</span></label>
         <input class="tx-input" id="setupRecordUrl" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off" value="${cur?.recordUrl || ''}">
       </div>
       <div class="tx-field">
-        <label class="tx-label">Write key${isEdit ? '' : ' *'}</label>
+        <label class="tx-label">Write key <span style="font-weight:400;color:var(--muted)">(Level 2${isEdit ? ' · blank = keep current' : ''})</span></label>
         <input class="tx-input" id="setupWriteKey" type="password" placeholder="${keyHint}" autocomplete="new-password">
         <div style="font-size:10px;color:var(--muted);margin-top:4px">Protects all write operations. Never stored in code.</div>
       </div>
@@ -7407,17 +7470,18 @@ window.submitSetup = function() {
   if (!sheetId || !/^[A-Za-z0-9_-]{20,}$/.test(sheetId)) {
     errEl.textContent = 'Invalid Sheet ID — paste the long alphanumeric segment from the sheet URL.'; return;
   }
-  if (!recordUrl || !recordUrl.startsWith('https://script.google.com/')) {
+  if (recordUrl && !recordUrl.startsWith('https://script.google.com/')) {
     errEl.textContent = 'Invalid Apps Script URL.'; return;
   }
-  if (!writeKey && _setupMode !== 'edit') {
-    errEl.textContent = 'Write key is required (set WRITE_KEY in Apps Script → Script Properties).'; return;
+  if (recordUrl && !writeKey && _setupMode !== 'edit') {
+    errEl.textContent = 'Write key is required when Apps Script URL is set.'; return;
   }
 
   const geminiKey = document.getElementById('setupGeminiKey')?.value.trim() || '';
 
-  const profileData = { profileName: name, sheetId, recordUrl };
-  if (writeKey) profileData.writeKey = writeKey;
+  const profileData = { profileName: name, sheetId };
+  if (recordUrl) profileData.recordUrl = recordUrl;
+  if (writeKey)  profileData.writeKey  = writeKey;
   if (geminiKey) profileData.geminiKey = geminiKey;
 
   if (_setupMode === 'edit') {
@@ -7480,13 +7544,22 @@ window.toggleAccountMenu = function(e) {
 
   const active   = _cfg?.activeProfileId;
   const profiles = _cfg?.profiles || [];
+  const shareBtn = !isReadOnly() ? `
+  <button class="account-menu-item" onclick="_closeAccountMenu();copyShareLink()">
+    <span class="ami-check" style="font-size:11px">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" width="12" height="12"><circle cx="12" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="12" cy="13" r="1.5"/><line x1="4.4" y1="7.2" x2="10.6" y2="3.8"/><line x1="4.4" y1="8.8" x2="10.6" y2="12.2"/></svg>
+    </span>
+    <span style="width:8px"></span><span>Share view link</span>
+  </button>` : '';
   menu.innerHTML = profiles.map(p => `
     <button class="account-menu-item${p.id === active ? ' is-active' : ''}" onclick="_closeAccountMenu();switchToProfile('${p.id}')">
       <span class="ami-check">${p.id === active ? '✓' : ''}</span>
       <span class="ami-dot" style="background:${colorFor(p.profileName)}"></span>
       <span style="flex:1;text-align:left">${p.profileName}</span>
+      ${!p.recordUrl || !p.writeKey ? '<span style="font-size:9px;color:var(--muted);margin-left:4px">(view)</span>' : ''}
     </button>`).join('') + `
   <div class="account-menu-divider"></div>
+  ${shareBtn}
   <button class="account-menu-item" onclick="_closeAccountMenu();showSetupModal('add')">
     <span class="ami-check" style="font-size:14px;font-weight:400">+</span>
     <span style="width:8px"></span><span>Add account</span>
@@ -7526,6 +7599,32 @@ window.signOutCurrentProfile = function() {
   _saveCfg(_cfg);
   location.reload();
 };
+
+window.copyShareLink = function() {
+  const p = _activeProfile();
+  if (!p) return;
+  const url = location.origin + location.pathname +
+    '?sheet=' + encodeURIComponent(p.sheetId) +
+    '&name='  + encodeURIComponent(p.profileName);
+  const done = () => _showToast('View link copied — share it to give read-only access.');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(() => {
+      _fallbackCopy(url); done();
+    });
+  } else {
+    _fallbackCopy(url); done();
+  }
+};
+
+function _fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); } catch(_) {}
+  document.body.removeChild(ta);
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 function setRefreshing(on) {
