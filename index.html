@@ -2151,7 +2151,7 @@ window.submitTx = async function() {
       commissionFree: noCommission,
     });
     await recordFetch(params);
-    postTransactionUpdates(ticker, shares, price, txType);
+    await postTransactionUpdates(ticker, shares, price, txType);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved to Google Sheet</span>';
     setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; refreshTxPanel(); init(); }, 1500); }, 1200);
   } catch(e) {
@@ -3117,7 +3117,7 @@ function renderActionCharts(sym, previewValue, overrideCat) {
         options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
           plugins: { legend:{display:false},
             tooltip: { callbacks:{ label: c => ` ${c.label}: ${c.raw.toFixed(1)}% of portfolio` },
-              backgroundColor:'#0f172a', bodyColor:'#fff', padding:8, cornerRadius:8 }}}
+              backgroundColor: css('--tooltip-bg'), bodyColor: css('--card'), padding:8, cornerRadius:8 }}}
       });
     };
     actionChart1 = mkAllocChart('actionChart1', c1items);
@@ -3153,7 +3153,7 @@ function renderActionCharts(sym, previewValue, overrideCat) {
       options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
         plugins: { legend:{display:false},
           tooltip: { callbacks:{ label: c => ` ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%` },
-            backgroundColor:'#0f172a', bodyColor:'#fff', padding:8, cornerRadius:8 }}}
+            backgroundColor: css('--tooltip-bg'), bodyColor: css('--card'), padding:8, cornerRadius:8 }}}
     });
   };
   actionChart1 = mkChart('actionChart1', positions);
@@ -4189,7 +4189,7 @@ function syncTrancheRow(idx) {
 
 window.addTranche = function() {
   const last = planState.tranches[planState.tranches.length-1]?.cumPct ?? 0;
-  planState.tranches.push({ cumPct: 0 });
+  planState.tranches.push({ cumPct: last });
   renderPlanModal();
 };
 
@@ -4328,7 +4328,7 @@ function buildModel(rows) {
   const investable    = totalCurrent * (1 - cashResPct);
   const stockTotal = positions.reduce((s,p) => s + p.currentValue, 0);
   positions.forEach(p => {
-    p.weightPct      = investable  > 0 ? p.currentValue / totalCurrent * 100 : 0;
+    p.weightPct      = totalCurrent > 0 ? p.currentValue / totalCurrent * 100 : 0;
     p.stockWeightPct = stockTotal  > 0 ? p.currentValue / stockTotal   * 100 : 0;
   });
   positions.sort((a, b) => b.currentValue - a.currentValue);
@@ -4531,6 +4531,22 @@ function renderGauge(model) {
   const startTs = performance.now();
   const dur     = 900;
 
+  // Resolve CSS variables once — getComputedStyle is expensive at 60fps
+  const monoFont    = css('--font-mono')    || 'monospace';
+  const displayFont = css('--font-display') || 'serif';
+  const C = {
+    track:      css('--track'),
+    peri:       css('--peri'),
+    terracotta: css('--terracotta'),
+    honey:      css('--honey'),
+    cardEdge:   css('--card-edge'),
+    clay:       css('--clay'),
+    sage:       css('--sage'),
+    muted:      css('--muted'),
+    ink:        css('--ink'),
+    line:       css('--line'),
+  };
+
   function draw(now) {
     const t      = Math.min(1, (now - startTs) / dur);
     const eased  = 1 - Math.pow(1 - t, 3);
@@ -4555,13 +4571,10 @@ function renderGauge(model) {
     const gaugeStyle = window.donutTweaks?.gaugeLabels || 'stacked';
     const barY  = gaugeStyle === 'badge' ? 46 : gaugeStyle === 'inline' ? 42 : 56;
 
-    const monoFont    = css('--font-mono')    || 'monospace';
-    const displayFont = css('--font-display') || 'serif';
-
     // ── Bar track ────────────────────────────────────────────────
     ctx.save();
     rrect(ctx, barX, barY, barW, barH, barR);
-    ctx.fillStyle = css('--track');
+    ctx.fillStyle = C.track;
     ctx.fill();
     ctx.restore();
 
@@ -4572,9 +4585,9 @@ function renderGauge(model) {
       ctx.clip();
       const fillW = barW * cur;
       const grad  = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-      grad.addColorStop(0,    css('--peri'));
-      grad.addColorStop(0.55, css('--terracotta'));
-      grad.addColorStop(1,    css('--honey'));
+      grad.addColorStop(0,    C.peri);
+      grad.addColorStop(0.55, C.terracotta);
+      grad.addColorStop(1,    C.honey);
       ctx.fillStyle = grad;
       ctx.fillRect(barX, barY, fillW, barH);
       // Sheen highlight
@@ -4586,7 +4599,7 @@ function renderGauge(model) {
     // ── Bar inner border ─────────────────────────────────────────
     ctx.save();
     rrect(ctx, barX, barY, barW, barH, barR);
-    ctx.strokeStyle = css('--card-edge');
+    ctx.strokeStyle = C.cardEdge;
     ctx.lineWidth = 1;
     ctx.globalAlpha = 0.5;
     ctx.stroke();
@@ -4595,7 +4608,7 @@ function renderGauge(model) {
     // ── 15 % reserve threshold marker ───────────────────────────
     const reserveX  = barX + barW * (1 - RESERVE);
     const overLimit = cur > (1 - RESERVE);   // cash < 15 % = warning
-    const mrkCol    = overLimit ? css('--clay') : css('--sage');
+    const mrkCol    = overLimit ? C.clay : C.sage;
 
     // Vertical dashed line spanning above + through bar
     ctx.save();
@@ -4624,7 +4637,7 @@ function renderGauge(model) {
     // "15% RESERVE" label below bar
     ctx.save();
     ctx.font          = `500 7.5px ${monoFont}`;
-    ctx.fillStyle     = css('--muted');
+    ctx.fillStyle     = C.muted;
     ctx.textAlign     = 'center';
     ctx.textBaseline  = 'top';
     ctx.letterSpacing = '0.6px';
@@ -4634,7 +4647,7 @@ function renderGauge(model) {
     // ── Labels above bar — 3 designs ──────────────────────────────
     const stockPctStr = (cur * 100).toFixed(1) + '%';
     const cashPctStr  = cashCur.toFixed(1) + '%';
-    const cashColor   = overLimit ? css('--clay') : css('--ink');
+    const cashColor   = overLimit ? C.clay : C.ink;
     const investedAmt = model.totalCurrent * cur;
     const cashAmt     = model.totalCurrent * (1 - cur);
     const fmtShort = n => {
@@ -4651,7 +4664,7 @@ function renderGauge(model) {
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'left';
       ctx.font         = `700 13px ${monoFont}`;
-      ctx.fillStyle    = cur > 0.12 ? 'rgba(250,243,224,.95)' : css('--ink');
+      ctx.fillStyle    = cur > 0.12 ? 'rgba(250,243,224,.95)' : C.ink;
       ctx.fillText(stockPctStr, barX + 12, inY);
       ctx.restore();
       // Cash % inside right
@@ -4659,14 +4672,14 @@ function renderGauge(model) {
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'right';
       ctx.font         = `700 13px ${monoFont}`;
-      ctx.fillStyle    = cur < 0.88 ? css('--muted') : 'rgba(250,243,224,.95)';
-      if (overLimit) ctx.fillStyle = css('--clay');
+      ctx.fillStyle    = cur < 0.88 ? C.muted : 'rgba(250,243,224,.95)';
+      if (overLimit) ctx.fillStyle = C.clay;
       ctx.fillText(cashPctStr, barX + barW - 12, inY);
       ctx.restore();
       // Subtle labels above bar
       ctx.save();
       ctx.font         = `500 8px ${monoFont}`;
-      ctx.fillStyle    = css('--muted');
+      ctx.fillStyle    = C.muted;
       ctx.globalAlpha  = 0.6;
       ctx.textBaseline = 'bottom';
       ctx.textAlign    = 'left';
@@ -4687,7 +4700,7 @@ function renderGauge(model) {
       // Badge bg
       ctx.save();
       rrect(ctx, barX, badgeY, sw, badgeH, badgeR);
-      ctx.fillStyle = css('--terracotta');
+      ctx.fillStyle = C.terracotta;
       ctx.shadowColor = 'rgba(196,106,74,.25)';
       ctx.shadowBlur = 8;
       ctx.fill();
@@ -4707,8 +4720,8 @@ function renderGauge(model) {
       const cw = ctx.measureText(cashLbl).width + badgePad * 2;
       ctx.save();
       rrect(ctx, barX + barW - cw, badgeY, cw, badgeH, badgeR);
-      ctx.fillStyle = overLimit ? css('--clay') : css('--track');
-      ctx.strokeStyle = overLimit ? css('--clay') : css('--card-edge');
+      ctx.fillStyle = overLimit ? C.clay : C.track;
+      ctx.strokeStyle = overLimit ? C.clay : C.cardEdge;
       ctx.lineWidth = 1;
       if (!overLimit) ctx.fill();
       else { ctx.shadowColor = 'rgba(187,77,60,.2)'; ctx.shadowBlur = 6; ctx.fill(); }
@@ -4716,7 +4729,7 @@ function renderGauge(model) {
       ctx.restore();
       ctx.save();
       ctx.font         = `600 11px ${monoFont}`;
-      ctx.fillStyle    = overLimit ? '#faf3e0' : css('--muted');
+      ctx.fillStyle    = overLimit ? '#faf3e0' : C.muted;
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'right';
       ctx.fillText(cashLbl, barX + barW - badgePad, badgeY + badgeH / 2);
@@ -4729,19 +4742,19 @@ function renderGauge(model) {
       ctx.textBaseline = 'top';
       ctx.textAlign    = 'left';
       ctx.font         = `600 22px ${displayFont}`;
-      ctx.fillStyle    = css('--ink');
+      ctx.fillStyle    = C.ink;
       ctx.fillText(stockPctStr, barX, 4);
       const pctW = ctx.measureText(stockPctStr).width;
       // Thin vertical divider
-      ctx.fillStyle = css('--line');
+      ctx.fillStyle = C.line;
       ctx.fillRect(barX + pctW + 8, 8, 1, 18);
       // Currency amount
       ctx.font      = `500 11px ${monoFont}`;
-      ctx.fillStyle = css('--muted');
+      ctx.fillStyle = C.muted;
       ctx.fillText(fmtShort(investedAmt), barX + pctW + 16, 7);
       // Label
       ctx.font      = `500 8.5px ${monoFont}`;
-      ctx.fillStyle = css('--muted');
+      ctx.fillStyle = C.muted;
       ctx.globalAlpha = 0.65;
       ctx.fillText('INVESTED', barX + pctW + 16, 21);
       ctx.restore();
@@ -4755,16 +4768,16 @@ function renderGauge(model) {
       ctx.fillText(cashPctStr, barX + barW, 4);
       const cashW = ctx.measureText(cashPctStr).width;
       // Thin vertical divider
-      ctx.fillStyle = css('--line');
+      ctx.fillStyle = C.line;
       ctx.fillRect(barX + barW - cashW - 9, 8, 1, 18);
       // Currency amount
       ctx.font      = `500 11px ${monoFont}`;
-      ctx.fillStyle = overLimit ? css('--clay') : css('--muted');
+      ctx.fillStyle = overLimit ? C.clay : C.muted;
       ctx.textAlign = 'right';
       ctx.fillText(fmtShort(cashAmt), barX + barW - cashW - 16, 7);
       // Label
       ctx.font      = `500 8.5px ${monoFont}`;
-      ctx.fillStyle = css('--muted');
+      ctx.fillStyle = C.muted;
       ctx.globalAlpha = 0.65;
       ctx.textAlign = 'right';
       ctx.fillText('CASH', barX + barW - cashW - 16, 21);
@@ -5366,7 +5379,7 @@ function renderDonut(model) {
   donutChartInst = new Chart(document.getElementById('donutChart').getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, labels.map(colorFor)) },
-    options: donutBaseOptions(c => ` ${c.label}: ${fmtCurr(c.raw)} (${(c.raw/total*100).toFixed(1)}%)`),
+    options: donutBaseOptions(c => ` ${c.label}: ${fmtCurr(c.raw)} (${total > 0 ? (c.raw/total*100).toFixed(1) : 0}%)`),
     plugins: [donutInnerRing, donutShadow, donutOuterLabels]
   });
 }
@@ -7490,7 +7503,8 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     closeSetupModal();
     _applyActiveProfile();
-    shellBuilt = false;
+    shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
+    txCache = null; historyCache = null; planCache = {};
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData,
       theme:    localStorage.getItem('theme')    || 'light',
@@ -8487,7 +8501,7 @@ async function init() {
 
     // Fetch live quotes for day change + pre/post market (non-blocking)
     fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
-      .then(quotes => { attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); });
+      .then(quotes => { if (currentModel !== model) return; attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); });
 
     if (isFirstLoad) {
       buildShell();
@@ -8565,7 +8579,9 @@ async function init() {
     renderSectorBar(model);
     renderWatchlist(model);
     loadCalendar(model);
-    await loadAllPlansFromSheet();
+    if (isFirstLoad) {
+      await loadAllPlansFromSheet();
+    }
     renderPlansPanel();
     renderTable(model);
     if (TRANSACTION_URL) {
@@ -8580,7 +8596,7 @@ async function init() {
       }
     }
     if (TRANSACTION_URL) loadPnLChart();
-    if (TRANSACTION_URL) refreshTxPanel();
+    if (TRANSACTION_URL && (isFirstLoad || !txCache)) refreshTxPanel();
     if (TRANSACTION_URL) {
       (async () => {
         try {
