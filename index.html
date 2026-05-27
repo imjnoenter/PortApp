@@ -455,6 +455,20 @@ body {
   color: var(--ink);
 }
 
+/* Risk & Concentration panel */
+.risk-panel { display: flex; flex-direction: column; gap: 7px; }
+.risk-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.risk-row-label {
+  font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--muted); text-transform: uppercase; letter-spacing: .6px;
+  display: flex; flex-direction: column; line-height: 1.25;
+}
+.risk-row-sub { font-size: 8.5px; color: var(--muted-2); text-transform: none; letter-spacing: .2px; }
+.risk-row-value { font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: -.2px; text-align: right; white-space: nowrap; }
+.risk-divider { height: 1px; background: var(--line-soft); margin: 3px 0; opacity: .7; }
+.risk-bar-track { width: 110px; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.risk-bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease-out; }
+
 .alloc-list-head {
   display: flex; justify-content: space-between; align-items: baseline;
   padding: 6px 0 8px;
@@ -567,6 +581,13 @@ body {
 .to-add.buy  { color: var(--peri); }
 .to-add.over { color: var(--honey); }
 .to-add.none { color: var(--muted); }
+
+/* 52-week range bar */
+.w52-wrap { min-width: 120px; }
+.w52-track { position: relative; height: 5px; background: var(--track); border-radius: 4px; margin-bottom: 4px; }
+.w52-fill  { height: 100%; border-radius: 4px; position: absolute; top: 0; left: 0; opacity: 0.45; }
+.w52-dot   { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--card); }
+.w52-labels { display: flex; justify-content: space-between; font-size: 9px; font-family: var(--font-mono); white-space: nowrap; }
 
 /* Donut */
 .donut-wrap { position: relative; }
@@ -1221,6 +1242,8 @@ body {
 }
 .hp-tab.active { background: var(--ink); color: var(--card); border-color: var(--ink); }
 .hp-tab:hover:not(.active) { color: var(--ink); border-color: var(--ink); }
+.pnl-tab-btn { font-size:10px;font-weight:700;padding:3px 9px;border-radius:5px;border:none;cursor:pointer;background:transparent;color:var(--muted);font-family:var(--font-ui);transition:all .15s; }
+.pnl-tab-btn.active { background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12); }
 .hp-axis { position: relative; height: 16px; margin-top: 2px; margin-left: 108px; margin-right: 62px; padding: 0 8px; }
 .hp-axis-label { position: absolute; transform: translateX(-50%); font-size: 9px; color: var(--muted); font-family: var(--font-mono); }
 #hpTip {
@@ -1546,6 +1569,18 @@ const I18N = {
     my_portfolio_label: "My Portfolio", spy_label: "S&P 500 (SPY)",
     qqq_label: "NASDAQ (QQQ)", cumulative_pnl_label: "Cumulative P&L",
     trade_pnl_label: "Trade P&L",
+    trade_journal_title: "Trade Journal",
+    no_closed_trades: "No closed trades yet.",
+    journal_win_rate: "Win rate", journal_avg_hold: "Avg hold",
+    risk_concentration_title: "Risk & Concentration",
+    risk_top3: "Top-3 Concentration", risk_hhi: "Diversification (HHI)",
+    risk_largest: "Largest Position", risk_cash_alloc: "Cash Allocation",
+    risk_top_sector: "Top Sector", risk_sectors: "Sectors Held",
+    risk_sl_coverage: "Stop-Loss Coverage", risk_by_value: "by value",
+    risk_max_loss_sl: "Max Loss to SL", risk_unprotected: "Unprotected Exposure",
+    risk_dist_high: "Avg vs 52W High", risk_near_low: "Near 52W Low",
+    risk_within_10: "within 10%", risk_diversified: "Diversified",
+    risk_moderate: "Moderate", risk_concentrated: "Concentrated",
     no_realized_pnl: "No realized P&L in this period.",
     no_tx_data: "No transaction data.",
     reading_history_msg: "Reading price history from Google Sheets…",
@@ -1718,6 +1753,18 @@ const I18N = {
     my_portfolio_label: "พอร์ตของฉัน", spy_label: "S&P 500 (SPY)", qqq_label: "NASDAQ (QQQ)",
     cumulative_pnl_label: "กำไร/ขาดทุนสะสม",
     trade_pnl_label: "กำไร/ขาดทุนจากรายการซื้อขาย",
+    trade_journal_title: "บันทึกการเทรด",
+    no_closed_trades: "ยังไม่มีการเทรดที่ปิดแล้ว",
+    journal_win_rate: "อัตราชนะ", journal_avg_hold: "ถือเฉลี่ย",
+    risk_concentration_title: "ความเสี่ยงและการกระจุกตัว",
+    risk_top3: "กระจุกตัว 3 อันดับแรก", risk_hhi: "การกระจายความเสี่ยง (HHI)",
+    risk_largest: "หุ้นสัดส่วนสูงสุด", risk_cash_alloc: "สัดส่วนเงินสด",
+    risk_top_sector: "กลุ่มอุตสาหกรรมสูงสุด", risk_sectors: "จำนวนกลุ่มที่ถือ",
+    risk_sl_coverage: "ครอบคลุมจุดตัดขาดทุน", risk_by_value: "ตามมูลค่า",
+    risk_max_loss_sl: "ขาดทุนสูงสุดถึง SL", risk_unprotected: "ความเสี่ยงไม่มี SL",
+    risk_dist_high: "เฉลี่ยห่างจากจุดสูงสุด 52 สัปดาห์", risk_near_low: "ใกล้จุดต่ำสุด 52 สัปดาห์",
+    risk_within_10: "ภายใน 10%", risk_diversified: "กระจายดี",
+    risk_moderate: "ปานกลาง", risk_concentrated: "กระจุกตัว",
     no_realized_pnl: "ไม่มีกำไร/ขาดทุนที่รับรู้แล้วในช่วงเวลานี้",
     no_tx_data: "ไม่มีข้อมูลประวัติการทำรายการ",
     reading_history_msg: "กำลังอ่านข้อมูลประวัติราคาจาก Google Sheets…",
@@ -1785,6 +1832,8 @@ let fxRate   = 1;
 let sectorChartInst = null, donutChartInst = null;
 let benchmarkChartInst = null, benchmarkLoaded = false;
 let pnlChartInst = null;
+let nwChartInst  = null;
+let nwData       = null;
 let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
@@ -1796,6 +1845,7 @@ let pnlData = null;
 let txCache = null;
 let lastTxData = null;
 let historyCache = null;
+let _journalTrades = [], _journalSort = 'closeDate', _journalDir = -1;
 
 // ── Add transaction ───────────────────────────────────────────────────────────
 let txType = 'Buy';
@@ -3239,9 +3289,9 @@ window.openActionModal = function(sym) {
           <div style="font-size:15px;font-weight:700">${sym}${_activeProfile()?.geminiKey ? `<button class="gc-gemini-btn" onclick="openGeminiChat('${sym}')" title="Chat with Gemini">${GEMINI_ICON}</button>` : ''}</div>
           <div style="font-size:11px;color:var(--muted)">${pos?.name||''}</div>
           ${(pos?.price||pos?.qty||pos?.avgPrice) ? `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
-            ${pos.price  != null ? `<span>Last&nbsp;<strong style="color:var(--ink)">${fmtCurr(pos.price)}</strong></span>` : ''}
+            ${pos.price  != null ? `<span>Last&nbsp;<strong style="color:var(--ink)">${fmtUSD(pos.price)}</strong></span>` : ''}
             ${pos.qty    >  0    ? `<span>Qty&nbsp;<strong style="color:var(--ink)">${pos.qty.toFixed(4)}</strong></span>` : ''}
-            ${pos.avgPrice > 0  ? `<span>Avg&nbsp;<strong style="color:var(--ink)">${fmtCurr(pos.avgPrice)}</strong></span>` : ''}
+            ${pos.avgPrice > 0  ? `<span>Avg&nbsp;<strong style="color:var(--ink)">${fmtUSD(pos.avgPrice)}</strong></span>` : ''}
           </div>` : ''}
         </div>
       </div>
@@ -3268,7 +3318,7 @@ window.onPlanTargetChange = function(val) {
   const pos = findPos(sym);
   const dollarEl = document.getElementById('planTargetDollar');
   if (dollarEl) dollarEl.textContent = planState.pendingTarget && planState.model
-    ? fmtCurr(getTargetDollar(pos, planState.model)) : '— set % to calculate';
+    ? fmtUSD(getTargetDollar(pos, planState.model)) : '— set % to calculate';
   syncTrancheRow(0);
   renderPlanBar();
 };
@@ -3389,7 +3439,7 @@ function renderActionTabContent() {
             oninput="onPlanTargetChange(this.value)">
           <span class="ti-suffix">%</span>
         </div>
-        <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtCurr(getTargetDollar(pos, currentModel)) : t('set_pct_hint')}</span>
+        <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtUSD(getTargetDollar(pos, currentModel)) : t('set_pct_hint')}</span>
       </div>
       <div class="plan-bar-wrap">
         <div class="plan-bar-track" id="planBarTrack"></div>
@@ -3595,7 +3645,7 @@ function updateTrimCalcs() {
     const el = document.getElementById(`trimPnl_${i}`);
     if (el) el.innerHTML = r.hasData
       ? `<div style="text-align:center">
-           <span style="font-size:11px;font-weight:700;color:${r.net>=0?'var(--gain)':'var(--loss)'}">${r.net>=0?'+':''}${fmtCurr(r.net)}</span>
+           <span style="font-size:11px;font-weight:700;color:${r.net>=0?'var(--gain)':'var(--loss)'}">${r.net>=0?'+':''}${fmtUSD(r.net)}</span>
            <div style="font-size:9px;color:var(--muted)">${r.pctAtP.toFixed(1)}% → ${r.afterPct.toFixed(1)}%</div>
          </div>`
       : '<span style="color:var(--muted)">—</span>';
@@ -3622,7 +3672,7 @@ function updateTrimCalcs() {
 
   const sumEl = document.getElementById('planTrimSummary');
   if (sumEl) sumEl.innerHTML = anyValid
-    ? `Total P&L <strong style="color:${totalNetPnL>=0?'var(--gain)':'var(--loss)'}">${totalNetPnL>=0?'+':''}${fmtCurr(totalNetPnL)}</strong> · ${fmtCurr(remVal)} remaining`
+    ? `Total P&L <strong style="color:${totalNetPnL>=0?'var(--gain)':'var(--loss)'}">${totalNetPnL>=0?'+':''}${fmtUSD(totalNetPnL)}</strong> · ${fmtUSD(remVal)} remaining`
     : `<span style="color:var(--muted)">Now: <strong>${curPctOfTarget.toFixed(1)}%</strong> of target · enter exit price and remaining % after TP</span>`;
 }
 
@@ -3705,7 +3755,7 @@ window.savePlanInAction = function() {
   if (planState.pendingCategory !== null) { params.set('category', planState.pendingCategory);          hasAlloc = true; }
   if (hasAlloc) recordFetch(params);
   document.getElementById('actionModal')?.classList.remove('open');
-  if (currentModel) { renderTable(currentModel); renderPlansPanel(); }
+  if (currentModel) { renderTable(currentModel); renderPlansPanel(); renderPlanWatch(); }
 };
 window.clearPlanInAction = function() {
   const { symbol } = planState;
@@ -3723,6 +3773,7 @@ window.clearPlanInAction = function() {
   planState.tranches = [{cumPct:0}];
   renderActionTabContent();
   renderPlansPanel();
+  renderPlanWatch();
 };
 
 // Transaction submit from within action modal
@@ -3905,8 +3956,8 @@ function updateNewAvgs() {
       const up = diff$ >= 0;
       const col = `var(${up ? '--loss' : '--gain'})`;
       const sign = up ? '+' : '';
-      label = `New avg: <strong>${fmtCurr(avg)}</strong>`
-        + (baseAvg > 0 ? ` <span style="color:${col}">(${sign}${fmtCurr(diff$)} / ${sign}${diffPct.toFixed(2)}%)</span>` : '');
+      label = `New avg: <strong>${fmtUSD(avg)}</strong>`
+        + (baseAvg > 0 ? ` <span style="color:${col}">(${sign}${fmtUSD(diff$)} / ${sign}${diffPct.toFixed(2)}%)</span>` : '');
     } else {
       label = `New avg: <span style="color:var(--muted)">— (enter Entry Price)</span>`;
     }
@@ -4067,7 +4118,7 @@ function renderPlanBar() {
     const l = (s.from / scaleMax * 100).toFixed(2);
     const w = ((s.to - s.from) / scaleMax * 100).toFixed(2);
     return `<div class="plan-bar-seg" style="left:${l}%;width:${w}%;background:${s.color}"></div>`;
-  }).join('') + `<div class="plan-bar-tick" style="left:${(100/scaleMax*100).toFixed(2)}%" title="Target: ${fmtCurr(td)}"></div>`;
+  }).join('') + `<div class="plan-bar-tick" style="left:${(100/scaleMax*100).toFixed(2)}%" title="Target: ${fmtUSD(td)}"></div>`;
 
   const labels = [{ color, text: `Current: ${currPct.toFixed(1)}%` }];
   let cumLbl = currPct;
@@ -4076,7 +4127,7 @@ function renderPlanBar() {
     labels.push({ color: trancheColor(i), text: `After T${i+1}: ${end.toFixed(1)}%` });
     cumLbl = end;
   });
-  labels.push({ color: 'var(--muted)', text: `Target: ${fmtCurr(td)}` });
+  labels.push({ color: 'var(--muted)', text: `Target: ${fmtUSD(td)}` });
   document.getElementById('planBarLabels').innerHTML = labels.map(l =>
     `<span class="pbl-item"><span class="pbl-dot" style="background:${l.color}"></span>${l.text}</span>`
   ).join('');
@@ -4208,7 +4259,7 @@ window.savePlan = function() {
   planCache[symbol] = { tranches, sl, note };
   savePlanToSheet(symbol, tranches, sl, note);
   closePlan();
-  if (currentModel) { renderTable(currentModel); renderPlansPanel(); }
+  if (currentModel) { renderTable(currentModel); renderPlansPanel(); renderPlanWatch(); }
 };
 
 window.clearPlan = function() {
@@ -4242,6 +4293,10 @@ const css    = v => getComputedStyle(document.documentElement).getPropertyValue(
 function fmtCurr(n) {
   if (n == null) return '—';
   if (currency === 'THB') return '฿' + Math.round(n * fxRate).toLocaleString('en-US');
+  return n.toLocaleString('en-US', {style:'currency', currency:'USD', maximumFractionDigits:2});
+}
+function fmtUSD(n) {
+  if (n == null) return '—';
   return n.toLocaleString('en-US', {style:'currency', currency:'USD', maximumFractionDigits:2});
 }
 
@@ -4910,7 +4965,9 @@ async function fetchSingleQuoteFromChart(symbol, yahooSym = yahooTicker(symbol))
   }
 
   return [symbol, { regularMarketChange: dayChange, regularMarketChangePercent: dayChangePct,
-    marketState, preMarketPrice, preMarketChangePercent, postMarketPrice, postMarketChangePercent }];
+    marketState, preMarketPrice, preMarketChangePercent, postMarketPrice, postMarketChangePercent,
+    fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? null,
+    fiftyTwoWeekLow:  meta.fiftyTwoWeekLow  ?? null }];
 }
 
 function attachQuotes(model, quotes) {
@@ -4929,6 +4986,9 @@ function attachQuotes(model, quotes) {
     p.nextEarnings    = q.earningsTimestamp     ? new Date(q.earningsTimestamp     * 1000) : null;
     p.nextEarningsEnd = q.earningsTimestampEnd  ? new Date(q.earningsTimestampEnd  * 1000) : null;
     p.exDivDate       = q.exDividendDate        ? new Date(q.exDividendDate        * 1000) : null;
+    // 52-week range
+    p.week52High = q.fiftyTwoWeekHigh ?? null;
+    p.week52Low  = q.fiftyTwoWeekLow  ?? null;
   });
   // Quotes + calendar for watchlist
   model.watchlist.forEach(w => {
@@ -4994,6 +5054,26 @@ function tpBadge(sym, price) {
 
 // ── Render: positions table ───────────────────────────────────────────────────
 let sortKey = 'currentValue', sortDir = -1, searchTerm = '', categoryFilter = 'All', sectorFilter = 'All';
+
+function weekRange52Bar(p) {
+  const hi = p.week52High, lo = p.week52Low, cur = p.price;
+  if (!hi || !lo || !cur || hi <= lo) return '<span class="cell-mut" style="font-size:10px">—</span>';
+  const pct = Math.max(0, Math.min(100, (cur - lo) / (hi - lo) * 100));
+  const fromHigh = (cur - hi) / hi * 100;
+  const fromHighStr = fromHigh >= 0 ? `+${fromHigh.toFixed(1)}%` : `${fromHigh.toFixed(1)}%`;
+  const barColor = pct >= 80 ? 'var(--gain)' : pct <= 20 ? 'var(--loss)' : 'var(--terracotta)';
+  return `<div class="w52-wrap" title="52W Low: ${fmtCurr(lo)} · High: ${fmtCurr(hi)} · Current: ${pct.toFixed(0)}% of range">
+    <div class="w52-track">
+      <div class="w52-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div>
+      <div class="w52-dot" style="left:${pct.toFixed(1)}%;background:${barColor}"></div>
+    </div>
+    <div class="w52-labels">
+      <span class="cell-mut">${fmtCurr(lo)}</span>
+      <span style="color:${barColor};font-weight:600">${fromHighStr}</span>
+      <span class="cell-mut">${fmtCurr(hi)}</span>
+    </div>
+  </div>`;
+}
 
 function allocSparkline(p, investable) {
   const curr = p.weightPct;
@@ -5115,6 +5195,7 @@ function renderTable(model) {
     { key: 'costBasis',    label: t('th_total_cost'),    sort: true  },
     { key: 'currentValue', label: t('th_current_value'), sort: true  },
     { key: null,           label: t('allocation'),       sort: false },
+    { key: null,           label: '52W Range',            sort: false },
     { key: 'category',    label: t('category_label'),   sort: false },
   ];
   const thHTML = headers.map(h => h.sort
@@ -5163,6 +5244,7 @@ function renderTable(model) {
       <td>${dc(fmtCurr(p.costBasis), null)}</td>
       <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.stockWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(0)+'%' : p.stockWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
       <td>${allocSparkline(p, model.investable)}</td>
+      <td>${weekRange52Bar(p)}</td>
       <td><span style="font-size:11px;color:var(--muted)">${p.category||'—'}</span></td>
     </tr>`;
   }
@@ -5188,6 +5270,7 @@ function renderTable(model) {
       <td>${dc(fmtCurr(s.costBasis), null)}</td>
       <td>${dc(fmtCurr(s.currentValue), s.weightPct.toFixed(1)+'%', 'cell-mut')}</td>
       <td>${dc(t('cash_equiv_label'), null, 'cell-mut')}</td>
+      <td>${weekRange52Bar(s)}</td>
       <td></td>
     </tr>`;
   }
@@ -5811,7 +5894,7 @@ function renderHoldingsPerformance() {
       const barW     = (Math.abs(item.totalPnl) / maxAbs * 100).toFixed(2) + '%';
       const barColor = isGain ? 'var(--gain)' : 'var(--loss)';
       const sign     = isGain ? '+' : '';
-      return hpRow(item, barW, barColor, sign + '$' + Math.abs(item.totalPnl).toLocaleString('en-US', {maximumFractionDigits:2}), item.symbol);
+      return hpRow(item, barW, barColor, (isGain ? '+' : '') + fmtCurr(item.totalPnl), item.symbol);
     }).join('');
   } else {
     const maxPct = Math.max(...items.map(i => Math.abs(i.pnlPct)), 1);
@@ -5836,7 +5919,7 @@ window.showHpTip = function(e, sym) {
   if (isDivTab) {
     rows = `
       <span style="color:rgba(250,243,224,.6)">Total dividend</span>
-      <span style="color:var(--gain);font-weight:700;text-align:right">+${item.dividendNet.toFixed(2)} USD</span>
+      <span style="color:var(--gain);font-weight:700;text-align:right">+${fmtCurr(item.dividendNet)}</span>
       <span style="color:rgba(250,243,224,.6)">Total value</span>
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   } else {
@@ -5846,7 +5929,7 @@ window.showHpTip = function(e, sym) {
       <span style="color:rgba(250,243,224,.6)">Total gain %</span>
       <span style="color:${pc};font-weight:700;text-align:right">${item.pnlPct>=0?'+':''}${item.pnlPct.toFixed(2)}%</span>
       <span style="color:rgba(250,243,224,.6)">Total gain</span>
-      <span style="color:${vc};font-weight:700;text-align:right">${item.totalPnl>=0?'+':''}${fmtCurr(item.totalPnl)} USD</span>
+      <span style="color:${vc};font-weight:700;text-align:right">${item.totalPnl>=0?'+':''}${fmtCurr(item.totalPnl)}</span>
       <span style="color:rgba(250,243,224,.6)">Total value</span>
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   }
@@ -5899,6 +5982,79 @@ const planExpandCharts = {};
 function destroyPlanExpandCharts() {
   Object.values(planExpandCharts).forEach(arr => arr.forEach(c => { try { c.destroy(); } catch(_) {} }));
   Object.keys(planExpandCharts).forEach(k => delete planExpandCharts[k]);
+}
+
+// ── Plan Watch — compact alert feed ──────────────────────────────────────────
+let _planAlertSigs = new Set();
+let _planAlertInitDone = false;
+
+function renderPlanWatch() {
+  const card = document.getElementById('planWatchCard');
+  const el   = document.getElementById('planWatchPanel');
+  if (!card || !el || !currentModel) return;
+
+  const alerts = [];
+  Object.entries(planCache).forEach(([sym, d]) => {
+    const pos = findPos(sym) || currentModel.watchlist?.find(w => w.symbol === sym);
+    const price = pos?.price ?? null;
+    if (!price) return;
+    const { sl, tranches = [], trimTranches = [] } = d;
+
+    if (sl) {
+      const pct = (price - sl) / sl * 100;
+      if (pct <= 0)   alerts.push({ sym, key:`${sym}:SL_HIT`,  label:'SL hit',  detail:`${fmtCurr(price)} ≤ SL ${fmtCurr(sl)}`,                       urgency:5, color:'var(--loss)',  bg:'rgba(187,77,60,.14)'  });
+      else if(pct<=5) alerts.push({ sym, key:`${sym}:SL_NEAR`, label:'Near SL', detail:`${pct.toFixed(1)}% above SL ${fmtCurr(sl)}`,                   urgency:4, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+    }
+    trimTranches.forEach((t, i) => {
+      if (!t.price) return;
+      const pct = (price - t.price) / t.price * 100;
+      if (pct >= 0)    alerts.push({ sym, key:`${sym}:TP${i+1}_HIT`,  label:`TP${i+1} hit`,  detail:`${fmtCurr(t.price)} target reached`,                urgency:3, color:'var(--gain)',  bg:'rgba(107,142,90,.14)' });
+      else if(pct>=-3) alerts.push({ sym, key:`${sym}:TP${i+1}_NEAR`, label:`TP${i+1} near`, detail:`${Math.abs(pct).toFixed(1)}% below TP ${fmtCurr(t.price)}`, urgency:2, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+    });
+    tranches.forEach((t, i) => {
+      if (!t.price) return;
+      const pct = (price - t.price) / t.price * 100;
+      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1, color:'var(--peri)',  bg:'rgba(107,126,184,.14)' });
+      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+    });
+  });
+
+  alerts.sort((a, b) => b.urgency - a.urgency);
+
+  // Notify for newly triggered alerts (urgency >= 1 only)
+  const currentSigs = new Set(alerts.filter(a => a.urgency >= 1).map(a => a.key));
+  if (_planAlertInitDone) {
+    const newAlerts = alerts.filter(a => a.urgency >= 1 && !_planAlertSigs.has(a.key));
+    if (newAlerts.length) _firePlanNotifications(newAlerts);
+  }
+  _planAlertSigs = currentSigs;
+  _planAlertInitDone = true;
+
+  if (!alerts.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  el.innerHTML = alerts.map(a => `
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="openActionModal('${a.sym}')">
+      <div style="width:3px;min-height:34px;border-radius:2px;background:${a.color};flex-shrink:0"></div>
+      ${logoCell(a.sym, colorFor(a.sym))}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:12px">${a.sym}</div>
+        <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.detail}</div>
+      </div>
+      <span style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0">${a.label}</span>
+    </div>`).join('');
+}
+
+async function _firePlanNotifications(alerts) {
+  if (!('Notification' in window)) return;
+  let perm = Notification.permission;
+  if (perm === 'default') perm = await Notification.requestPermission();
+  if (perm !== 'granted') return;
+  alerts.forEach(a => new Notification(`Plan Watch: ${a.sym}`, {
+    body: `${a.label} — ${a.detail}`,
+    icon: './icon.png',
+    tag:  a.key,
+  }));
 }
 
 function renderPlansPanel() {
@@ -6271,6 +6427,100 @@ function renderSectorBar(model) {
       }
     }
   });
+}
+
+// ── Render: Risk & Concentration panel ───────────────────────────────────────
+function renderRiskPanel(model) {
+  const el = document.getElementById('riskPanel');
+  if (!el || !model) return;
+  const pos = model.positions || [];
+  if (!pos.length) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div>`;
+    return;
+  }
+
+  const toneColor = tn =>
+    tn === 'gain'  ? 'var(--gain)'  :
+    tn === 'honey' ? 'var(--honey)' :
+    tn === 'loss'  ? 'var(--loss)'  : 'var(--ink)';
+  const row = (label, valueHtml, tone, sub) =>
+    `<div class="risk-row">
+       <div class="risk-row-label">${label}${sub ? `<span class="risk-row-sub">${sub}</span>` : ''}</div>
+       <div class="risk-row-value" style="color:${toneColor(tone)}">${valueHtml}</div>
+     </div>`;
+  const minibar = (frac, tone) =>
+    `<div class="risk-bar-track"><div class="risk-bar-fill" style="width:${(Math.max(0,Math.min(1,frac))*100).toFixed(1)}%;background:${toneColor(tone)}"></div></div>`;
+
+  // ── Concentration (stock-only weights) ──────────────────────────────────────
+  const byStockW = [...pos].sort((a,b) => (b.stockWeightPct||0) - (a.stockWeightPct||0));
+  const top3 = byStockW.slice(0,3).reduce((s,p) => s + (p.stockWeightPct||0), 0);
+  const top3Tone = top3 > 60 ? 'loss' : top3 > 45 ? 'honey' : 'gain';
+  const hhi = pos.reduce((s,p) => { const w = (p.stockWeightPct||0)/100; return s + w*w; }, 0);
+  const hhiTone  = hhi > 0.25 ? 'loss' : hhi > 0.15 ? 'honey' : 'gain';
+  const hhiLabel = hhi > 0.25 ? t('risk_concentrated') : hhi > 0.15 ? t('risk_moderate') : t('risk_diversified');
+  const cashPct  = model.totalCurrent > 0 ? model.totalCash / model.totalCurrent * 100 : 0;
+  const big = byStockW[0];
+  const bigTone = (big.stockWeightPct||0) > 30 ? 'loss' : (big.stockWeightPct||0) > 20 ? 'honey' : 'gain';
+
+  // ── Sector diversification ──────────────────────────────────────────────────
+  const secMap = {};
+  for (const p of pos) { const s = p.sector||'Other'; secMap[s] = (secMap[s]||0) + (p.currentValue||0); }
+  const stockTotal = pos.reduce((s,p) => s + (p.currentValue||0), 0);
+  const secEntries = Object.entries(secMap).sort((a,b) => b[1]-a[1]);
+  const topSecPct  = stockTotal > 0 && secEntries.length ? secEntries[0][1] / stockTotal * 100 : 0;
+  const topSecName = secEntries.length ? t(secEntries[0][0]) : '—';
+  const topSecTone = topSecPct > 50 ? 'loss' : topSecPct > 35 ? 'honey' : 'gain';
+  const secCount   = secEntries.length;
+
+  // ── Stop-Loss coverage ──────────────────────────────────────────────────────
+  let protectedVal = 0, unprotectedVal = 0, maxLossToSl = 0;
+  for (const p of pos) {
+    const sl = planCache[p.symbol]?.sl;
+    const v  = p.currentValue || 0;
+    if (sl && sl > 0) {
+      protectedVal += v;
+      if (p.price && p.price > sl) maxLossToSl += (p.price - sl) * (p.qty || 0);
+    } else {
+      unprotectedVal += v;
+    }
+  }
+  const covPct  = stockTotal > 0 ? protectedVal / stockTotal * 100 : 0;
+  const covTone = covPct >= 70 ? 'gain' : covPct >= 40 ? 'honey' : 'loss';
+
+  // ── 52-Week range stress ────────────────────────────────────────────────────
+  const w52 = pos.filter(p => p.week52High && p.week52Low && p.price && p.week52High > p.week52Low);
+  let distHighSum = 0, nearLowCount = 0;
+  for (const p of w52) {
+    distHighSum += (p.price / p.week52High - 1);
+    if ((p.price - p.week52Low) / p.week52Low <= 0.10) nearLowCount++;
+  }
+  const hasW52 = w52.length > 0;
+  const avgDistHigh = hasW52 ? distHighSum / w52.length * 100 : null;
+  const distTone    = !hasW52 ? null : avgDistHigh <= -25 ? 'loss' : avgDistHigh <= -12 ? 'honey' : 'gain';
+  const nearLowTone = nearLowCount === 0 ? 'gain' : nearLowCount <= 2 ? 'honey' : 'loss';
+
+  el.innerHTML = `
+    ${row(t('risk_largest'), `${big.symbol} · ${(big.stockWeightPct||0).toFixed(1)}%`, bigTone)}
+    ${row(t('risk_top3'), top3.toFixed(1) + '%', top3Tone, `${t('of_target_label')} equity`)}
+    ${row(t('risk_hhi'),
+      `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+         <span>${hhi.toFixed(3)} · ${hhiLabel}</span>${minibar(hhi/0.4, hhiTone)}
+       </div>`, hhiTone)}
+    ${row(t('risk_cash_alloc'), cashPct.toFixed(1) + '%', cashPct < 5 ? 'honey' : null)}
+    <div class="risk-divider"></div>
+    ${row(t('risk_top_sector'), `${topSecName} · ${topSecPct.toFixed(1)}%`, topSecTone)}
+    ${row(t('risk_sectors'), String(secCount), secCount <= 2 ? 'honey' : 'gain')}
+    <div class="risk-divider"></div>
+    ${row(t('risk_sl_coverage'), covPct.toFixed(0) + '%', covTone, t('risk_by_value'))}
+    ${row(t('risk_max_loss_sl'), maxLossToSl > 0 ? '−' + fmtCurr(maxLossToSl) : '—', maxLossToSl > 0 ? 'loss' : null)}
+    ${row(t('risk_unprotected'), unprotectedVal > 0 ? fmtCurr(unprotectedVal) : '—',
+        unprotectedVal > stockTotal * 0.5 ? 'loss' : unprotectedVal > 0 ? 'honey' : 'gain')}
+    <div class="risk-divider"></div>
+    ${row(t('risk_dist_high'),
+        hasW52 ? (avgDistHigh >= 0 ? '+' : '') + avgDistHigh.toFixed(1) + '%' : '—', distTone)}
+    ${row(t('risk_near_low'),
+        hasW52 ? String(nearLowCount) : '—', nearLowTone, hasW52 ? t('risk_within_10') : '')}
+  `;
 }
 
 // ── Render: dividend breakdown ────────────────────────────────────────────────
@@ -6646,7 +6896,7 @@ function rerenderAllCharts() {
   if (!currentModel) return;
   try { Chart.helpers.each(Chart.instances, c => c.destroy()); } catch(_) {}
   destroyPlanExpandCharts();
-  sectorChartInst = donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = catDonutInst = null;
+  sectorChartInst = donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = catDonutInst = nwChartInst = null;
   renderGauge(currentModel);
   renderDonut(currentModel);
   renderCategoryDonut(currentModel);
@@ -6658,6 +6908,7 @@ function rerenderAllCharts() {
     const filtered = !start ? pnlData : pnlData.filter(t => t.date >= start);
     renderPnLChartFromTrades(filtered);
   }
+  if (nwData) renderNetWorthChart(nwData);
   drawClock();
 }
 
@@ -6681,6 +6932,12 @@ window.toggleCurrency = function() {
     if (sectorChartInst) sectorChartInst.update();
     if (txList?.length) renderTxPanel(txList);
     if (txCache?.length) renderDividendBreakdown(txCache);
+    if (_journalTrades.length) renderTradeJournal(_journalTrades);
+    renderRiskPanel(currentModel);
+    renderPosList(currentModel);
+    renderGauge(currentModel);
+    renderHoldingsPerformance();
+    if (nwData) renderNetWorthChart(nwData);
   }
 };
 
@@ -6898,6 +7155,7 @@ async function loadBenchmark(retry = 0) {
         if (card && dividends.gross > 0) card.style.display = '';
         renderHoldingsPerformance();
       }
+      loadNetWorthChart();
       return !!data;
     };
 
@@ -6994,6 +7252,115 @@ function computePnLTimeline(txs) {
   return trades;
 }
 
+function computeClosedTrades(txs) {
+  const open   = {};
+  const closed = [];
+  const sorted = [...txs].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  for (const tx of sorted) {
+    if (!tx.ticker || tx.ticker === 'SGOV' || tx.type === 'Dividend') continue;
+    const sh = tx.shares || 0, px = tx.price || 0;
+    const tv = tx.tradeValue != null ? tx.tradeValue : sh * px;
+    if (!open[tx.ticker]) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
+    const h = open[tx.ticker];
+    if (tx.type === 'Buy') {
+      h.shares    += sh;
+      h.totalCost += sh * px;
+      h.fees      += Math.abs(tv - sh * px);
+      if (!h.firstBuy) h.firstBuy = tx.dateStr;
+    } else if (tx.type === 'Sell') {
+      const avgEntry  = h.shares > 1e-9 ? h.totalCost / h.shares : px;
+      const sold      = Math.min(sh, h.shares);
+      const grossPnl  = (px - avgEntry) * sold;
+      const sellFee   = Math.abs(tv - sh * px);
+      h.totalCost -= avgEntry * sold;
+      h.shares    -= sold;
+      h.fees      += sellFee;
+      h.realized  += grossPnl;
+      h.soldQty   += sold;
+      if (h.shares < 0.001) {
+        const totalFees = h.fees;
+        const netPnl    = h.realized - totalFees;
+        const costBasis = avgEntry * h.soldQty;
+        closed.push({
+          ticker:    tx.ticker,
+          openDate:  h.firstBuy,
+          closeDate: tx.dateStr,
+          holdDays:  h.firstBuy ? Math.round((new Date(tx.dateStr) - new Date(h.firstBuy)) / 86400000) : 0,
+          avgEntry,
+          avgExit:   px,
+          shares:    h.soldQty,
+          grossPnl:  h.realized,
+          fees:      totalFees,
+          netPnl,
+          netPnlPct: costBasis > 0 ? netPnl / costBasis * 100 : 0,
+        });
+        open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
+      }
+    }
+  }
+  return closed.sort((a, b) => b.closeDate.localeCompare(a.closeDate));
+}
+
+function renderTradeJournal(trades) {
+  _journalTrades = trades || [];
+  const body    = document.getElementById('journalBody');
+  const countEl = document.getElementById('journalCount');
+  const sumEl   = document.getElementById('journalSummary');
+  if (!body) return;
+  if (countEl) countEl.textContent = _journalTrades.length || '';
+  if (!_journalTrades.length) {
+    body.innerHTML = `<div class="tx-panel-status">${t('no_closed_trades')}</div>`;
+    if (sumEl) sumEl.innerHTML = '';
+    return;
+  }
+  const wins     = _journalTrades.filter(r => r.netPnl > 0).length;
+  const totalNet = _journalTrades.reduce((s, r) => s + r.netPnl, 0);
+  const avgHold  = Math.round(_journalTrades.reduce((s, r) => s + r.holdDays, 0) / _journalTrades.length);
+  if (sumEl) {
+    const c = totalNet >= 0 ? 'var(--gain)' : 'var(--loss)';
+    sumEl.innerHTML =
+      `<span style="color:${c};font-weight:700">${totalNet>=0?'+':''}${fmtCurr(totalNet)}</span>` +
+      `<span>${t('journal_win_rate')} <strong>${wins}/${_journalTrades.length}</strong></span>` +
+      `<span>${t('journal_avg_hold')} <strong>${avgHold}d</strong></span>`;
+  }
+  const sorted = [..._journalTrades].sort((a, b) => {
+    const av = a[_journalSort], bv = b[_journalSort];
+    return typeof av === 'string' ? av.localeCompare(bv) * _journalDir : (av - bv) * _journalDir;
+  });
+  const sortArrow = key => _journalSort === key ? (_journalDir === -1 ? ' ▼' : ' ▲') : '';
+  body.innerHTML = `<div class="tx-panel-wrap"><table class="tx-panel-table">
+    <thead><tr>
+      <th style="text-align:left;cursor:pointer;user-select:none" onclick="setJournalSort('ticker')">Symbol${sortArrow('ticker')}</th>
+      <th style="cursor:pointer;user-select:none" onclick="setJournalSort('closeDate')">Closed${sortArrow('closeDate')}</th>
+      <th>Held</th>
+      <th>Shares</th>
+      <th>Entry</th>
+      <th>Exit</th>
+      <th style="cursor:pointer;user-select:none" onclick="setJournalSort('netPnl')">P&amp;L${sortArrow('netPnl')}</th>
+      <th style="cursor:pointer;user-select:none" onclick="setJournalSort('netPnlPct')">P&amp;L%${sortArrow('netPnlPct')}</th>
+    </tr></thead>
+    <tbody>${sorted.map(tr => {
+      const gain = tr.netPnl >= 0;
+      const gainPct = tr.netPnlPct >= 0;
+      return `<tr>
+        <td style="text-align:left"><strong>${tr.ticker}</strong></td>
+        <td>${tr.closeDate}</td>
+        <td style="color:var(--muted)">${tr.holdDays}d</td>
+        <td>${tr.shares % 1 === 0 ? tr.shares : tr.shares.toFixed(4)}</td>
+        <td>${fmtCurr(tr.avgEntry)}</td>
+        <td>${fmtCurr(tr.avgExit)}</td>
+        <td style="color:var(--${gain?'gain':'loss'});font-weight:700">${gain?'+':''}${fmtCurr(tr.netPnl)}</td>
+        <td style="color:var(--${gainPct?'gain':'loss'})">${gainPct?'+':''}${tr.netPnlPct.toFixed(2)}%</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+window.setJournalSort = function(key) {
+  if (_journalSort === key) _journalDir *= -1; else { _journalSort = key; _journalDir = -1; }
+  renderTradeJournal(_journalTrades);
+};
+
 function renderPnLChart(txs) {
   pnlData = computePnLTimeline(txs);
   renderPnLChartFromTrades(pnlData);
@@ -7066,11 +7433,152 @@ async function loadPnLChart() {
     const txs = txCache || (txCache = await fetchTransactions());
     if (!txs?.length) { statusEl.textContent = t('no_tx_data'); return; }
     renderPnLChart(txs);
+    loadNetWorthChart();
   } catch(e) {
     if (statusEl) statusEl.textContent = `Error: ${e.message}`;
     console.error(e);
   }
 }
+
+// ── Net Worth Over Time ───────────────────────────────────────────────────────
+function computeNetWorth(txs) {
+  if (!txs?.length || !historyCache?.prices) return null;
+  const prices = historyCache.prices;
+  const dateSet = new Set();
+  Object.values(prices).forEach(p => Object.keys(p).forEach(d => dateSet.add(d)));
+
+  const sorted = [...txs]
+    .filter(tx => tx.type === 'Buy' || tx.type === 'Sell')
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  const firstBuyDate = sorted.find(tx => tx.type === 'Buy')?.dateStr;
+  if (!firstBuyDate) return null;
+
+  const days = [...dateSet].filter(d => d >= firstBuyDate).sort();
+  if (!days.length) return null;
+
+  const holdings = {};
+  let totalBuys = 0, totalSells = 0, txIdx = 0;
+  const labels = [], netWorthLine = [], netInvestedLine = [];
+
+  for (const day of days) {
+    while (txIdx < sorted.length && sorted[txIdx].dateStr <= day) {
+      const tx = sorted[txIdx++];
+      const amt = (tx.shares || 0) * (tx.price || 0);
+      if (tx.type === 'Buy') {
+        holdings[tx.ticker] = (holdings[tx.ticker] || 0) + tx.shares;
+        totalBuys += amt;
+      } else {
+        holdings[tx.ticker] = Math.max(0, (holdings[tx.ticker] || 0) - tx.shares);
+        if ((holdings[tx.ticker] || 0) < 1e-9) delete holdings[tx.ticker];
+        totalSells += amt;
+      }
+    }
+    if (totalBuys === 0) continue;
+
+    let portVal = 0, hasPrices = false;
+    for (const [sym, sh] of Object.entries(holdings)) {
+      if (sh < 1e-9) continue;
+      const p = nearestPrice(prices[sym], day);
+      if (p != null) { portVal += sh * p; hasPrices = true; }
+    }
+    if (Object.keys(holdings).length > 0 && !hasPrices) continue;
+
+    labels.push(day);
+    netWorthLine.push(+portVal.toFixed(2));
+    netInvestedLine.push(+(totalBuys - totalSells).toFixed(2));
+  }
+  return labels.length >= 2 ? { labels, netWorthLine, netInvestedLine } : null;
+}
+
+function renderNetWorthChart(data) {
+  if (nwChartInst) { nwChartInst.destroy(); nwChartInst = null; }
+  const el = document.getElementById('nwChart');
+  if (!el || !data) return;
+  const { labels, netWorthLine, netInvestedLine } = data;
+  const latest   = netWorthLine[netWorthLine.length - 1];
+  const invested = netInvestedLine[netInvestedLine.length - 1];
+  const gain = latest - invested;
+  const te = document.getElementById('nwTotal');
+  if (te) {
+    te.textContent = `${fmtCurr(latest)}  ${gain >= 0 ? '+' : ''}${fmtCurr(gain)}`;
+    te.style.color = `var(${gain >= 0 ? '--gain' : '--loss'})`;
+  }
+  nwChartInst = new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Net Worth', data: netWorthLine,
+        borderColor: css('--terracotta'), borderWidth: 2.5, tension: 0.3,
+        pointRadius: 0, pointHoverRadius: 4,
+        fill: '+1', backgroundColor: 'rgba(196,106,74,.09)' },
+      { label: 'Net Invested', data: netInvestedLine,
+        borderColor: css('--peri'), borderWidth: 1.8, tension: 0,
+        borderDash: [4, 3], pointRadius: 0, pointHoverRadius: 4, fill: false },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8, color: css('--muted'), font: { size: 10 } } },
+        y: { grid: { color: css('--grid') }, border: { display: false },
+          ticks: { color: css('--muted'), font: { size: 10 }, callback: v => fmtCurr(v) } }
+      },
+      plugins: {
+        legend: { display: true, position: 'top', align: 'start',
+          labels: { boxWidth: 20, boxHeight: 2, color: css('--muted'), font: { size: 11 }, padding: 14 } },
+        tooltip: {
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${fmtCurr(c.parsed.y)}`,
+            afterBody: ctx => {
+              const i = ctx[0]?.dataIndex;
+              if (i == null) return [];
+              const nw = netWorthLine[i], ni = netInvestedLine[i];
+              const g = nw - ni;
+              return ['', ` Total P&L: ${g >= 0 ? '+' : ''}${fmtCurr(g)} (${ni > 0 ? ((g/ni)*100).toFixed(1) : 0}%)`];
+            }
+          },
+          backgroundColor: css('--tooltip-bg'), titleColor: '#c8b890', bodyColor: '#faf3e0', padding: 10, cornerRadius: 10
+        }
+      }
+    }
+  });
+}
+
+function loadNetWorthChart() {
+  const statusEl = document.getElementById('nwStatus');
+  const wrap     = document.getElementById('nwChartWrap');
+  if (!statusEl) return;
+  const txs = txCache;
+  if (!txs?.length) { statusEl.textContent = 'No transaction data.'; statusEl.style.display = ''; return; }
+  if (!historyCache?.prices || !Object.keys(historyCache.prices).length) {
+    statusEl.textContent = 'Waiting for price history to load…'; statusEl.style.display = ''; return;
+  }
+  const data = computeNetWorth(txs);
+  if (!data) {
+    statusEl.textContent = 'Not enough price history to compute.'; statusEl.style.display = ''; return;
+  }
+  nwData = data;
+  statusEl.style.display = 'none';
+  if (wrap) wrap.style.display = 'block';
+  renderNetWorthChart(data);
+}
+
+window.setPnlTab = function(tab) {
+  const pnlContent = document.getElementById('pnlTabContent');
+  const nwContent  = document.getElementById('nwTabContent');
+  const pnlBtn     = document.getElementById('pnlTabPnl');
+  const nwBtn      = document.getElementById('pnlTabNw');
+  const pnlTotal   = document.getElementById('pnlTotal');
+  const nwTotal    = document.getElementById('nwTotal');
+  if (!pnlContent || !nwContent) return;
+  const showPnl = tab === 'pnl';
+  pnlContent.style.display = showPnl ? '' : 'none';
+  nwContent.style.display  = showPnl ? 'none' : '';
+  if (pnlBtn) pnlBtn.classList.toggle('active', showPnl);
+  if (nwBtn)  nwBtn.classList.toggle('active', !showPnl);
+  if (pnlTotal) pnlTotal.style.display = showPnl ? '' : 'none';
+  if (nwTotal)  nwTotal.style.display  = showPnl ? 'none' : '';
+  if (!showPnl && !nwData) loadNetWorthChart();
+};
 
 // ── Shared chart time filter ──────────────────────────────────────────────────
 function periodStart(filter) {
@@ -7236,13 +7744,28 @@ function buildShell() {
             </div>
           </div>
           <div class="card chart-half">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
               <div class="card-title" style="margin-bottom:0">${t('cum_pnl')}</div>
-              <span id="pnlTotal" style="font-size:12px;font-weight:700"></span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="pnlTotal" style="font-size:12px;font-weight:700"></span>
+                <span id="nwTotal"  style="font-size:12px;font-weight:700;display:none"></span>
+                <div style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px">
+                  <button id="pnlTabPnl" class="pnl-tab-btn active" onclick="setPnlTab('pnl')">P&amp;L</button>
+                  <button id="pnlTabNw"  class="pnl-tab-btn"        onclick="setPnlTab('nw')">Net Worth</button>
+                </div>
+              </div>
             </div>
-            <div class="bench-status" id="pnlStatus">${t('loading_msg')}</div>
-            <div id="pnlChartWrap" style="display:none">
-              <div class="chart-wrap bench-h"><canvas id="pnlChart"></canvas></div>
+            <div id="pnlTabContent">
+              <div class="bench-status" id="pnlStatus">${t('loading_msg')}</div>
+              <div id="pnlChartWrap" style="display:none">
+                <div class="chart-wrap bench-h"><canvas id="pnlChart"></canvas></div>
+              </div>
+            </div>
+            <div id="nwTabContent" style="display:none">
+              <div class="bench-status" id="nwStatus">Waiting for price history…</div>
+              <div id="nwChartWrap" style="display:none">
+                <div class="chart-wrap bench-h"><canvas id="nwChart"></canvas></div>
+              </div>
             </div>
           </div>
         </div>
@@ -7300,10 +7823,23 @@ function buildShell() {
           </div>
         </div>
         <div id="txPanelBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
+      </div>
+      <!-- Trade Journal -->
+      <div class="card" id="journalCard" data-mob-tab="transaction" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+          <div class="card-title" style="margin-bottom:0">${t('trade_journal_title')}<span class="tx-count-badge" id="journalCount"></span></div>
+          <div id="journalSummary" style="font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center"></div>
+        </div>
+        <div id="journalBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
       </div>` : ''}
     </div>
 
     <div class="side-panel">
+      <!-- Plan Watch (alerts only, hidden when none) -->
+      <div class="card" id="planWatchCard" data-mob-tab="overview" style="display:none">
+        <div class="card-title" style="color:var(--loss)">🔔 Plan Watch</div>
+        <div id="planWatchPanel"></div>
+      </div>
       <!-- Allocation -->
       <div class="card alloc-card" data-mob-tab="allocation">
         <div class="card-title">
@@ -7347,6 +7883,11 @@ function buildShell() {
         <div class="card-title">${t('pnl_by_sector_title')}</div>
         <div class="chart-wrap bar-h"><canvas id="sectorChart"></canvas></div>
         <div class="sector-legend" id="sectorLegend"></div>
+      </div>
+      <!-- Risk & Concentration -->
+      <div class="card" data-mob-tab="overview">
+        <div class="card-title">${t('risk_concentration_title')}</div>
+        <div class="risk-panel" id="riskPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
       </div>
       <!-- Calendar -->
       <div class="card" data-mob-tab="overview">
@@ -7504,7 +8045,7 @@ window.submitSetup = function() {
     closeSetupModal();
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
-    txCache = null; historyCache = null; planCache = {};
+    txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData,
       theme:    localStorage.getItem('theme')    || 'light',
@@ -7518,7 +8059,7 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     closeSetupModal();
     _applyActiveProfile();
-    shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null;
+    shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData };
@@ -8501,7 +9042,7 @@ async function init() {
 
     // Fetch live quotes for day change + pre/post market (non-blocking)
     fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
-      .then(quotes => { if (currentModel !== model) return; attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); });
+      .then(quotes => { if (currentModel !== model) return; attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model); });
 
     if (isFirstLoad) {
       buildShell();
@@ -8577,12 +9118,14 @@ async function init() {
     renderCategoryDonut(model);
     renderSectorDonut(model);
     renderSectorBar(model);
+    renderRiskPanel(model);
     renderWatchlist(model);
     loadCalendar(model);
     if (isFirstLoad) {
       await loadAllPlansFromSheet();
     }
     renderPlansPanel();
+    renderPlanWatch();
     renderTable(model);
     if (TRANSACTION_URL) {
       if (!benchmarkLoaded) {
@@ -8613,6 +9156,10 @@ async function init() {
           const card = document.getElementById('divBreakdownCard');
           if (card && dividends?.gross > 0) card.style.display = '';
           renderHoldingsPerformance();
+          const closedTrades = computeClosedTrades(txs);
+          renderTradeJournal(closedTrades);
+          const jCard = document.getElementById('journalCard');
+          if (jCard) jCard.style.display = closedTrades.length ? '' : 'none';
         } catch(e) { console.error('stat cards:', e); }
       })();
     }
