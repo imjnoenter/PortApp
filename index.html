@@ -8051,6 +8051,8 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     closeSetupModal();
     _applyActiveProfile();
+    const _bmImg = document.querySelector('.brand-mark img');
+    if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
   } else if (_setupMode === 'add') {
