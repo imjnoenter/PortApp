@@ -1358,6 +1358,7 @@ function _buildUrls(c) {
   const b = `https://docs.google.com/spreadsheets/d/${c.sheetId}/gviz/tq?tqx=out:json&sheet=`;
   return { SHEET_URL: b+'Claude', TRANSACTION_URL: b+'transactions', TX_LIST_URL: b+'transactions',
            HISTORY_URL: b+'History', CALENDAR_URL: b+'Calendar', PLAN_URL: b+'Plan',
+           QUOTES_URL: b+'Quotes',
            RECORD_URL: c.recordUrl, WRITE_KEY: c.writeKey };
 }
 function _applyActiveProfile() {
@@ -1366,7 +1367,9 @@ function _applyActiveProfile() {
   const u = _buildUrls(a);
   SHEET_URL = u.SHEET_URL; TRANSACTION_URL = u.TRANSACTION_URL; TX_LIST_URL = u.TX_LIST_URL;
   HISTORY_URL = u.HISTORY_URL; CALENDAR_URL = u.CALENDAR_URL; PLAN_URL = u.PLAN_URL;
+  QUOTES_URL = u.QUOTES_URL;
   RECORD_URL = u.RECORD_URL; _WRITE_KEY = u.WRITE_KEY;
+  _staticQuoteCache = {};
 }
 
 function _syncProfilePrefsToStorage() {
@@ -1411,6 +1414,9 @@ let CALENDAR_URL    = _u.CALENDAR_URL    || '';
 let PLAN_URL        = _u.PLAN_URL        || '';
 let RECORD_URL      = _u.RECORD_URL      || '';
 let _WRITE_KEY      = _u.WRITE_KEY       || '';
+let QUOTES_URL      = _u.QUOTES_URL      || '';
+let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, earningsTimestamp, ... } }
+let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo', updatedAt?: unixSec }
 
 // ── Write helper — injects auth key on every mutating request ─────────────────
 function _showToast(msg, duration = 3500) {
@@ -4891,12 +4897,44 @@ function renderPosList(model) {
   }).join('');
 }
 
-// ── Live quotes (day change + pre/post market) ────────────────────────────────
-async function fetchQuotes(symbols) {
-  if (!symbols.length) return {};
+// ── Quotes sheet reader (Apps Script → Finnhub → sheet, refreshed every 1 min) ──
+async function fetchSheetQuotes() {
+  if (!QUOTES_URL) return null;
+  try {
+    const res = await fetch(QUOTES_URL);
+    if (!res.ok) return null;
+    const text = await res.text();
+    const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
+    const table = json?.table;
+    if (!table?.rows?.length) return null;
+    const cols = table.cols.map(c => c.label?.trim() || '');
+    const iSym = cols.indexOf('Symbol'), iPrice = cols.indexOf('Price');
+    const iChg = cols.indexOf('Change'),  iPct  = cols.indexOf('ChangePct');
+    const iAt  = cols.indexOf('UpdatedAt');
+    if (iSym < 0 || iPrice < 0 || iChg < 0 || iPct < 0 || iAt < 0) return null;
+    const firstAt = table.rows[0]?.c?.[iAt]?.v; // Unix seconds written by Apps Script
+    if (!firstAt || Date.now() - firstAt * 1000 > 3 * 60 * 1000) return null; // stale > 3 min
+    const quotes = {};
+    table.rows.forEach(row => {
+      const c = row.c;
+      const sym = c[iSym]?.v; if (!sym) return;
+      quotes[sym] = {
+        regularMarketPrice:         c[iPrice]?.v ?? null,
+        regularMarketChange:        c[iChg]?.v   ?? null,
+        regularMarketChangePercent: c[iPct]?.v   ?? null,
+        marketState: 'REGULAR',
+      };
+    });
+    return Object.keys(quotes).length ? { quotes, updatedAt: firstAt } : null;
+  } catch { return null; }
+}
 
-  // Try v7 batch first (returns pre/post market fields natively)
-  const sym = symbols.map(yahooTicker).join(',');
+// ── Yahoo v7 batch fetch (used for index symbols + fallback) ──────────────────
+async function fetchYahooBatch(syms) {
+  if (!syms.length) return {};
+  const yahooToOrig = {};
+  syms.forEach(s => { yahooToOrig[yahooTicker(s)] = s; });
+  const sym = syms.map(yahooTicker).join(',');
   for (const base of ['https://query1.finance.yahoo.com','https://query2.finance.yahoo.com']) {
     const url = `${base}/v7/finance/quote?symbols=${sym}`;
     for (const u of [url, `https://corsproxy.io/?url=${encodeURIComponent(url)}`]) {
@@ -4907,18 +4945,61 @@ async function fetchQuotes(symbols) {
         const results = d?.quoteResponse?.result || [];
         if (results.length) {
           const out = {};
-          results.forEach(q => { out[q.symbol] = q; });
+          results.forEach(q => {
+            const origSym = yahooToOrig[q.symbol] || q.symbol;
+            out[origSym] = q;
+            _staticQuoteCache[origSym] = {
+              fiftyTwoWeekHigh:     q.fiftyTwoWeekHigh     ?? null,
+              fiftyTwoWeekLow:      q.fiftyTwoWeekLow      ?? null,
+              earningsTimestamp:    q.earningsTimestamp     ?? null,
+              earningsTimestampEnd: q.earningsTimestampEnd  ?? null,
+              exDividendDate:       q.exDividendDate        ?? null,
+            };
+          });
           return out;
         }
       } catch {}
     }
   }
+  return {};
+}
+
+// ── Live quotes (day change + pre/post market) ────────────────────────────────
+async function fetchQuotes(symbols) {
+  if (!symbols.length) return {};
+
+  // Market hours: read from Quotes sheet; fetch anything missing from Yahoo
+  if (isMarketOpen()) {
+    const fresh = await fetchSheetQuotes();
+    if (fresh) {
+      _lastQuoteSource = { type: 'sheet', updatedAt: fresh.updatedAt };
+      const out = {};
+      const missingFromSheet = [];
+      symbols.forEach(s => {
+        const live      = fresh.quotes[s];
+        const validLive = live?.regularMarketPrice > 0 ? live : null; // null if Finnhub returned no data
+        const stat      = _staticQuoteCache[s];
+        if (validLive || stat) { out[s] = { ...stat, ...(validLive || {})}; }
+        else                   { missingFromSheet.push(s); }
+      });
+      if (missingFromSheet.length) {
+        const extra = await fetchYahooBatch(missingFromSheet);
+        Object.assign(out, extra);
+      }
+      if (Object.keys(out).length) return out;
+    }
+  }
+
+  _lastQuoteSource = { type: 'yahoo' };
+  // Full Yahoo batch for all symbols (non-market hours or sheet unavailable)
+  const out = await fetchYahooBatch(symbols);
+  if (Object.keys(out).length) return out;
 
   // Fallback: intraday chart with includePrePost=true — extracts pre/post prices from candles
   const entries = await Promise.all(symbols.map(s => fetchSingleQuoteFromChart(s, yahooTicker(s))));
-  const out = {};
-  entries.forEach(([s, q]) => { if (q) out[s] = q; });
-  return out;
+  const chartOut = {};
+  entries.forEach(([s, q]) => { if (q) chartOut[s] = q; });
+  return chartOut;
 }
 
 async function fetchSingleQuoteFromChart(symbol, yahooSym = yahooTicker(symbol)) {
@@ -7784,6 +7865,7 @@ function buildShell() {
       </div>
       <div class="header-actions">
         <div class="last-updated" id="lastUpdated"></div>
+        <div id="quotesFreshness" style="font-size:10px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap"></div>
         <div class="header-tools">
           <button class="currency-btn" id="currencyBtn" onclick="toggleCurrency()"></button>
           <div class="lang-toggle" title="Switch language">
@@ -9142,7 +9224,17 @@ async function init() {
 
     // Fetch live quotes for day change + pre/post market (non-blocking)
     fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
-      .then(quotes => { if (currentModel !== model) return; attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model); });
+      .then(quotes => {
+        if (currentModel !== model) return;
+        attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model);
+        const fEl = document.getElementById('quotesFreshness');
+        if (fEl) {
+          if (_lastQuoteSource?.type === 'sheet') {
+            const sec = Math.round(Date.now() / 1000 - _lastQuoteSource.updatedAt);
+            fEl.textContent = `· prices ${sec}s ago`;
+          } else { fEl.textContent = ''; }
+        }
+      });
 
     if (isFirstLoad) {
       buildShell();

@@ -29,28 +29,42 @@ Everything is in `index.html`:
 ## Data Sources
 
 **Google Sheets (read-only via gviz/tq JSON API):**
-- Portfolio: `sheet=Claude` — columns: Symbol, Name, Sector, Category, Qty, Avg price, Target Allocation, Current price, Cash, Cash Reserves
+- Portfolio: `sheet=Claude` — columns: Symbol, Name, Sector, Industry, Category, Qty, Avg price, Target Allocation, Current price, Cash, Cash Reserves
 - Transactions: `sheet=transactions`
 - Plan data: `sheet=Plan` — columns: Symbol, SL, Note, T1…T13, TP1…TP3
 - Price history cache: `sheet=History`
 - Earnings calendar: `sheet=Calendar`
+- Live quotes cache: `sheet=Quotes` — columns: Symbol, Price, Change, ChangePct, UpdatedAt (Unix seconds). Written by `refreshQuotes()` trigger every minute during market hours. Only rows where Finnhub returned `price > 0` are written — absent rows mean Finnhub had no data for that symbol.
 
-**Google Apps Script (write operations):**
+**Google Apps Script (write operations + quote refresh):**
 - `RECORD_URL` = Apps Script web app (`doGet`)
-- Actions: `updateSymbol`, `removeSymbol`, `updateCash`, `savePlan`, `clearPlan`, `fetchHistory`
+- Actions: `addSymbol`, `updateSymbol`, `removeSymbol`, `updateCash`, `savePlan`, `clearPlan`, `fetchHistory`
 - All write calls go through `recordFetch(params)` which injects `_WRITE_KEY` automatically
+- `addSymbol` fetches Name/Sector/Industry server-side via `fetchYahooMetadata()` (Yahoo quoteSummary + crumb) — no client-side metadata fetch needed
+- `getYahooCrumb()` returns `{ crumb, cookieStr }` — acquires Yahoo Finance session cookie + crumb; required for quoteSummary and v7/quote from Apps Script. **Property is `cookieStr`, not `cookie`.**
+- `backfillMetadata()` — one-time function (run from Apps Script editor) to populate Name/Sector/Industry for existing symbols
+- `refreshQuotes()` — time-triggered (every 1 min, market hours only via `isMarketOpenET_()`). Fetches portfolio symbols from Finnhub (split across two API keys via `fetchAll`), index symbols (`^GSPC`, `^IXIC`, `^RUT`) from Yahoo v7/quote with crumb. Writes to `Quotes` sheet atomically (single `setValues`, trims leftover rows). `KEY1`/`KEY2` are Finnhub API keys hardcoded at top of script.
 
-**Live quotes:** Yahoo Finance v7/quote (batch, all symbols in one call) with v8/chart per-symbol fallback. CORS via corsproxy.io fallback. Pre/post-market prices included.
+**Live quotes — two-path routing:**
+- **Market hours (Mon–Fri 9:30–16:00 ET):** `fetchQuotes` reads from the `Quotes` sheet tab (written every minute by Apps Script `refreshQuotes` via Finnhub). Symbols missing from the sheet (e.g. index symbols) fall back to a Yahoo browser call. Non-market hours always use Yahoo.
+- **Yahoo path:** v7/quote batch for all symbols, v8/chart per-symbol as final fallback. CORS via corsproxy.io fallback. Pre/post-market prices included.
 - Ticker mapping: `yahooTicker(s)` converts `.` → `-` (e.g. `BRK.B` → `BRK-B`)
+- `_staticQuoteCache` — in-memory cache of 52W/earnings fields from the last Yahoo call; merged into sheet quotes so those fields persist across market-hours refreshes
+- `_lastQuoteSource` — `{ type: 'sheet'|'yahoo', updatedAt? }` — drives the "prices Xs ago" freshness badge (`id="quotesFreshness"` in header)
 
 ## Key Architecture
 ```
-parseRows(table)       → raw rows from gviz JSON
+parseRows(table)       → raw rows from gviz JSON — reads: symbol, name, sector, industry, category, qty, avgPrice, target, price, cash, cashRes, fcd, usd
 buildModel(rows)       → { positions[], watchlist[], sgovPos, rawCash, rawFcd, rawUsd,
                            sgovValue, cashResPct, totalCash, totalCurrent, investable,
                            totalInvested, totalPnl, totalPnlPct }
-fetchQuotes(symbols)   → attaches dayChange, dayChangePct, preMarketPrice, postMarketPrice,
-                           week52High, week52Low to each position
+fetchQuotes(symbols)   → during market hours reads Quotes sheet via fetchSheetQuotes(); symbols
+                           with price > 0 used directly, others fall through to fetchYahooBatch().
+                           Outside market hours calls fetchYahooBatch(symbols) directly.
+                           Attaches dayChange, dayChangePct, preMarketPrice, postMarketPrice,
+                           week52High, week52Low to each position via attachQuotes().
+fetchSheetQuotes()     → reads Quotes sheet gviz; returns null if stale (>3 min by UpdatedAt) or missing columns
+fetchYahooBatch(syms)  → Yahoo v7/quote batch; populates _staticQuoteCache with 52W/earnings fields
 currentModel           → global reference used by all render functions
 planCache              → { sym: { tranches[], sl, note, trimTranches[] } } — loaded from Plan sheet at startup
 historyCache           → { prices: { sym: { dateStr: close } }, dividends: { sym: { dateStr: amount } } }
@@ -77,7 +91,7 @@ _planAlertSigs         → Set of alert keys already fired — prevents duplicat
 ## Currency Toggle Rule
 - Portfolio values (current value, P&L, dividends, allocation amounts) → `fmtCurr(n)`
 - Per-share stock prices and all plan tab content → `fmtUSD(n)` (plan tab prices are inherently USD)
-- `toggleCurrency` re-renders: stat cards, table, watchlist, donut, sector chart, tx panel, dividend breakdown, trade journal, risk panel, allocation list, gauge, holdings performance, net worth chart
+- `toggleCurrency` re-renders: stat cards, table, watchlist, donut, sector chart, tx panel, dividend breakdown, trade journal, risk panel, allocation list, gauge, holdings performance, net worth chart, industry donut
 
 ## Multi-User / Auth
 No URLs or secrets are in the source code. Each user sets up their own device once via the setup modal. Config is stored in `localStorage` under key `portfolioConfig.v1`.
@@ -119,6 +133,7 @@ function doGet(e) {
 
 ## Sheet Schema
 - **Category** values: `"Big Value"`, `"Medium Value"`, `"Growth"`, `"Dividend"`, `"Other"`
+- **Industry** — free-form string from Yahoo Finance `assetProfile.industry`; ETFs use `"ETF"`; falls back to `'Other'` in charts
 - **Cash/Cash Reserves** stored only in row 1 of the Claude sheet
 - **SGOV** = Treasury ETF, treated as cash-equivalent (separate rendering path in `buildModel`; excluded from `computeClosedTrades` and `computePnLTimeline`)
 - Rows with no Qty and no AvgPrice → watchlist entries
@@ -162,7 +177,7 @@ Two instances: symbol detail modal (`sdTvChart`) and action modal PLAN tab (`act
 ## Layout
 - Desktop: 2-column grid (`1fr 380px`)
 - **Main panel (left):** Stat cards → Positions (with 52W range column) → Holdings Performance → Benchmark → Transactions → Trade Journal (hidden when no closed trades)
-- **Side panel (right):** Plan Watch (alerts only, hidden when none) → Allocation → Total Net Worth → Category Breakdown → Sector Breakdown → P&L by Sector → Risk & Concentration → Calendar → Watchlist → Dividend Breakdown
+- **Side panel (right):** Plan Watch (alerts only, hidden when none) → Allocation → Total Net Worth → Category Breakdown → Sector Breakdown → Industry Breakdown → P&L by Sector → Risk & Concentration → Calendar → Watchlist → Dividend Breakdown
 
 ## Risk & Concentration Panel (`id="riskPanel"`)
 `renderRiskPanel(model)` — pure, idempotent, no state. Four sections:
@@ -179,8 +194,16 @@ Called from: sync render block (after `renderSectorBar`), `fetchQuotes().then(..
 - Auto-refresh is suppressed while any modal is open
 - `isFirstLoad` flag gates: `loadAllPlansFromSheet()`, `refreshTxPanel()`, `buildShell()`
 
+## Finnhub / Quotes Sheet Contract
+- Apps Script writes only rows where Finnhub returned `price > 0`. Symbols with no Finnhub data are absent.
+- Index symbols (`^GSPC`, `^IXIC`, `^RUT`) are NOT supported by Finnhub free tier — they are fetched via Yahoo v7/quote (with crumb) inside the Apps Script and appended to the same Quotes sheet write.
+- Client `fetchSheetQuotes()` checks `regularMarketPrice > 0` as a safety guard before using a row — symbols with null/zero prices fall to `missingFromSheet` and are fetched from Yahoo browser-side.
+- `_staticQuoteCache` is populated from Yahoo calls and merged into sheet quotes: `out[s] = { ...stat, ...live }`. This preserves 52W range and earnings data across sheet-based refreshes.
+- gviz cache lag: Google CDN caches the Quotes sheet read for ~5–30s. Worst-case quote age ≈ script period (60s) + gviz lag.
+
 ## Known Limitations
 - Live Yahoo Finance quotes blocked on GitHub Pages (CORS) — corsproxy.io used as fallback
 - Dividend data estimated from Yahoo Finance, not actual payouts
-- Apps Script `savePlan` writes SL + Note + entry tranches + TP tranches to Plan sheet
+- Apps Script `savePlan` sends full plan state every call (full row replacement, not merge)
+- Yahoo Finance v7/quote and quoteSummary both require a crumb from Apps Script (server-side); browser requests to quoteSummary are blocked by CORS — always fetch metadata server-side via `fetchYahooMetadata()`
 - `txCache` has no commission/tax fields (those are only in `txList`); fee estimates in `computeClosedTrades` use `|tradeValue - shares×price|`
