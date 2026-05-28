@@ -1602,6 +1602,7 @@ const I18N = {
     by_position_label: "By position", total_net_worth_label: "Total Net Worth",
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
+    industry_breakdown_title: "Industry Breakdown",
     pnl_by_sector_title: "P&L by Sector", my_plans_title: "My Plans",
     transactions_title: "Transactions", dividend_breakdown_title: "Dividend Breakdown",
     refresh_failed: "Refresh failed", loading_portfolio_msg: "Loading portfolio…",
@@ -1787,6 +1788,7 @@ const I18N = {
     total_net_worth_label: "มูลค่าสินทรัพย์สุทธิรวม",
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
+    industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
     pnl_by_sector_title: "กำไร/ขาดทุนตามกลุ่มอุตสาหกรรม",
     my_plans_title: "แผนการลงทุนของฉัน",
     transactions_title: "รายการซื้อขายทั้งหมด",
@@ -4348,6 +4350,7 @@ function parseRows(table) {
     symbol:   cell(r, "Symbol"),
     name:     cell(r, "Name"),
     sector:   cell(r, "Sector"),
+    industry: cell(r, "Industry"),
     category: cell(r, "Category"),
     qty:      cell(r, "Qty"),
     avgPrice: cell(r, "Avg price"),
@@ -5771,6 +5774,88 @@ function renderSectorDonut(model) {
   });
 }
 
+// ── Render: industry donut ───────────────────────────────────────────────────
+let industryDonutInst = null, industryDrilldown = null;
+function renderIndustryDonut(model) {
+  const el = document.getElementById('industryDonutChart');
+  if (!el) return;
+  if (industryDonutInst) { industryDonutInst.destroy(); industryDonutInst = null; }
+
+  const map = {};
+  for (const p of model.positions) { const s = p.industry||'Other'; map[s] = (map[s]||0) + p.currentValue; }
+  const grandTotal = Object.values(map).reduce((s,v) => s+v, 0);
+  const inds = Object.keys(map).sort((a,b) => map[b]-map[a]);
+
+  const drilled = industryDrilldown;
+  let labels, data, colors, drillTotal;
+  if (drilled) {
+    const stocks = model.positions.filter(p => (p.industry||'Other') === drilled);
+    drillTotal = stocks.reduce((s,p) => s + p.currentValue, 0);
+    labels = stocks.map(p => p.symbol);
+    data   = stocks.map(p => p.currentValue);
+    colors = stocks.map(p => colorFor(p.symbol));
+  } else {
+    drillTotal = grandTotal;
+    labels = inds.map(s => t(s));
+    data   = inds.map(s => map[s]);
+    colors = inds.map(colorFor);
+  }
+
+  const centerPlugin = {
+    id: 'industryCenter',
+    afterDatasetsDraw(chart) {
+      if (!drilled) return;
+      const meta = chart.getDatasetMeta(0);
+      if (!meta?.data?.length) return;
+      const arc = meta.data[0];
+      const { ctx } = chart;
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `500 9px ${css('--font-mono')||'monospace'}`;
+      ctx.fillStyle = css('--muted');
+      ctx.fillText(drilled, arc.x, arc.y - 16);
+      ctx.font = `600 14px ${css('--font-display')||'serif'}`;
+      ctx.fillStyle = css('--ink');
+      ctx.fillText(fmtCurr(drillTotal), arc.x, arc.y + 1);
+      ctx.font = `400 9px ${css('--font-ui')||'sans-serif'}`;
+      ctx.fillStyle = css('--muted'); ctx.globalAlpha = .7;
+      ctx.fillText(t('tap_back_hint'), arc.x, arc.y + 17);
+      ctx.restore();
+    }
+  };
+
+  const tooltipFn = drilled
+    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of industry)`
+    : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
+
+  el.style.cursor = 'pointer';
+  industryDonutInst = new Chart(el.getContext('2d'), {
+    type: 'doughnut',
+    data: { labels, datasets: donutDataset(data, colors) },
+    options: {
+      ...donutBaseOptions(tooltipFn),
+      layout: { padding: drilled ? 50 : 65 },
+      onClick(event, elements, chart) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta?.data?.length) return;
+        const arc = meta.data[0];
+        const dx = event.x - arc.x, dy = event.y - arc.y;
+        if (Math.sqrt(dx*dx + dy*dy) < arc.innerRadius) {
+          if (industryDrilldown) {
+            industryDrilldown = null;
+            renderIndustryDonut(currentModel);
+          }
+          return;
+        }
+        if (!elements.length || industryDrilldown) return;
+        industryDrilldown = inds[elements[0].index];
+        renderIndustryDonut(currentModel);
+      }
+    },
+    plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
+  });
+}
+
 // ── Render: holdings performance ─────────────────────────────────────────────
 let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = false;
 let _hpTouchSym = null, _hpTouchStartX = 0, _hpTouchStartY = 0,
@@ -6903,11 +6988,12 @@ function rerenderAllCharts() {
   if (!currentModel) return;
   try { Chart.helpers.each(Chart.instances, c => c.destroy()); } catch(_) {}
   destroyPlanExpandCharts();
-  sectorChartInst = donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = catDonutInst = nwChartInst = null;
+  sectorChartInst = donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = industryDonutInst = catDonutInst = nwChartInst = null;
   renderGauge(currentModel);
   renderDonut(currentModel);
   renderCategoryDonut(currentModel);
   renderSectorDonut(currentModel);
+  renderIndustryDonut(currentModel);
   renderSectorBar(currentModel);
   if (benchmarkData) renderBenchmarkChartFiltered(benchmarkData, chartTimeFilter);
   if (pnlData) {
@@ -7884,6 +7970,11 @@ function buildShell() {
       <div class="card" data-mob-tab="allocation">
         <div class="card-title">${t('sector_breakdown_title')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
+      </div>
+      <!-- Industry Breakdown -->
+      <div class="card" data-mob-tab="allocation">
+        <div class="card-title">${t('industry_breakdown_title')}</div>
+        <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
       </div>
       <!-- P&L by Sector -->
       <div class="card" data-mob-tab="overview">
@@ -9126,6 +9217,7 @@ async function init() {
     renderDonut(model);
     renderCategoryDonut(model);
     renderSectorDonut(model);
+    renderIndustryDonut(model);
     renderSectorBar(model);
     renderRiskPanel(model);
     renderWatchlist(model);
@@ -9242,11 +9334,13 @@ function isExtendedHours() {
 
   function rerenderDonuts() {
     if (!currentModel) return;
-    if (typeof donutChartInst !== 'undefined' && donutChartInst)   { donutChartInst.destroy();   donutChartInst   = null; }
-    if (typeof sectorDonutInst !== 'undefined' && sectorDonutInst) { sectorDonutInst.destroy(); sectorDonutInst = null; }
-    if (typeof catDonutInst !== 'undefined' && catDonutInst)       { catDonutInst.destroy();    catDonutInst    = null; }
+    if (typeof donutChartInst !== 'undefined' && donutChartInst)         { donutChartInst.destroy();     donutChartInst     = null; }
+    if (typeof sectorDonutInst !== 'undefined' && sectorDonutInst)       { sectorDonutInst.destroy();    sectorDonutInst    = null; }
+    if (typeof industryDonutInst !== 'undefined' && industryDonutInst)   { industryDonutInst.destroy();  industryDonutInst  = null; }
+    if (typeof catDonutInst !== 'undefined' && catDonutInst)             { catDonutInst.destroy();       catDonutInst       = null; }
     renderDonut(currentModel);
     renderSectorDonut(currentModel);
+    renderIndustryDonut(currentModel);
     renderCategoryDonut(currentModel);
   }
 
