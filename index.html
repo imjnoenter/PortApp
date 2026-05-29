@@ -4532,7 +4532,7 @@ function renderStatCards(model, txData) {
 
   set('sc-unreal', `<div class="sc-label">${t('unrealized')}</div>
     <div class="sc-value ${cl(model.totalPnl)}">${m(model.totalPnl)}</div>
-    <div class="sc-sub ${cl(model.totalPnlPct)}">${p(model.totalPnlPct)}</div>
+    <div class="sc-sub ${cl(portValPct)}">${p(portValPct)}</div>
     <div class="sc-detail">${t('open_positions')}</div>`);
 
   const realPct = (realized != null && model.totalInvested) ? realized / model.totalInvested * 100 : null;
