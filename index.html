@@ -3868,7 +3868,7 @@ function parsePlanTable(table) {
       const val = c[i]?.v;
       if (val == null || val === '') break;
       const parts = String(val).split(':');
-      tranches.push({ price: parts[0] ? parseFloat(parts[0]) : null, cumPct: parseFloat(parts[parts.length-1]) || 0 });
+      tranches.push({ price: parts[0] ? parseFloat(parts[0]) : null, dollar: parts.length >= 3 ? parseFloat(parts[1]) || 0 : 0, cumPct: parseFloat(parts[parts.length-1]) || 0 });
     }
     const trimTranches = [16, 17, 18].map(col => {
       const cell = c[col];
@@ -4975,16 +4975,27 @@ async function fetchQuotes(symbols) {
       _lastQuoteSource = { type: 'sheet', updatedAt: fresh.updatedAt };
       const out = {};
       const missingFromSheet = [];
+      const needsStatic = []; // has Finnhub price but no 52W data cached yet
       symbols.forEach(s => {
         const live      = fresh.quotes[s];
         const validLive = live?.regularMarketPrice > 0 ? live : null; // null if Finnhub returned no data
         const stat      = _staticQuoteCache[s];
-        if (validLive || stat) { out[s] = { ...stat, ...(validLive || {})}; }
-        else                   { missingFromSheet.push(s); }
+        if (validLive || stat) {
+          out[s] = { ...stat, ...(validLive || {})};
+          if (validLive && !stat) needsStatic.push(s);
+        } else {
+          missingFromSheet.push(s);
+        }
       });
-      if (missingFromSheet.length) {
-        const extra = await fetchYahooBatch(missingFromSheet);
-        Object.assign(out, extra);
+      const toYahoo = [...missingFromSheet, ...needsStatic];
+      if (toYahoo.length) {
+        const yahooData = await fetchYahooBatch(toYahoo);
+        missingFromSheet.forEach(s => { if (yahooData[s]) out[s] = yahooData[s]; });
+        // Merge only 52W/earnings fields into Finnhub-priced entries (Finnhub price/change takes precedence)
+        needsStatic.forEach(s => {
+          const stat = _staticQuoteCache[s]; // populated as side-effect of fetchYahooBatch
+          if (stat && out[s]) out[s] = { ...stat, ...out[s] };
+        });
       }
       if (Object.keys(out).length) return out;
     }
@@ -6187,8 +6198,8 @@ function renderPlanWatch() {
     tranches.forEach((t, i) => {
       if (!t.price) return;
       const pct = (price - t.price) / t.price * 100;
-      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1, color:'var(--peri)',  bg:'rgba(107,126,184,.14)' });
-      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1,   color:'var(--peri)',  bg:'rgba(107,126,184,.14)', tPrice:t.price, dollar:t.dollar||0 });
+      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)', tPrice:t.price, dollar:t.dollar||0 });
     });
   });
 
@@ -6206,7 +6217,12 @@ function renderPlanWatch() {
   if (!alerts.length) { card.style.display = 'none'; return; }
   card.style.display = '';
 
-  el.innerHTML = alerts.map(a => `
+  el.innerHTML = alerts.map(a => {
+    const isTranche = a.tPrice != null;
+    const tagClick  = isTranche && a.dollar > 0
+      ? `onclick="event.stopPropagation();window.open('https://imjnoenter.github.io/dimebuy/?sym=${a.sym}&val=${a.dollar.toFixed(2)}&price=${a.tPrice}','_blank')" style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0;cursor:pointer;text-decoration:underline dotted"`
+      : `style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0"`;
+    return `
     <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="openActionModal('${a.sym}')">
       <div style="width:3px;min-height:34px;border-radius:2px;background:${a.color};flex-shrink:0"></div>
       ${logoCell(a.sym, colorFor(a.sym))}
@@ -6214,8 +6230,9 @@ function renderPlanWatch() {
         <div style="font-weight:700;font-size:12px">${a.sym}</div>
         <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.detail}</div>
       </div>
-      <span style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0">${a.label}</span>
-    </div>`).join('');
+      <span ${tagClick}>${a.label}</span>
+    </div>`;
+  }).join('');
 }
 
 async function _firePlanNotifications(alerts) {
