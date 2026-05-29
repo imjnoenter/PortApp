@@ -4395,7 +4395,8 @@ function buildModel(rows) {
 
   const totalCash     = rawCash + sgovValue;
   const totalCurrent  = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
-  const totalInvested = positions.reduce((s, p) => s + p.costBasis,    0) + rawCash + sgovCostBasis;
+  const totalInvested  = positions.reduce((s, p) => s + p.costBasis,    0) + rawCash + sgovCostBasis;
+  const stockInvested  = positions.reduce((s, p) => s + p.costBasis,    0);
   const investable    = totalCurrent * (1 - cashResPct);
   const stockTotal = positions.reduce((s,p) => s + p.currentValue, 0);
   positions.forEach(p => {
@@ -4417,7 +4418,7 @@ function buildModel(rows) {
 
   return {
     positions, watchlist, sgovPos, rawCash, rawFcd, rawUsd, sgovValue, cashResPct,
-    totalCash, totalCurrent, investable, totalInvested,
+    totalCash, totalCurrent, investable, totalInvested, stockInvested,
     totalPnl:    totalCurrent - totalInvested,
     totalPnlPct: totalInvested ? (totalCurrent - totalInvested) / totalInvested * 100 : 0,
   };
@@ -4500,7 +4501,7 @@ function renderStatCards(model, txData) {
   set('sc-portVal', `<div class="sc-label">${t('port_val')}</div>
     <div class="sc-value">${fmtCurr(model.totalCurrent)}</div>
     <div class="sc-sub ${cl(model.totalPnl)}">${m(model.totalPnl)}  ${p(model.totalPnlPct)}</div>
-    <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(model.totalInvested)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
+    <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(model.stockInvested)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
 
   const retLabel = [model.totalPnl !== 0 ? t('unrealized') : null, realized != null ? t('realized') : null, div?.net ? t('dividends') : null].filter(Boolean).join(' + ') || t('unrealized');
   set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
