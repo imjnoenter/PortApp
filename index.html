@@ -4497,10 +4497,12 @@ function renderStatCards(model, txData) {
   const totalRet = model.totalPnl + (realized ?? 0) + (div?.net ?? 0);
   const totalRetPct = model.totalInvested ? totalRet / model.totalInvested * 100 : 0;
 
+  const stocksVal = model.totalCurrent - model.totalCash;
+  const portValPct = stocksVal > 0 ? model.totalPnl / stocksVal * 100 : 0;
   set('sc-portVal', `<div class="sc-label">${t('port_val')}</div>
     <div class="sc-value">${fmtCurr(model.totalCurrent)}</div>
-    <div class="sc-sub ${cl(model.totalPnl)}">${m(model.totalPnl)}  ${p(model.totalPnlPct)}</div>
-    <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(model.totalCurrent - model.totalCash)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
+    <div class="sc-sub ${cl(model.totalPnl)}">${m(model.totalPnl)}  ${p(portValPct)}</div>
+    <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(stocksVal)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
 
   const retLabel = [model.totalPnl !== 0 ? t('unrealized') : null, realized != null ? t('realized') : null, div?.net ? t('dividends') : null].filter(Boolean).join(' + ') || t('unrealized');
   set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
