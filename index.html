@@ -4996,6 +4996,18 @@ async function fetchQuotes(symbols) {
           const stat = _staticQuoteCache[s]; // populated as side-effect of fetchYahooBatch
           if (stat && out[s]) out[s] = { ...stat, ...out[s] };
         });
+        // v8/chart fallback: v7/quote failed for some needsStatic symbols — mirrors non-market fallback
+        const still = needsStatic.filter(s => !_staticQuoteCache[s]);
+        if (still.length) {
+          const chartEntries = await Promise.all(still.map(s => fetchSingleQuoteFromChart(s)));
+          chartEntries.forEach(([s, q]) => {
+            const hi = q?.fiftyTwoWeekHigh, lo = q?.fiftyTwoWeekLow;
+            if (hi && out[s]) {
+              _staticQuoteCache[s] = { fiftyTwoWeekHigh: hi, fiftyTwoWeekLow: lo ?? null, earningsTimestamp: null, earningsTimestampEnd: null, exDividendDate: null };
+              out[s] = { fiftyTwoWeekHigh: hi, fiftyTwoWeekLow: lo ?? null, ...out[s] };
+            }
+          });
+        }
       }
       if (Object.keys(out).length) return out;
     }
