@@ -6195,11 +6195,14 @@ function renderPlanWatch() {
       if (pct >= 0)    alerts.push({ sym, key:`${sym}:TP${i+1}_HIT`,  label:`TP${i+1} hit`,  detail:`${fmtCurr(t.price)} target reached`,                urgency:3, color:'var(--gain)',  bg:'rgba(107,142,90,.14)' });
       else if(pct>=-3) alerts.push({ sym, key:`${sym}:TP${i+1}_NEAR`, label:`TP${i+1} near`, detail:`${Math.abs(pct).toFixed(1)}% below TP ${fmtCurr(t.price)}`, urgency:2, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
     });
+    const td      = getTargetDollar(pos, currentModel);
+    const currPct = getCurrentPct(pos, currentModel);
     tranches.forEach((t, i) => {
       if (!t.price) return;
-      const pct = (price - t.price) / t.price * 100;
-      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1,   color:'var(--peri)',  bg:'rgba(107,126,184,.14)', tPrice:t.price, dollar:t.dollar||0 });
-      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)', tPrice:t.price, dollar:t.dollar||0 });
+      const pct    = (price - t.price) / t.price * 100;
+      const dollar = getTrancheDollar(i, tranches, currPct, td);
+      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1,   color:'var(--peri)',  bg:'rgba(107,126,184,.14)', tPrice:t.price, dollar });
+      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)', tPrice:t.price, dollar });
     });
   });
 
