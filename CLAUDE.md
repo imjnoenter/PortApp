@@ -141,14 +141,16 @@ function doGet(e) {
 ## Plan System
 - `planCache` loaded from Plan sheet at `init()` via `loadAllPlansFromSheet()` (gated to `isFirstLoad`)
 - `hasSavedPlan(sym)` → true when any of: entry tranche has price or cumPct > 0, TP tranche has price > 0, SL is set, or note is non-empty
-- Tranche format in sheet: `entryPrice:cumPct` (colon-separated; middle fields ignored in parsing)
+- Tranche format in sheet: `entryPrice:dollarAmount:cumPct` (3 colon-separated fields). `parsePlanTable` extracts all three: `{ price, dollar, cumPct }`.
 - TP (trim) tranche format: `price/pct` in columns TP1–TP3
 - SL warning badges in POSITIONS: 🔴 if price ≤ SL, ⚠ if within 5% above SL
 - Action modal has 4 tabs: PLAN, TRANSACTION, EDIT, ALLOCATION
+- `getTargetDollar(pos, model)` → target allocation × investable; `getCurrentPct(pos, model)` → currentValue / targetDollar × 100; `getTrancheDollar(idx, tranches, currPct, td)` → incremental dollar for tranche i (cumPct delta × td / 100)
 
 **Plan Watch card** (`id="planWatchCard"`, top of side panel, hidden when no alerts):
 - `renderPlanWatch()` scans `planCache` + current prices, builds urgency-ranked alert list
 - Urgency: SL hit=5, SL near=4, TP hit=3, TP near=2, entry hit=1, entry near=0.5
+- T-type alert badges ("T1 entry", "T1 near") are clickable links → open `https://imjnoenter.github.io/dimebuy/?sym=SYM&val=DOLLAR&price=TPRICE` in a new tab. Dollar is computed live via `getTrancheDollar()` at render time (not from stored value). Badge is only linkified when `dollar > 0`; clicking the badge stops row propagation so the row's action-modal click doesn't fire.
 - `_planAlertInitDone` / `_planAlertSigs` prevent duplicate browser Notification API calls
 - Called from: `fetchQuotes().then(...)`, after `renderPlansPanel()`, on plan save/clear
 
