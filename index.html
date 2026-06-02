@@ -608,6 +608,28 @@ body {
 }
 .sector-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* P&L by Sector accordion panel */
+.pnlsec-summary { display:flex; justify-content:space-between; align-items:baseline; padding:4px 2px 10px; border-bottom:1px solid var(--grid); margin-bottom:8px; }
+.pnlsec-sum-label { font-size:12px; color:var(--muted); }
+.pnlsec-sum-val { font-size:15px; font-weight:600; }
+.pnlsec-sum-val small { font-size:11px; font-weight:500; opacity:.8; }
+.pnlsec-row { padding:6px 2px; cursor:pointer; border-radius:6px; }
+.pnlsec-row:hover { background:rgba(128,128,128,.07); }
+.pnlsec-row-head { display:flex; align-items:center; gap:6px; font-size:12px; margin-bottom:4px; }
+.pnlsec-caret { width:12px; color:var(--muted); font-size:10px; flex:0 0 auto; }
+.pnlsec-name { flex:1 1 auto; color:var(--ink); }
+.pnlsec-amt { font-weight:600; white-space:nowrap; }
+.pnlsec-amt small { font-weight:500; opacity:.75; margin-left:4px; }
+.pnlsec-bar-track { height:6px; border-radius:4px; background:var(--grid); overflow:hidden; }
+.pnlsec-bar-fill { height:100%; border-radius:4px; transition:width .25s ease; }
+.pnlsec-ind { margin:4px 0 4px 18px; padding:4px 2px; cursor:pointer; border-radius:6px; }
+.pnlsec-ind:hover { background:rgba(128,128,128,.05); }
+.pnlsec-tbl { width:100%; border-collapse:collapse; margin:6px 0 2px; font-size:11px; cursor:default; }
+.pnlsec-tbl th { text-align:right; color:var(--muted); font-weight:500; padding:2px 4px; }
+.pnlsec-tbl th:first-child { text-align:left; }
+.pnlsec-tbl td { text-align:right; padding:2px 4px; color:var(--ink); }
+.pnlsec-tbl td:first-child { text-align:left; font-weight:600; }
+
 /* Watchlist */
 .watch-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line-soft); gap: 8px; }
 .watch-row:last-child { border-bottom: none; }
@@ -1609,7 +1631,8 @@ const I18N = {
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
     industry_breakdown_title: "Industry Breakdown",
-    pnl_by_sector_title: "P&L by Sector", my_plans_title: "My Plans",
+    pnl_by_sector_title: "P&L by Sector", total_unrealized: "Total Unrealized P&L", th_value: "Value",
+    my_plans_title: "My Plans",
     transactions_title: "Transactions", dividend_breakdown_title: "Dividend Breakdown",
     refresh_failed: "Refresh failed", loading_portfolio_msg: "Loading portfolio…",
     alloc_management_title: "Allocation Management",
@@ -1795,7 +1818,7 @@ const I18N = {
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
     industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
-    pnl_by_sector_title: "กำไร/ขาดทุนตามกลุ่มอุตสาหกรรม",
+    pnl_by_sector_title: "กำไร/ขาดทุนตามกลุ่มอุตสาหกรรม", total_unrealized: "กำไร/ขาดทุนที่ยังไม่รับรู้รวม", th_value: "มูลค่า",
     my_plans_title: "แผนการลงทุนของฉัน",
     transactions_title: "รายการซื้อขายทั้งหมด",
     dividend_breakdown_title: "สรุปข้อมูลเงินปันผล",
@@ -1844,7 +1867,9 @@ function setLang(lang) {
 let currentModel = null;
 let currency = localStorage.getItem('currency') || 'USD';
 let fxRate   = 1;
-let sectorChartInst = null, donutChartInst = null;
+let donutChartInst = null;
+const _sectorExpanded   = new Set();
+const _industryExpanded = new Set();
 let benchmarkChartInst = null, benchmarkLoaded = false;
 let pnlChartInst = null;
 let nwChartInst  = null;
@@ -6606,34 +6631,118 @@ function renderCategoryDonut(model) {
   });
 }
 
-// ── Render: sector bar ────────────────────────────────────────────────────────
-function renderSectorBar(model) {
-  const map = {};
-  for (const p of model.positions) { const s = p.sector||'Other'; map[s] = (map[s]||0) + p.pnl; }
-  const sectors = Object.keys(map).sort((a,b) => map[b]-map[a]);
-  const vals = sectors.map(s => map[s]);
-  const sectorColors = {};
-  for (const p of model.positions) sectorColors[p.sector||'Other'] = colorFor(p.symbol);
-  document.getElementById('sectorLegend').innerHTML = Object.keys(sectorColors).map(s =>
-    `<div class="sector-chip"><div class="sector-dot" style="background:${sectorColors[s]}"></div>${t(s)}</div>`).join('');
-  sectorChartInst = new Chart(document.getElementById('sectorChart').getContext('2d'), {
-    type: 'bar',
-    data: { labels: sectors.map(s => t(s)), datasets: [{ data: vals,
-      backgroundColor: vals.map(v => v >= 0 ? css('--gain') : css('--loss')),
-      borderRadius: 5, barThickness: 16 }]},
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: c => ` P&L: ${fmtCurr(c.raw)}` },
-          backgroundColor: css('--tooltip-bg'), bodyColor: '#faf3e0', padding: 9, cornerRadius: 10 }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: css('--muted'), font: { size: 10 } } },
-        y: { grid: { color: css('--grid') }, border: { display: false },
-          ticks: { color: css('--muted'), font: { size: 10 },
-            callback: v => fmtCurr(v) }}
-      }
+// ── Render: P&L by Sector accordion panel ────────────────────────────────────
+function _bindPnlSectorEvents() {
+  const el = document.getElementById('pnlSectorPanel');
+  if (!el || el._bound) return;
+  el._bound = true;
+  el.addEventListener('click', e => {
+    const indEl = e.target.closest('.pnlsec-ind');
+    if (indEl) {
+      if (e.target.closest('.pnlsec-tbl')) return;
+      const key = indEl.dataset.sec + ' ' + indEl.dataset.ind;
+      _industryExpanded.has(key) ? _industryExpanded.delete(key) : _industryExpanded.add(key);
+      renderPnLBySector(currentModel);
+      return;
+    }
+    const secEl = e.target.closest('.pnlsec-row');
+    if (secEl) {
+      const sec = secEl.dataset.sec;
+      _sectorExpanded.has(sec) ? _sectorExpanded.delete(sec) : _sectorExpanded.add(sec);
+      renderPnLBySector(currentModel);
     }
   });
+}
+
+function renderPnLBySector(model) {
+  const el = document.getElementById('pnlSectorPanel');
+  if (!el || !model) return;
+  _bindPnlSectorEvents();
+  const pos = model.positions || [];
+  if (!pos.length) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div>`;
+    return;
+  }
+
+  // aggregate: sector → { pnl, cost, inds: { industry → { pnl, cost, syms[] } } }
+  const secMap = {};
+  for (const p of pos) {
+    const sec = p.sector || 'Other';
+    const ind = p.industry || 'Other';
+    const s = secMap[sec] || (secMap[sec] = { pnl: 0, cost: 0, inds: {} });
+    s.pnl  += p.pnl || 0;
+    s.cost += p.costBasis || 0;
+    const i = s.inds[ind] || (s.inds[ind] = { pnl: 0, cost: 0, syms: [] });
+    i.pnl  += p.pnl || 0;
+    i.cost += p.costBasis || 0;
+    i.syms.push(p);
+  }
+
+  const esc = s => String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const sectors = Object.keys(secMap).sort((a, b) => secMap[b].pnl - secMap[a].pnl);
+  const maxAbs  = Math.max(1, ...sectors.map(s => Math.abs(secMap[s].pnl)));
+
+  const totTone = model.totalPnl >= 0 ? 'gain' : 'loss';
+  let html = `<div class="pnlsec-summary">
+    <span class="pnlsec-sum-label">${t('total_unrealized')}</span>
+    <span class="pnlsec-sum-val ${totTone}">${fmtCurr(model.totalPnl)} <small>(${model.totalPnlPct.toFixed(2)}%)</small></span>
+  </div>`;
+
+  for (const sec of sectors) {
+    const s     = secMap[sec];
+    const tone  = s.pnl >= 0 ? 'gain' : 'loss';
+    const pct   = s.cost ? s.pnl / s.cost * 100 : 0;
+    const w     = (Math.abs(s.pnl) / maxAbs * 100).toFixed(1);
+    const open  = _sectorExpanded.has(sec);
+    const inds  = Object.keys(s.inds).sort((a, b) => s.inds[b].pnl - s.inds[a].pnl);
+    const maxInd = Math.max(1, ...inds.map(i => Math.abs(s.inds[i].pnl)));
+
+    html += `<div class="pnlsec-row" data-sec="${esc(sec)}">
+      <div class="pnlsec-row-head">
+        <span class="pnlsec-caret">${open ? '▾' : '▸'}</span>
+        <span class="pnlsec-name">${t(sec)}</span>
+        <span class="pnlsec-amt ${tone}">${fmtCurr(s.pnl)} <small>${pct.toFixed(2)}%</small></span>
+      </div>
+      <div class="pnlsec-bar-track"><div class="pnlsec-bar-fill" style="width:${w}%;background:var(--${tone})"></div></div>`;
+
+    if (open) {
+      for (const ind of inds) {
+        const i    = s.inds[ind];
+        const it   = i.pnl >= 0 ? 'gain' : 'loss';
+        const ipct = i.cost ? i.pnl / i.cost * 100 : 0;
+        const iw   = (Math.abs(i.pnl) / maxInd * 100).toFixed(1);
+        const ikey = sec + ' ' + ind;
+        const iopen = _industryExpanded.has(ikey);
+        html += `<div class="pnlsec-ind" data-sec="${esc(sec)}" data-ind="${esc(ind)}">
+          <div class="pnlsec-row-head">
+            <span class="pnlsec-caret">${iopen ? '▾' : '▸'}</span>
+            <span class="pnlsec-name">${t(ind)}</span>
+            <span class="pnlsec-amt ${it}">${fmtCurr(i.pnl)} <small>${ipct.toFixed(2)}%</small></span>
+          </div>
+          <div class="pnlsec-bar-track"><div class="pnlsec-bar-fill" style="width:${iw}%;background:var(--${it})"></div></div>`;
+        if (iopen) {
+          const syms = [...i.syms].sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+          html += `<table class="pnlsec-tbl"><thead><tr>
+            <th>Symbol</th><th>${t('th_value')}</th><th>P&L</th><th>%</th>
+          </tr></thead><tbody>`;
+          for (const p of syms) {
+            const pt = (p.pnl || 0) >= 0 ? 'gain' : 'loss';
+            html += `<tr>
+              <td>${p.symbol}</td>
+              <td>${fmtCurr(p.currentValue || 0)}</td>
+              <td class="${pt}">${fmtCurr(p.pnl || 0)}</td>
+              <td class="${pt}">${(p.pnlPct || 0).toFixed(2)}%</td>
+            </tr>`;
+          }
+          html += `</tbody></table>`;
+        }
+        html += `</div>`;
+      }
+    }
+    html += `</div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 // ── Render: Risk & Concentration panel ───────────────────────────────────────
@@ -7103,13 +7212,13 @@ function rerenderAllCharts() {
   if (!currentModel) return;
   try { Chart.helpers.each(Chart.instances, c => c.destroy()); } catch(_) {}
   destroyPlanExpandCharts();
-  sectorChartInst = donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = industryDonutInst = catDonutInst = nwChartInst = null;
+  donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = industryDonutInst = catDonutInst = nwChartInst = null;
   renderGauge(currentModel);
   renderDonut(currentModel);
   renderCategoryDonut(currentModel);
   renderSectorDonut(currentModel);
   renderIndustryDonut(currentModel);
-  renderSectorBar(currentModel);
+  renderPnLBySector(currentModel);
   if (benchmarkData) renderBenchmarkChartFiltered(benchmarkData, chartTimeFilter);
   if (pnlData) {
     const start = periodStart(chartTimeFilter);
@@ -7137,7 +7246,7 @@ window.toggleCurrency = function() {
     renderTable(currentModel);
     renderWatchlist(currentModel);
     document.getElementById('donut-value').textContent = fmtCurr(currentModel.totalCurrent);
-    if (sectorChartInst) sectorChartInst.update();
+    renderPnLBySector(currentModel);
     if (txList?.length) renderTxPanel(txList);
     if (txCache?.length) renderDividendBreakdown(txCache);
     if (_journalTrades.length) renderTradeJournal(_journalTrades);
@@ -8095,8 +8204,7 @@ function buildShell() {
       <!-- P&L by Sector -->
       <div class="card" data-mob-tab="overview">
         <div class="card-title">${t('pnl_by_sector_title')}</div>
-        <div class="chart-wrap bar-h"><canvas id="sectorChart"></canvas></div>
-        <div class="sector-legend" id="sectorLegend"></div>
+        <div class="pnlsec-panel" id="pnlSectorPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
       </div>
       <!-- Risk & Concentration -->
       <div class="card" data-mob-tab="overview">
@@ -9260,7 +9368,7 @@ async function init() {
     fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
       .then(quotes => {
         if (currentModel !== model) return;
-        attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model);
+        attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model); renderPnLBySector(model);
         const fEl = document.getElementById('quotesFreshness');
         if (fEl) {
           if (_lastQuoteSource?.type === 'sheet') {
@@ -9344,7 +9452,7 @@ async function init() {
     renderCategoryDonut(model);
     renderSectorDonut(model);
     renderIndustryDonut(model);
-    renderSectorBar(model);
+    renderPnLBySector(model);
     renderRiskPanel(model);
     renderWatchlist(model);
     loadCalendar(model);
