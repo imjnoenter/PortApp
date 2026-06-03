@@ -75,6 +75,7 @@ txCache                → minimal tx objects from fetchTransactions(): { dateSt
 txList                 → rich tx objects from fetchTxList(): { date, time, type, ticker, shares, price, tradeValue, com, tax, total }
                          Used only for the Transactions panel display (renderTxPanel)
 nwData                 → { labels, netWorthLine, netInvestedLine } — Net Worth chart data, in-memory only
+nwTimeFilter           → 'ALL'|'3M'|'6M'|'1Y' — independent range for Net Worth chart; `setNwRange(f)` slices nwData and re-renders
 _journalTrades         → array of closed-trade records from computeClosedTrades(), used by renderTradeJournal
 _planAlertSigs         → Set of alert keys already fired — prevents duplicate browser notifications
 ```
@@ -142,14 +143,17 @@ function doGet(e) {
 - `planCache` loaded from Plan sheet at `init()` via `loadAllPlansFromSheet()` (gated to `isFirstLoad`)
 - `hasSavedPlan(sym)` → true when any of: entry tranche has price or cumPct > 0, TP tranche has price > 0, SL is set, or note is non-empty
 - Tranche format in sheet: `entryPrice:dollarAmount:cumPct` (3 colon-separated fields). `parsePlanTable` extracts all three: `{ price, dollar, cumPct }`.
-- TP (trim) tranche format: `price/pct` in columns TP1–TP3
+- TP (trim) tranche format: `price/pct` in columns TP1–TP3. **`t.pct` = % of `targetDollar` to SELL** (not % remaining). `shares = min(qtyRemaining, trimPct/100 * targetDollar / P)`. Capped at `qtyRemaining` to prevent oversell phantom P&L.
 - SL warning badges in POSITIONS: 🔴 if price ≤ SL, ⚠ if within 5% above SL
 - Action modal has 4 tabs: PLAN, TRANSACTION, EDIT, ALLOCATION
 - `getTargetDollar(pos, model)` → target allocation × investable; `getCurrentPct(pos, model)` → currentValue / targetDollar × 100; `getTrancheDollar(idx, tranches, currPct, td)` → incremental dollar for tranche i (cumPct delta × td / 100)
+- All displayed % values in the PLAN tab use `.toFixed(2)` (2 decimal places)
 
 **Plan Watch card** (`id="planWatchCard"`, top of side panel, hidden when no alerts):
 - `renderPlanWatch()` scans `planCache` + current prices, builds urgency-ranked alert list
 - Urgency: SL hit=5, SL near=4, TP hit=3, TP near=2, entry hit=1, entry near=0.5
+- **Hit alerts** (urgency ∈ {5,3,1}) render with row background tint, 4px left bar, solid badge, 13px symbol. **Near alerts** render with transparent background, 3px bar, tinted badge, 12px symbol.
+- `HIT_URGENCIES = new Set([5, 3, 1])` — browser Notification API only fires for these; near alerts (4, 2, 0.5) appear in Plan Watch UI only.
 - T-type alert badges ("T1 entry", "T1 near") are clickable links → open `https://imjnoenter.github.io/dimebuy/?sym=SYM&val=DOLLAR&price=TPRICE` in a new tab. Dollar is computed live via `getTrancheDollar()` at render time (not from stored value). Badge is only linkified when `dollar > 0`; clicking the badge stops row propagation so the row's action-modal click doesn't fire.
 - `_planAlertInitDone` / `_planAlertSigs` prevent duplicate browser Notification API calls
 - Called from: `fetchQuotes().then(...)`, after `renderPlansPanel()`, on plan save/clear
@@ -177,7 +181,7 @@ Two instances: symbol detail modal (`sdTvChart`) and action modal PLAN tab (`act
 - `window._sdTvSym/Chart/Series/PriceMap` are the globals that `sdSetRange` operates on
 
 ## Layout
-- Desktop: 2-column grid (`1fr 380px`)
+- Desktop (≥769px): 2-column grid (`1fr 380px`). Profile picture (`.brand-mark`) is 88×88px, matching the clock pill's outer height (72px canvas + 7+7px padding + border). Mobile: 42×42px. The `<img>` inside uses `width:100%;height:100%` to inherit from the container.
 - **Main panel (left):** Stat cards → Positions (with 52W range column) → Holdings Performance → Benchmark → Transactions → Trade Journal (hidden when no closed trades)
 - **Side panel (right):** Plan Watch (alerts only, hidden when none) → Allocation → Total Net Worth → Category Breakdown → Sector Breakdown → Industry Breakdown → P&L by Sector → Risk & Concentration → Calendar → Watchlist → Dividend Breakdown
 
@@ -202,6 +206,14 @@ Called from: sync render block (after `renderSectorBar`), `fetchQuotes().then(..
 - Client `fetchSheetQuotes()` checks `regularMarketPrice > 0` as a safety guard before using a row — symbols with null/zero prices fall to `missingFromSheet` and are fetched from Yahoo browser-side.
 - `_staticQuoteCache` is populated from Yahoo calls and merged into sheet quotes: `out[s] = { ...stat, ...live }`. This preserves 52W range and earnings data across sheet-based refreshes.
 - gviz cache lag: Google CDN caches the Quotes sheet read for ~5–30s. Worst-case quote age ≈ script period (60s) + gviz lag.
+
+## Holdings Performance Panel (`id="holdingsPerf"`)
+`buildHpBaseData()` computes per-symbol total gain for the All/Gainers/Losers tabs:
+- **`totalCost`** = sum of all buy `tradeValue` from `txCache` (total capital ever deployed), NOT `p.costBasis`. This correctly handles partial sells — e.g. buying $1000, selling half, still holding half: denominator is $1000 not $500. Falls back to `p.costBasis` if no buy txs exist in cache (incomplete history guard).
+- **`totalPnl`** = `unrealizedPnl` (current `p.pnl`) + `realizedPnl` (summed from `pnlData`)
+- **`pnlPct`** = `totalPnl / totalCost × 100` — lifetime return on total deployed capital
+- Tooltip (`showHpTip`) exposes `unrealizedPnl` and `realizedPnl` as separate rows alongside the total.
+- `_hpTab` ∈ `'all'|'gainers'|'losers'|'dividends'`; `_hpShowDollar` toggles $ vs % bar mode.
 
 ## Known Limitations
 - Live Yahoo Finance quotes blocked on GitHub Pages (CORS) — corsproxy.io used as fallback
