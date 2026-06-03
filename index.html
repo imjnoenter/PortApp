@@ -272,6 +272,7 @@ body {
   width: 42px; height: 42px; border-radius: 14px; flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(196,106,74,.32);
   position: relative; overflow: hidden;
+  cursor: pointer;
 }
 @media (min-width: 769px) {
   .brand-mark { width: 88px; height: 88px; border-radius: 22px; }
@@ -280,6 +281,44 @@ body {
   content: ''; position: absolute; inset: 2px; border-radius: 12px;
   border: 1px solid rgba(255,255,255,.18); pointer-events: none;
 }
+.brand-mark:hover .pic-change-hint { opacity: 1; }
+.pic-change-hint {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.45); border-radius: inherit; opacity: 0;
+  transition: opacity .18s; font-size: 10px; color: #fff; font-weight: 600; letter-spacing: .3px;
+  pointer-events: none; text-align: center; line-height: 1.3; padding: 4px;
+}
+
+/* ── Profile picture picker popover ── */
+.pic-picker-backdrop {
+  position: fixed; inset: 0; z-index: 2100; background: rgba(0,0,0,.18);
+  backdrop-filter: blur(2px); display: none; align-items: flex-start; justify-content: flex-start;
+}
+.pic-picker-backdrop.open { display: flex; }
+.pic-picker {
+  position: fixed; z-index: 2101;
+  background: var(--card); border: 1px solid var(--card-edge);
+  border-radius: 16px; box-shadow: var(--shadow-lg); padding: 14px;
+  min-width: 200px;
+}
+.pic-picker-title {
+  font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px;
+}
+.pic-picker-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.pic-picker-item {
+  aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  cursor: pointer; border: 2px solid transparent;
+  transition: border-color .15s, transform .1s;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.pic-picker-item:hover { transform: scale(1.08); }
+.pic-picker-item.active { border-color: var(--terracotta); }
+.pic-picker-item img, .pic-picker-item svg { width: 100%; height: 100%; object-fit: cover; display: block; }
 [data-tone="cool"] .brand-mark {
   background: linear-gradient(135deg, var(--terracotta) 0%, var(--plum) 100%);
   box-shadow: 0 2px 8px rgba(90,143,163,.32), inset 0 1px 0 rgba(255,255,255,.28);
@@ -1371,12 +1410,69 @@ function _activeProfile() {
   if (!_cfg?.profiles?.length) return null;
   return _cfg.profiles.find(p => p.id === _cfg.activeProfileId) || _cfg.profiles[0];
 }
+const _PIC_PRESETS = [
+  { key: 'icon',    src: 'icon.png',     label: 'Default' },
+  { key: 'juno',    src: 'juno.png',     label: 'Juno' },
+  { key: 'hygieia', src: 'hygieia.png',  label: 'Hygieia' },
+  { key: 'hector',  src: 'hector.png',   label: 'Hector' },
+];
 function profileIconSrc() {
-  const name = (_activeProfile()?.profileName || '').toLowerCase().trim();
+  const p = _activeProfile();
+  if (p?.profilePicKey) {
+    const found = _PIC_PRESETS.find(x => x.key === p.profilePicKey);
+    if (found) return found.src;
+  }
+  const name = (p?.profileName || '').toLowerCase().trim();
   if (name === 'juno')    return 'juno.png';
   if (name === 'hygieia') return 'hygieia.png';
   if (name === 'hector')  return 'hector.png';
   return 'icon.png';
+}
+function _setProfilePic(key) {
+  if (!_cfg) return;
+  const idx = _cfg.profiles.findIndex(p => p.id === _cfg.activeProfileId);
+  if (idx < 0) return;
+  _cfg.profiles[idx].profilePicKey = key;
+  _saveCfg(_cfg);
+  const img = document.querySelector('.brand-mark img');
+  if (img) img.src = profileIconSrc();
+  closePicPicker();
+}
+function openPicPicker(e) {
+  e.stopPropagation();
+  let backdrop = document.getElementById('picPickerBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'picPickerBackdrop';
+    backdrop.className = 'pic-picker-backdrop';
+    backdrop.onclick = e2 => { if (e2.target === backdrop) closePicPicker(); };
+    document.body.appendChild(backdrop);
+  }
+  const current = _activeProfile()?.profilePicKey || profileIconSrc().replace('.png','');
+  const items = _PIC_PRESETS.map(p => `
+    <div class="pic-picker-item${p.key === current ? ' active' : ''}" onclick="_setProfilePic('${p.key}')" title="${p.label}">
+      <img src="${p.src}" alt="${p.label}">
+    </div>`).join('');
+  backdrop.innerHTML = `
+    <div class="pic-picker" id="picPickerBox">
+      <div class="pic-picker-title">Choose Avatar</div>
+      <div class="pic-picker-grid">${items}</div>
+    </div>`;
+  backdrop.classList.add('open');
+  const bm = document.querySelector('.brand-mark');
+  const box = document.getElementById('picPickerBox');
+  if (bm && box) {
+    const r = bm.getBoundingClientRect();
+    const bw = box.offsetWidth || 200;
+    let left = r.left;
+    if (left + bw > window.innerWidth - 8) left = window.innerWidth - bw - 8;
+    box.style.top = (r.bottom + 6) + 'px';
+    box.style.left = left + 'px';
+  }
+}
+function closePicPicker() {
+  const b = document.getElementById('picPickerBackdrop');
+  if (b) b.classList.remove('open');
 }
 function isReadOnly() {
   const p = _activeProfile();
@@ -8026,7 +8122,7 @@ function buildShell() {
   <div class="app mob-tab-overview">
     <div class="header">
       <div class="header-left">
-        <div class="brand-mark" aria-label="Portfolio"><img src="${profileIconSrc()}" alt="Portfolio" style="width:100%;height:100%;border-radius:inherit;display:block;object-fit:cover;"></div>
+        <div class="brand-mark" aria-label="Portfolio" onclick="openPicPicker(event)"><img src="${profileIconSrc()}" alt="Portfolio" style="width:100%;height:100%;border-radius:inherit;display:block;object-fit:cover;"><span class="pic-change-hint">Change</span></div>
         <div class="header-title-group">
           <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}${isReadOnly() ? '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:5px;vertical-align:middle">(view)</span>' : ''}</div>
           <div class="header-sub">${t('portfolio')}</div>
