@@ -273,6 +273,9 @@ body {
   box-shadow: 0 2px 8px rgba(196,106,74,.32);
   position: relative; overflow: hidden;
 }
+@media (min-width: 769px) {
+  .brand-mark { width: 88px; height: 88px; border-radius: 22px; }
+}
 .brand-mark::after {
   content: ''; position: absolute; inset: 2px; border-radius: 12px;
   border: 1px solid rgba(255,255,255,.18); pointer-events: none;
@@ -815,6 +818,9 @@ body {
 }
 .tf-chart-btn:hover { background: var(--hover); color: var(--ink); }
 .tf-chart-btn.active { background: var(--terracotta); color: #faf3e0; box-shadow: 0 1px 4px rgba(196,106,74,.3); }
+.nw-tf-btn { padding: 3px 9px; border: none; background: transparent; color: var(--muted); border-radius: var(--radius-pill); cursor: pointer; font-size: 11px; font-weight: 600; font-family: var(--font-ui); transition: background .15s, color .15s; letter-spacing: .3px; }
+.nw-tf-btn:hover { background: var(--hover); color: var(--ink); }
+.nw-tf-btn.active { background: var(--terracotta); color: #faf3e0; }
 .charts-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .chart-half { min-width: 0; }
 @media (max-width: 700px) {
@@ -1874,6 +1880,7 @@ let benchmarkChartInst = null, benchmarkLoaded = false;
 let pnlChartInst = null;
 let nwChartInst  = null;
 let nwData       = null;
+let nwTimeFilter = 'ALL';
 let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
@@ -3452,7 +3459,7 @@ function renderActionTabContent() {
           <input class="tranche-input" type="number" step="any" min="0" placeholder="${pos.price?Number(pos.price).toFixed(2):''}" value="${entry}" oninput="onTranchePrice(${i},this.value)" onblur="onTranchePriceBlur()" data-role="entry">
         </div>
         <div class="tranche-input-wrap has-suffix">
-          <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(1)}" oninput="onTranchePct(${i},this.value)" data-role="pct">
+          <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(2)}" oninput="onTranchePct(${i},this.value)" data-role="pct">
           <span class="ti-suffix">%</span>
         </div>
         <div class="tranche-input-wrap has-prefix"><span class="ti-prefix">$</span>
@@ -3465,8 +3472,8 @@ function renderActionTabContent() {
       </div>
       <div id="tranche-avg-${i}" style="font-size:10px;color:var(--muted);padding:2px 0 8px 52px;margin-top:-4px"></div>`;
     }).join('');
-    const pendingTgtPct = planState.pendingTarget != null ? (planState.pendingTarget * 100).toFixed(1)
-                        : pos.target != null               ? (pos.target * 100).toFixed(1) : '';
+    const pendingTgtPct = planState.pendingTarget != null ? (planState.pendingTarget * 100).toFixed(2)
+                        : pos.target != null               ? (pos.target * 100).toFixed(2) : '';
     el.innerHTML = `
       <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
         <div id="actionTvChartEl" style="height:220px"></div>
@@ -3520,7 +3527,7 @@ function renderActionTabContent() {
         <div style="display:grid;grid-template-columns:44px 1fr 1fr 1fr 1fr 30px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--line);margin-bottom:6px">
           <div></div>
           <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Exit Price</div>
-          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">% After</div>
+          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">% to trim</div>
           <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Qty (Shares)</div>
           <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Realized P&L</div>
           <div></div>
@@ -3624,15 +3631,15 @@ function _trimCalcData() {
   const curPctOfTarget = targetDollar > 0 ? qty * curPx / targetDollar * 100 : 0;
   let totalSharesSold = 0, totalNetPnL = 0, anyValid = false;
   const rows = trimTranches.map((t, i) => {
-    const P = t.price || 0, afterPct = t.pct || 0;
+    const P = t.price || 0, trimPct = t.pct || 0;
     const qtyRemaining = Math.max(0, qty - totalSharesSold);
     const pctAtP = targetDollar > 0 && P > 0 ? qtyRemaining * P / targetDollar * 100 : curPctOfTarget;
-    const sellPct = Math.max(0, pctAtP - afterPct);
-    const shares = (P > 0 && afterPct > 0 && targetDollar > 0 && sellPct > 0) ? (sellPct / 100 * targetDollar) / P : 0;
+    const sellPct = trimPct; const afterPct = Math.max(0, pctAtP - trimPct);
+    const shares = (P > 0 && trimPct > 0 && targetDollar > 0 && sellPct > 0) ? Math.min(qtyRemaining, (sellPct / 100 * targetDollar) / P) : 0;
     const tv = shares * P, fees = tv * 0.0015 * 1.07;
     const gross = shares > 0 && avg > 0 ? (P - avg) * shares : 0;
     const net = gross - fees;
-    const hasData = P > 0 && afterPct > 0;
+    const hasData = P > 0 && trimPct > 0;
     if (hasData) { totalSharesSold += shares; totalNetPnL += net; anyValid = true; }
     return { net, hasData, pctAtP, afterPct, sellPct, shares };
   });
@@ -3661,7 +3668,7 @@ function renderTrimSection() {
       </div>
       <div class="tranche-input-wrap has-suffix">
         <input class="tranche-input" id="trimPct_${i}" type="number" step="any" min="0"
-          placeholder="remaining % (now: ${curPctOfTarget.toFixed(1)})"
+          placeholder="% to trim (of ${curPctOfTarget.toFixed(2)})"
           value="${t.pct || ''}" oninput="onTrimPct(${i},this.value)">
         <span class="ti-suffix">%</span>
       </div>
@@ -3686,7 +3693,7 @@ function updateTrimCalcs() {
     if (el) el.innerHTML = r.hasData
       ? `<div style="text-align:center">
            <span style="font-size:11px;font-weight:700;color:${r.net>=0?'var(--gain)':'var(--loss)'}">${r.net>=0?'+':''}${fmtUSD(r.net)}</span>
-           <div style="font-size:9px;color:var(--muted)">${r.pctAtP.toFixed(1)}% → ${r.afterPct.toFixed(1)}%</div>
+           <div style="font-size:9px;color:var(--muted)">${r.pctAtP.toFixed(2)}% → ${r.afterPct.toFixed(2)}%</div>
          </div>`
       : '<span style="color:var(--muted)">—</span>';
     const qEl = document.getElementById(`trimQty_${i}`);
@@ -3701,8 +3708,8 @@ function updateTrimCalcs() {
   const barEl = document.getElementById('trimBar');
   if (barEl) barEl.innerHTML = `
     <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px">
-      <span>Now: <strong>${curPctOfTarget.toFixed(1)}%</strong> of target</span>
-      ${anyValid ? `<span>After trim: <strong style="color:${barColor}">${remPct.toFixed(1)}%</strong> of target</span>` : ''}
+      <span>Now: <strong>${curPctOfTarget.toFixed(2)}%</strong> of target</span>
+      ${anyValid ? `<span>After trim: <strong style="color:${barColor}">${remPct.toFixed(2)}%</strong> of target</span>` : ''}
     </div>
     <div style="position:relative;height:6px;background:var(--line);border-radius:4px;overflow:visible">
       <div style="height:100%;width:${Math.min(curPctOfTarget/scaleMax*100,100).toFixed(1)}%;background:${colorFor(symbol)};opacity:.3;border-radius:4px"></div>
@@ -3713,7 +3720,7 @@ function updateTrimCalcs() {
   const sumEl = document.getElementById('planTrimSummary');
   if (sumEl) sumEl.innerHTML = anyValid
     ? `Total P&L <strong style="color:${totalNetPnL>=0?'var(--gain)':'var(--loss)'}">${totalNetPnL>=0?'+':''}${fmtUSD(totalNetPnL)}</strong> · ${fmtUSD(remVal)} remaining`
-    : `<span style="color:var(--muted)">Now: <strong>${curPctOfTarget.toFixed(1)}%</strong> of target · enter exit price and remaining % after TP</span>`;
+    : `<span style="color:var(--muted)">Now: <strong>${curPctOfTarget.toFixed(1)}%</strong> of target · enter exit price and % to trim</span>`;
 }
 
 window.onTrimPrice = function(idx, val) {
@@ -3743,19 +3750,15 @@ window.onTrimQty = function(idx, val) {
   let totalSharesSoldBefore = 0;
   for (let i = 0; i < idx; i++) {
     const t = trimTranches[i];
-    const tP = t.price || 0, afterP = t.pct || 0;
-    if (!tP || !afterP) continue;
-    const qtyRem = Math.max(0, qty - totalSharesSoldBefore);
-    const pctAtTp = qtyRem * tP / targetDollar * 100;
-    const sellP = Math.max(0, pctAtTp - afterP);
+    const tP = t.price || 0, trimP = t.pct || 0;
+    if (!tP || !trimP) continue;
+    const sellP = trimP;
     totalSharesSoldBefore += (sellP / 100 * targetDollar) / tP;
   }
-  const qtyRemaining = Math.max(0, qty - totalSharesSoldBefore);
-  const pctAtP = qtyRemaining * P / targetDollar * 100;
-  const afterPct = Math.max(0, pctAtP - (sharesInput * P / targetDollar * 100));
-  planState.trimTranches[idx].pct = afterPct;
+  const trimPct = sharesInput * P / targetDollar * 100;
+  planState.trimTranches[idx].pct = trimPct;
   const pctEl = document.getElementById(`trimPct_${idx}`);
-  if (pctEl && document.activeElement !== pctEl) pctEl.value = afterPct.toFixed(1);
+  if (pctEl && document.activeElement !== pctEl) pctEl.value = trimPct.toFixed(2);
   updateTrimCalcs();
 };
 
@@ -4057,7 +4060,7 @@ function renderPlanModal() {
         <input class="tranche-input" type="number" step="any" min="0" placeholder="${currPrice?Number(currPrice).toFixed(2):''}" value="${entryVal}" oninput="onTranchePrice(${i},this.value)" onblur="onTranchePriceBlur()" data-role="entry" title="Entry price">
       </div>
       <div class="tranche-input-wrap has-suffix">
-        <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(1)}" oninput="onTranchePct(${i},this.value)" data-role="pct" title="% of target allocation">
+        <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${(t.cumPct??0).toFixed(2)}" oninput="onTranchePct(${i},this.value)" data-role="pct" title="% of target allocation">
         <span class="ti-suffix">%</span>
       </div>
       <div class="tranche-input-wrap has-prefix">
@@ -4160,11 +4163,11 @@ function renderPlanBar() {
     return `<div class="plan-bar-seg" style="left:${l}%;width:${w}%;background:${s.color}"></div>`;
   }).join('') + `<div class="plan-bar-tick" style="left:${(100/scaleMax*100).toFixed(2)}%" title="Target: ${fmtUSD(td)}"></div>`;
 
-  const labels = [{ color, text: `Current: ${currPct.toFixed(1)}%` }];
+  const labels = [{ color, text: `Current: ${currPct.toFixed(2)}%` }];
   let cumLbl = currPct;
   tranches.forEach((t, i) => {
     const end = Math.max(cumLbl, t.cumPct ?? cumLbl);
-    labels.push({ color: trancheColor(i), text: `After T${i+1}: ${end.toFixed(1)}%` });
+    labels.push({ color: trancheColor(i), text: `After T${i+1}: ${end.toFixed(2)}%` });
     cumLbl = end;
   });
   labels.push({ color: 'var(--muted)', text: `Target: ${fmtUSD(td)}` });
@@ -4269,7 +4272,7 @@ function syncTrancheRow(idx) {
     const dollar = Math.max(0, ((t.cumPct ?? 0) - prev) / 100 * td);
     const warn = (t.cumPct ?? 0) <= prev;
     if (active !== dIn) dIn.value = dollar > 0 ? dollar.toFixed(2) : '0';
-    if (active !== pIn) pIn.value = (t.cumPct ?? 0).toFixed(1);
+    if (active !== pIn) pIn.value = (t.cumPct ?? 0).toFixed(2);
     if (qIn && active !== qIn) {
       const price = t.price || 0;
       qIn.value = (price > 0 && dollar > 0) ? +(dollar / price).toFixed(4) : '';
@@ -6010,27 +6013,32 @@ function buildHpBaseData() {
   const map = {};
   if (currentModel?.positions) {
     for (const p of currentModel.positions) {
-      map[p.symbol] = { name: p.name || p.symbol, unrealizedPnl: p.pnl || 0, realizedPnl: 0, currentValue: p.currentValue || 0, totalCost: p.costBasis || 0 };
+      map[p.symbol] = { name: p.name || p.symbol, unrealizedPnl: p.pnl || 0, realizedPnl: 0, currentValue: p.currentValue || 0, totalCost: 0, _costBasisFallback: p.costBasis || 0 };
     }
   }
   if (pnlData?.length) {
     for (const t of pnlData) {
-      if (!map[t.ticker]) map[t.ticker] = { name: t.ticker, unrealizedPnl: 0, realizedPnl: 0, currentValue: 0, totalCost: 0 };
+      if (!map[t.ticker]) map[t.ticker] = { name: t.ticker, unrealizedPnl: 0, realizedPnl: 0, currentValue: 0, totalCost: 0, _costBasisFallback: 0 };
       map[t.ticker].realizedPnl += t.pnl;
     }
   }
   if (txCache?.length) {
     for (const tx of txCache) {
       if (tx.type !== 'Buy') continue;
-      if (map[tx.ticker] && !currentModel?.positions.find(p => p.symbol === tx.ticker))
+      if (map[tx.ticker])
         map[tx.ticker].totalCost += tx.tradeValue || (tx.shares * tx.price) || 0;
     }
+  }
+  // Fallback: if txCache has no buys for an active position (incomplete history), use costBasis
+  for (const sym of Object.keys(map)) {
+    if (map[sym].totalCost === 0 && map[sym]._costBasisFallback > 0)
+      map[sym].totalCost = map[sym]._costBasisFallback;
   }
   return Object.entries(map)
     .map(([symbol, d]) => {
       const totalPnl = d.unrealizedPnl + d.realizedPnl;
       const pnlPct   = d.totalCost > 0 ? totalPnl / d.totalCost * 100 : 0;
-      return { symbol, name: d.name, totalPnl, pnlPct, currentValue: d.currentValue, totalCost: d.totalCost };
+      return { symbol, name: d.name, totalPnl, pnlPct, unrealizedPnl: d.unrealizedPnl, realizedPnl: d.realizedPnl, currentValue: d.currentValue, totalCost: d.totalCost };
     })
     .filter(i => i.totalCost > 0 || i.totalPnl !== 0)
     .sort((a, b) => b.pnlPct - a.pnlPct);
@@ -6146,13 +6154,19 @@ window.showHpTip = function(e, sym) {
       <span style="color:rgba(250,243,224,.6)">Total value</span>
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   } else {
-    const pc = item.pnlPct  >= 0 ? 'var(--gain)' : 'var(--loss)';
-    const vc = item.totalPnl >= 0 ? 'var(--gain)' : 'var(--loss)';
+    const pc  = item.pnlPct      >= 0 ? 'var(--gain)' : 'var(--loss)';
+    const vc  = item.totalPnl    >= 0 ? 'var(--gain)' : 'var(--loss)';
+    const urc = item.unrealizedPnl >= 0 ? 'var(--gain)' : 'var(--loss)';
+    const rec = item.realizedPnl   >= 0 ? 'var(--gain)' : 'var(--loss)';
     rows = `
       <span style="color:rgba(250,243,224,.6)">Total gain %</span>
       <span style="color:${pc};font-weight:700;text-align:right">${item.pnlPct>=0?'+':''}${item.pnlPct.toFixed(2)}%</span>
       <span style="color:rgba(250,243,224,.6)">Total gain</span>
       <span style="color:${vc};font-weight:700;text-align:right">${item.totalPnl>=0?'+':''}${fmtCurr(item.totalPnl)}</span>
+      <span style="color:rgba(250,243,224,.6)">Unrealized</span>
+      <span style="color:${urc};text-align:right">${item.unrealizedPnl>=0?'+':''}${fmtCurr(item.unrealizedPnl)}</span>
+      <span style="color:rgba(250,243,224,.6)">Realized</span>
+      <span style="color:${rec};text-align:right">${item.realizedPnl>=0?'+':''}${fmtCurr(item.realizedPnl)}</span>
       <span style="color:rgba(250,243,224,.6)">Total value</span>
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   }
@@ -6247,10 +6261,11 @@ function renderPlanWatch() {
 
   alerts.sort((a, b) => b.urgency - a.urgency);
 
-  // Notify for newly triggered alerts (urgency >= 1 only)
-  const currentSigs = new Set(alerts.filter(a => a.urgency >= 1).map(a => a.key));
+  // Notify only when price reaches a level (SL hit=5, TP hit=3, entry hit=1) — not for "near" alerts
+  const HIT_URGENCIES = new Set([5, 3, 1]);
+  const currentSigs = new Set(alerts.filter(a => HIT_URGENCIES.has(a.urgency)).map(a => a.key));
   if (_planAlertInitDone) {
-    const newAlerts = alerts.filter(a => a.urgency >= 1 && !_planAlertSigs.has(a.key));
+    const newAlerts = alerts.filter(a => HIT_URGENCIES.has(a.urgency) && !_planAlertSigs.has(a.key));
     if (newAlerts.length) _firePlanNotifications(newAlerts);
   }
   _planAlertSigs = currentSigs;
@@ -6260,16 +6275,20 @@ function renderPlanWatch() {
   card.style.display = '';
 
   el.innerHTML = alerts.map(a => {
+    const isHit    = HIT_URGENCIES.has(a.urgency);
     const isTranche = a.tPrice != null;
+    const badgeBase = isHit
+      ? `font-size:10px;font-weight:800;padding:3px 9px;border-radius:4px;background:${a.color};color:#fff;white-space:nowrap;flex-shrink:0;letter-spacing:.2px`
+      : `font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0`;
     const tagClick  = isTranche && a.dollar > 0
-      ? `onclick="event.stopPropagation();window.open('https://imjnoenter.github.io/dimebuy/?sym=${a.sym}&val=${a.dollar.toFixed(2)}&price=${a.tPrice}','_blank')" style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0;cursor:pointer;text-decoration:underline dotted"`
-      : `style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:5px;background:${a.bg};color:${a.color};white-space:nowrap;flex-shrink:0"`;
+      ? `onclick="event.stopPropagation();window.open('https://imjnoenter.github.io/dimebuy/?sym=${a.sym}&val=${a.dollar.toFixed(2)}&price=${a.tPrice}','_blank')" style="${badgeBase};cursor:pointer;text-decoration:underline dotted"`
+      : `style="${badgeBase}"`;
     return `
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="openActionModal('${a.sym}')">
-      <div style="width:3px;min-height:34px;border-radius:2px;background:${a.color};flex-shrink:0"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid var(--line-soft);cursor:pointer;border-radius:6px;background:${isHit ? a.bg : 'transparent'}" onclick="openActionModal('${a.sym}')">
+      <div style="width:${isHit ? '4px' : '3px'};min-height:34px;border-radius:2px;background:${a.color};flex-shrink:0"></div>
       ${logoCell(a.sym, colorFor(a.sym))}
       <div style="flex:1;min-width:0">
-        <div style="font-weight:700;font-size:12px">${a.sym}</div>
+        <div style="font-weight:700;font-size:${isHit ? '13px' : '12px'}">${a.sym}</div>
         <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.detail}</div>
       </div>
       <span ${tagClick}>${a.label}</span>
@@ -6463,12 +6482,12 @@ function renderPlansPanel() {
           <thead><tr style="border-bottom:1px solid var(--line)">
             <th style="text-align:left;padding:3px 8px;color:var(--muted);font-weight:500">#</th>
             <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">Exit Price</th>
-            <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">% After</th>
+            <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">% Trim</th>
             <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">Est. P&L</th>
           </tr></thead>
           <tbody>${realTps.map((t, i) => {
-            const sharesAfter = (t.price > 0 && t.pct > 0 && tgt > 0) ? (t.pct / 100 * tgt) / t.price : qtyRem;
-            const sharesSold = Math.max(0, qtyRem - sharesAfter);
+            const sharesSold = (t.price > 0 && t.pct > 0 && tgt > 0) ? Math.min(qtyRem, (t.pct / 100 * tgt) / t.price) : 0;
+            const sharesAfter = Math.max(0, qtyRem - sharesSold);
             const pnl = sharesSold > 0 && avg > 0 ? (t.price - avg) * sharesSold : null;
             qtyRem = Math.max(0, sharesAfter);
             const ts = tpStatus[i];
@@ -7811,7 +7830,16 @@ function renderNetWorthChart(data) {
   if (nwChartInst) { nwChartInst.destroy(); nwChartInst = null; }
   const el = document.getElementById('nwChart');
   if (!el || !data) return;
-  const { labels, netWorthLine, netInvestedLine } = data;
+  let { labels, netWorthLine, netInvestedLine } = data;
+  const start = periodStart(nwTimeFilter);
+  if (start) {
+    const idx = labels.findIndex(d => d >= start);
+    if (idx > 0) {
+      labels = labels.slice(idx);
+      netWorthLine = netWorthLine.slice(idx);
+      netInvestedLine = netInvestedLine.slice(idx);
+    }
+  }
   const latest   = netWorthLine[netWorthLine.length - 1];
   const invested = netInvestedLine[netInvestedLine.length - 1];
   const gain = latest - invested;
@@ -7930,6 +7958,13 @@ function renderBenchmarkChartFiltered(data, filter) {
   renderBenchmarkChart({ labels, portLine, spyLine, qqqLine });
 }
 
+window.setNwRange = function(filter) {
+  nwTimeFilter = filter;
+  document.querySelectorAll('.nw-tf-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.nwtf === filter));
+  if (nwData) renderNetWorthChart(nwData);
+};
+
 window.applyChartFilter = function(filter) {
   chartTimeFilter = filter;
   document.querySelectorAll('.tf-chart-btn').forEach(b =>
@@ -7991,7 +8026,7 @@ function buildShell() {
   <div class="app mob-tab-overview">
     <div class="header">
       <div class="header-left">
-        <div class="brand-mark" aria-label="Portfolio"><img src="${profileIconSrc()}" alt="Portfolio" style="width:42px;height:42px;border-radius:14px;display:block;object-fit:cover;"></div>
+        <div class="brand-mark" aria-label="Portfolio"><img src="${profileIconSrc()}" alt="Portfolio" style="width:100%;height:100%;border-radius:inherit;display:block;object-fit:cover;"></div>
         <div class="header-title-group">
           <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}${isReadOnly() ? '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:5px;vertical-align:middle">(view)</span>' : ''}</div>
           <div class="header-sub">${t('portfolio')}</div>
@@ -8080,6 +8115,9 @@ function buildShell() {
               </div>
             </div>
             <div id="nwTabContent" style="display:none">
+              <div style="display:flex;justify-content:flex-end;gap:2px;margin-bottom:6px">
+                ${['3M','6M','1Y','ALL'].map(f => `<button class="nw-tf-btn${f==='ALL'?' active':''}" data-nwtf="${f}" onclick="setNwRange('${f}')">${f}</button>`).join('')}
+              </div>
               <div class="bench-status" id="nwStatus">Waiting for price history…</div>
               <div id="nwChartWrap" style="display:none">
                 <div class="chart-wrap bench-h"><canvas id="nwChart"></canvas></div>
