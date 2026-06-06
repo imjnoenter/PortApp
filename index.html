@@ -1024,7 +1024,7 @@ body {
 .plan-bar-labels { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; font-size: 10px; color: var(--muted); }
 .pbl-item { display: inline-flex; align-items: center; gap: 5px; }
 .pbl-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.tranche-row { display: grid; grid-template-columns: 48px 1fr 1fr 1fr 1fr 30px; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tranche-row { display: grid; grid-template-columns: 48px 1fr 1fr 1fr 1fr 30px 30px; align-items: center; gap: 8px; margin-bottom: 8px; }
 .tranche-label { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-size: 13px; font-weight: 600; }
 .tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .tranche-input-wrap { position: relative; }
@@ -1038,7 +1038,7 @@ body {
 @media (max-width: 600px) {
   .tx-overlay { padding: 59px 10px 10px; }
   .tx-modal { padding: 14px; }
-  .tranche-row { grid-template-columns: 32px 1fr 1fr 1fr 1fr 22px; gap: 3px; }
+  .tranche-row { grid-template-columns: 32px 1fr 1fr 1fr 1fr 22px 22px; gap: 3px; }
   .tranche-input { font-size: 12px; padding: 5px 4px; }
   .tranche-input-wrap.has-prefix .tranche-input { padding-left: 13px; }
   .tranche-input-wrap.has-suffix .tranche-input { padding-right: 13px; }
@@ -1046,12 +1046,13 @@ body {
   .ti-suffix { right: 4px; font-size: 9px; }
   .tranche-label { font-size: 10px; gap: 3px; }
   .tl-dot { width: 6px; height: 6px; }
-  .tranche-remove { width: 22px; height: 22px; font-size: 13px; }
+  .tranche-remove, .tranche-clear { width: 22px; height: 22px; font-size: 13px; }
   .plan-add-btn { padding: 7px; font-size: 11px; }
 }
 [id^="tranche-avg-"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tranche-remove { width: 30px; height: 30px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); font-size: 16px; line-height: 1; }
+.tranche-remove, .tranche-clear { width: 30px; height: 30px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); font-size: 16px; line-height: 1; }
 .tranche-remove:hover:not(:disabled) { background: var(--track); color: var(--loss); }
+.tranche-clear:hover { background: var(--track); color: var(--honey); }
 .tranche-remove:disabled { opacity: .25; cursor: not-allowed; }
 .plan-add-btn { width: 100%; padding: 10px; margin-top: 4px; background: transparent; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: var(--muted); font-family: var(--font-ui); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
 .plan-add-btn:hover { border-color: var(--terracotta); color: var(--terracotta); }
@@ -3563,6 +3564,7 @@ function renderActionTabContent() {
         <div class="tranche-input-wrap">
           <input class="tranche-input" id="trancheQty_${i}" type="number" step="any" min="0" placeholder="shares" value="${qtyVal}" oninput="onTrancheQty(${i},this.value)" data-role="qty">
         </div>
+        <button class="tranche-clear" onclick="clearTranche(${i})" title="Clear T${i+1}">↺</button>
         <button class="tranche-remove" ${dis} onclick="removeTranche(${i})">×</button>
       </div>
       <div id="tranche-avg-${i}" style="font-size:10px;color:var(--muted);padding:2px 0 8px 52px;margin-top:-4px"></div>`;
@@ -3989,10 +3991,11 @@ function parsePlanTable(table) {
     const tranches = [];
     for (let i = 3; i <= 15; i++) {
       const val = c[i]?.v;
-      if (val == null || val === '') break;
+      if (val == null || val === '') { tranches.push({ price: null, dollar: 0, cumPct: 0 }); continue; }
       const parts = String(val).split(':');
       tranches.push({ price: parts[0] ? parseFloat(parts[0]) : null, dollar: parts.length >= 3 ? parseFloat(parts[1]) || 0 : 0, cumPct: parseFloat(parts[parts.length-1]) || 0 });
     }
+    while (tranches.length > 0 && tranches[tranches.length-1].price == null && (tranches[tranches.length-1].cumPct ?? 0) === 0) tranches.pop();
     const trimTranches = [16, 17, 18].map(col => {
       const cell = c[col];
       if (!cell || (cell.v == null && !cell.f)) return {};
@@ -4018,16 +4021,20 @@ async function loadAllPlansFromSheet() {
 }
 
 async function savePlanToSheet(sym, tranches, sl, note, trimTranches = []) {
-  const realTranches = tranches.filter(t => (t.price != null && t.price !== '') || (t.cumPct ?? 0) > 0);
-  const realTrims    = trimTranches.filter(t => t.price > 0 || t.pct > 0);
-  if (!realTranches.length && !sl && !note && !realTrims.length) {
+  const hasAnyReal = tranches.some(t => (t.price != null && t.price !== '') || (t.cumPct ?? 0) > 0);
+  const realTrims  = trimTranches.filter(t => t.price > 0 || t.pct > 0);
+  if (!hasAnyReal && !sl && !note && !realTrims.length) {
     return clearPlanFromSheet(sym);
   }
   const pos     = currentModel?.positions.find(p => p.symbol === sym);
   const td      = getTargetDollar(pos, currentModel);
   const currPct = getCurrentPct(pos, currentModel);
-  const trancheStr = realTranches.map((t, i) => {
-    const dollar = getTrancheDollar(i, realTranches, currPct, td);
+  // Trim trailing blank tranches but preserve blank ones mid-sequence (cleared = executed)
+  const writeTranches = [...tranches];
+  while (writeTranches.length > 0 && writeTranches[writeTranches.length-1].price == null && (writeTranches[writeTranches.length-1].cumPct ?? 0) === 0) writeTranches.pop();
+  const trancheStr = writeTranches.map((t, i) => {
+    if ((t.price == null || t.price === '') && (t.cumPct ?? 0) === 0) return '';
+    const dollar = getTrancheDollar(i, writeTranches, currPct, td);
     return `${t.price??''}:${dollar.toFixed(2)}:${t.cumPct??0}`;
   }).join(',');
   // Pad trimTranches to 3 slots
@@ -4165,6 +4172,7 @@ function renderPlanModal() {
       <div class="tranche-input-wrap">
         <input class="tranche-input" id="trancheQty_${i}" type="number" step="any" min="0" placeholder="shares" value="${qtyValPm}" oninput="onTrancheQty(${i},this.value)" data-role="qty" title="Shares to buy">
       </div>
+      <button class="tranche-clear" onclick="clearTranche(${i})" title="Clear T${i+1}">↺</button>
       <button class="tranche-remove" ${dis} onclick="removeTranche(${i})">×</button>
     </div>
     <div id="tranche-avg-${i}" style="font-size:10px;color:var(--muted);padding:2px 0 8px 52px;margin-top:-4px">T${i+1} after: New avg cost: <span style="color:var(--muted)">— (enter Entry Price)</span></div>`;
@@ -4385,6 +4393,11 @@ window.addTranche = function() {
 window.removeTranche = function(idx) {
   if (planState.tranches.length <= 1) return;
   planState.tranches.splice(idx, 1);
+  renderPlanModal();
+};
+
+window.clearTranche = function(idx) {
+  planState.tranches[idx] = { price: null, cumPct: 0 };
   renderPlanModal();
 };
 
