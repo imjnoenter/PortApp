@@ -162,7 +162,7 @@ defaultPortFor(sym)    → active port, or (in ALL) the port holding most of sym
 modelForPort(port)/findPosIn(model,sym) → port-scoped model + lookup for the action modal
 ```
 - **Transfers:** moving shares between ports = `Transfer-Out` + `Transfer-In` tx pair at carried avg cost (Apps Script `transferShares`). `computePnLTimeline`/`computeClosedTrades`/`sharesHeldAt` handle them with no realized P&L. Client helper `transferShares(sym,shares,from,to)` exists; no UI entry point yet.
-- **Action modal:** has a portfolio dropdown (`actionModalPort`, `setActionPort`); operates on that port's model. **Trade** hides the ALLOCATION tab and the plan tab's target/entry-tranche UI (SL/TP only).
+- **Action modal:** has a portfolio dropdown (`actionModalPort`, `setActionPort`); operates on that port's model. Both Long-Term and Trade have the same 4 tabs (PLAN, TRANSACTION, EDIT, ALLOCATION) with full plan UI (target allocation, entry tranches, SL/TP).
 - **Plans:** `planCache[portfolio][symbol]`. Use `getPlan(sym,port)` / `setPlan` / `deletePlan`; `hasSavedPlan(sym,port)`. Plan Watch + Plans panel iterate per-port in ALL (DOM IDs keyed `port__sym`).
 - **Cash writes** (`updateCash`), holding writes (`addSymbol`/`updateSymbol`/`removeSymbol`), and plan writes (`savePlan`/`clearPlan`) all carry a `portfolio` param.
 - **ALL-view target approximation:** only Long-Term carries target allocations; `getTargetDollar` uses ALL `investable`, so LT target dollars are slightly larger in ALL than in the LT-only view (accepted tradeoff).
