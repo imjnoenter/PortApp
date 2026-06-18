@@ -358,16 +358,6 @@ body {
 }
 
 .header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin-left: auto; }
-.header-tools {
-  display: flex; align-items: center; gap: 4px;
-  padding: 3px; background: var(--track);
-  border: 1px solid var(--line); border-radius: var(--radius-pill);
-}
-.header-tools .theme-btn,
-.header-tools .currency-btn { border: none; background: transparent; height: 30px; }
-.header-tools .theme-btn { width: 30px; }
-.header-tools .theme-btn:hover { background: var(--card); border-color: transparent; }
-.header-tools .currency-btn span { line-height: 30px; padding: 0 11px; font-size: 12px; }
 
 /* ── Language toggle (EN / TH segmented) ── */
 .lang-toggle {
@@ -382,6 +372,40 @@ body {
 }
 .lang-seg.active { background: var(--btn-bg); color: var(--btn-fg); }
 .lang-seg:not(.active):hover { background: var(--hover); color: var(--ink); }
+
+/* ── Settings gear ── */
+.settings-gear-wrap { position: relative; flex-shrink: 0; }
+.settings-gear-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--track); border: 1px solid var(--line);
+  cursor: pointer; color: var(--muted);
+  transition: background .15s, color .15s, transform .3s;
+}
+.settings-gear-btn:hover { background: var(--hover); color: var(--ink); transform: rotate(30deg); }
+.settings-gear-btn svg { width: 18px; height: 18px; }
+.settings-dropdown {
+  display: none; position: absolute; top: calc(100% + 8px); right: 0;
+  background: var(--card); border: 1px solid var(--card-edge);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 10px 14px; min-width: 200px; z-index: 2200;
+}
+.settings-dropdown.open { display: block; }
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0; gap: 12px;
+}
+.settings-row + .settings-row { border-top: 1px solid var(--line); }
+.settings-row-label {
+  font-size: 12px; font-weight: 600; color: var(--ink);
+  font-family: var(--font-ui); letter-spacing: .2px;
+}
+.settings-row .lang-toggle { height: 28px; }
+.settings-row .lang-seg { padding: 0 10px; font-size: 10px; }
+.settings-row .currency-btn { height: 28px; }
+.settings-row .currency-btn span { line-height: 28px; padding: 0 10px; font-size: 12px; }
+.settings-row .theme-btn { width: 28px; height: 28px; }
+.settings-row .theme-btn svg { width: 14px; height: 14px; }
 
 /* ── Portfolio toggle ── */
 .port-toggle {
@@ -1770,6 +1794,7 @@ const I18N = {
     spin_duration_label: "Spin duration",
     sl_reached_tooltip: "Stop Loss Reached!", actions_tooltip: "Actions",
     manage_label: "Manage",
+    language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone",
   },
   TH: {
     refresh: "รีเฟรช", portfolio: "Portfolio", updated: "อัปเดตเมื่อ", port_all: "ทั้งหมด",
@@ -1967,6 +1992,7 @@ const I18N = {
     actions_tooltip: "เครื่องมือจัดการ",
     // Additional
     manage_label: "จัดการ",
+    language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี",
   }
 };
 let currentLang = localStorage.getItem('lang') || 'EN';
@@ -7670,6 +7696,17 @@ function applyTone(cool) {
 window.toggleTone = () => { applyTone(document.documentElement.getAttribute('data-tone') !== 'cool'); rerenderAllCharts(); };
 applyTone(localStorage.getItem('tone') === 'cool');
 
+// ── Settings dropdown ─────────────────────────────────────────────────────────
+window.toggleSettingsDropdown = function(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('settingsDropdown');
+  if (dd) dd.classList.toggle('open');
+};
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('settingsDropdown');
+  if (dd?.classList.contains('open') && !e.target.closest('.settings-gear-wrap')) dd.classList.remove('open');
+});
+
 function rerenderAllCharts() {
   if (!currentModel) return;
   try { Chart.helpers.each(Chart.instances, c => c.destroy()); } catch(_) {}
@@ -8513,14 +8550,31 @@ function buildShell() {
       <div class="header-actions">
         <div class="last-updated" id="lastUpdated"></div>
         <div id="quotesFreshness" style="font-size:10px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap"></div>
-        <div class="header-tools">
-          <button class="currency-btn" id="currencyBtn" onclick="toggleCurrency()"></button>
-          <div class="lang-toggle" title="Switch language">
-            <button class="lang-seg${currentLang==='EN'?' active':''}" onclick="setLang('EN')">EN</button>
-            <button class="lang-seg${currentLang==='TH'?' active':''}" onclick="setLang('TH')">TH</button>
+        <div class="settings-gear-wrap">
+          <button class="settings-gear-btn" onclick="toggleSettingsDropdown(event)" title="Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <div class="settings-dropdown" id="settingsDropdown">
+            <div class="settings-row">
+              <span class="settings-row-label">${t('language_label') || 'Language'}</span>
+              <div class="lang-toggle" title="Switch language">
+                <button class="lang-seg${currentLang==='EN'?' active':''}" onclick="setLang('EN')">EN</button>
+                <button class="lang-seg${currentLang==='TH'?' active':''}" onclick="setLang('TH')">TH</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">${t('currency_label') || 'Currency'}</span>
+              <button class="currency-btn" id="currencyBtn" onclick="toggleCurrency()"></button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">${t('theme_label') || 'Theme'}</span>
+              <button class="theme-btn" id="themeBtn" onclick="toggleTheme()"></button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">${t('tone_label') || 'Tone'}</span>
+              <button class="theme-btn" id="toneBtn" onclick="toggleTone()" title="Toggle warm/cool tone"></button>
+            </div>
           </div>
-          <button class="theme-btn" id="toneBtn" onclick="toggleTone()" title="Toggle warm/cool tone"></button>
-          <button class="theme-btn" id="themeBtn" onclick="toggleTheme()"></button>
         </div>
         <button class="refresh-btn" onclick="init()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
