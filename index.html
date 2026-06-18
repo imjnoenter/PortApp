@@ -383,6 +383,21 @@ body {
 .lang-seg.active { background: var(--btn-bg); color: var(--btn-fg); }
 .lang-seg:not(.active):hover { background: var(--hover); color: var(--ink); }
 
+/* ── Portfolio toggle ── */
+.port-toggle {
+  display: flex; border: 1px solid var(--line); border-radius: var(--radius-pill);
+  overflow: hidden; height: 30px; flex-shrink: 0; background: var(--track);
+}
+.port-toggle-btn {
+  --port-accent: var(--btn-bg);
+  border: none; background: transparent; padding: 0 13px;
+  font-size: 11px; font-weight: 700; letter-spacing: .3px;
+  cursor: pointer; color: var(--muted); font-family: var(--font-ui);
+  white-space: nowrap; transition: background .15s, color .15s;
+}
+.port-toggle-btn.active { background: var(--port-accent); color: #fff; }
+.port-toggle-btn:not(.active):hover { background: var(--hover); color: var(--ink); }
+
 /* ── Thai font (Kanit) — applied to every element ── */
 [data-lang="TH"],
 [data-lang="TH"] * {
@@ -1482,7 +1497,7 @@ function _buildUrls(c) {
   const b = `https://docs.google.com/spreadsheets/d/${c.sheetId}/gviz/tq?tqx=out:json&sheet=`;
   return { SHEET_URL: b+'Claude', TRANSACTION_URL: b+'transactions', TX_LIST_URL: b+'transactions',
            HISTORY_URL: b+'History', CALENDAR_URL: b+'Calendar', PLAN_URL: b+'Plan',
-           QUOTES_URL: b+'Quotes',
+           QUOTES_URL: b+'Quotes', PORTFOLIOS_URL: b+'Portfolios',
            RECORD_URL: c.recordUrl, WRITE_KEY: c.writeKey };
 }
 function _applyActiveProfile() {
@@ -1491,7 +1506,7 @@ function _applyActiveProfile() {
   const u = _buildUrls(a);
   SHEET_URL = u.SHEET_URL; TRANSACTION_URL = u.TRANSACTION_URL; TX_LIST_URL = u.TX_LIST_URL;
   HISTORY_URL = u.HISTORY_URL; CALENDAR_URL = u.CALENDAR_URL; PLAN_URL = u.PLAN_URL;
-  QUOTES_URL = u.QUOTES_URL;
+  QUOTES_URL = u.QUOTES_URL; PORTFOLIOS_URL = u.PORTFOLIOS_URL;
   RECORD_URL = u.RECORD_URL; _WRITE_KEY = u.WRITE_KEY;
   _staticQuoteCache = {};
 }
@@ -1539,6 +1554,7 @@ let PLAN_URL        = _u.PLAN_URL        || '';
 let RECORD_URL      = _u.RECORD_URL      || '';
 let _WRITE_KEY      = _u.WRITE_KEY       || '';
 let QUOTES_URL      = _u.QUOTES_URL      || '';
+let PORTFOLIOS_URL  = _u.PORTFOLIOS_URL  || '';
 let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, earningsTimestamp, ... } }
 let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo', updatedAt?: unixSec }
 
@@ -1593,7 +1609,7 @@ async function recordFetch(params, needsResponse = false) {
 // ── i18n ─────────────────────────────────────────────────────────────────────
 const I18N = {
   EN: {
-    refresh: "Refresh", portfolio: "Portfolio", updated: "Updated",
+    refresh: "Refresh", portfolio: "Portfolio", updated: "Updated", port_all: "All",
     port_val: "Portfolio Value", total_ret: "Total Return", day_ret: "1D Return",
     irr: "Annualised IRR", cash: "Cash", unrealized: "Unrealized P/L",
     realized: "Realized P/L", dividends: "Dividends",
@@ -1756,7 +1772,7 @@ const I18N = {
     manage_label: "Manage",
   },
   TH: {
-    refresh: "รีเฟรช", portfolio: "Portfolio", updated: "อัปเดตเมื่อ",
+    refresh: "รีเฟรช", portfolio: "Portfolio", updated: "อัปเดตเมื่อ", port_all: "ทั้งหมด",
     port_val: "มูลค่าพอร์ต", total_ret: "กำไรรวมทั้งหมด", day_ret: "กำไรวันนี้",
     irr: "ผลตอบแทนรายปี (IRR)", cash: "เงินสด", unrealized: "กำไรที่ยังไม่ขาย",
     realized: "กำไรที่ขายแล้ว (Realized)", dividends: "เงินปันผล",
@@ -1967,6 +1983,13 @@ function setLang(lang) {
 }
 
 let currentModel = null;
+// ── Multi-portfolio state ─────────────────────────────────────────────────────
+let activePortfolio    = localStorage.getItem('portfolioView.v1') || 'ALL'; // 'ALL' | 'Long-Term' | 'Trade'
+let _allRows           = [];   // full parseRows() output — every portfolio×symbol row
+let _portfolioRegistry = [];   // parsed Portfolios sheet — [{id,name,color,cash,cashRes,fcd,usd}]
+let _allTxCache        = null; // full minimal tx list incl Portfolio tag + Transfer rows
+let _lastQuotes        = null; // cached quote map, re-attached on toggle (no refetch)
+let actionModalPort    = 'Long-Term'; // portfolio governing the action modal tabs
 let currency = localStorage.getItem('currency') || 'USD';
 let fxRate   = 1;
 let donutChartInst = null;
@@ -2176,8 +2199,7 @@ window.updateTxCashPreview = function() {
   const isSell = txType === 'Sell';
   const { comm, tax, buyTotal, sellNet } = calcFees(tv);
   const amount = isSell ? sellNet : buyTotal;
-  const fcd = currentModel?.rawFcd ?? 0;
-  const usd = currentModel?.rawUsd ?? 0;
+  const { fcd, usd } = txPortCash();
   ['FCD','USD'].forEach(s => {
     const el = document.getElementById('txCashInfo'+s);
     if (!el) return;
@@ -2194,9 +2216,18 @@ window.updateTxCashPreview = function() {
   });
 };
 
+// Portfolio whose cash a transaction draws from: action modal → actionModalPort;
+// standalone tx modal → the txPortfolio <select>; else the active view (ALL → Long-Term).
+function txActivePort() {
+  const sel = document.getElementById('txPortfolio');
+  if (sel && sel.value) return sel.value;
+  if (document.getElementById('actionModal')?.classList.contains('open')) return actionModalPort;
+  return activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
+}
+function txPortCash() { const r = _portRow(txActivePort()); return { fcd: Number(r.fcd) || 0, usd: Number(r.usd) || 0 }; }
+
 function buildCashSelectorHtml() {
-  const fcd = currentModel?.rawFcd ?? 0;
-  const usd = currentModel?.rawUsd ?? 0;
+  const { fcd, usd } = txPortCash();
   return `<div class="tx-field">
     <label class="tx-label">${t('deduct_from_label')}</label>
     <input type="hidden" id="txCashSource" value="USD">
@@ -2219,40 +2250,57 @@ function buildCashSelectorHtml() {
   </div>`;
 }
 
-async function postTransactionUpdates(ticker, shares, price, txTypeVal) {
-  const allPos = [...(currentModel?.positions||[]), ...(currentModel?.sgovPos?[currentModel.sgovPos]:[])];
-  const pos = allPos.find(p => p.symbol === ticker);
+async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfolio) {
+  const port = portfolio || DEFAULT_PORT;
+  // Use the raw (portfolio, symbol) holding row — NOT currentModel, which is the active view slice.
+  const row = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
+  const curQty = Number(row?.qty) || 0, curAvg = Number(row?.avgPrice) || 0;
   // 1. Recalculate Qty and Avg Cost (upsert — creates row if symbol is new)
   if (txTypeVal === 'Buy' || txTypeVal === 'Sell') {
     let newQty, newAvg;
     if (txTypeVal === 'Buy') {
-      newQty = (pos?.qty||0) + shares;
-      newAvg = newQty > 0 ? ((pos?.qty||0)*(pos?.avgPrice||0) + shares*price) / newQty : price;
+      newQty = curQty + shares;
+      newAvg = newQty > 0 ? (curQty*curAvg + shares*price) / newQty : price;
     } else {
-      newQty = Math.max(0, (pos?.qty||0) - shares);
-      newAvg = pos?.avgPrice || 0;
+      newQty = Math.max(0, curQty - shares);
+      newAvg = curAvg;
     }
     // Sell All: if qty reaches 0, delete from Claude sheet
     if (txSellAll && txTypeVal === 'Sell' && newQty < 0.0001) {
-      recordFetch({ action:'removeSymbol', symbol:ticker });
+      recordFetch({ action:'removeSymbol', symbol:ticker, portfolio:port });
       txSellAll = false;
     } else {
-      recordFetch({ action:'updateSymbol', symbol:ticker, qty:newQty.toFixed(6), avgPrice:newAvg.toFixed(6) });
+      recordFetch({ action:'updateSymbol', symbol:ticker, portfolio:port, qty:newQty.toFixed(6), avgPrice:newAvg.toFixed(6) });
       txSellAll = false;
     }
   }
-  // 2. Deduct / add cash (including commission + tax)
+  // 2. Deduct / add cash from this portfolio's registry balances (including commission + tax)
   const src  = document.getElementById('txCashSource')?.value || 'USD';
   const tv   = shares * price;
   const { buyTotal, sellNet } = calcFees(tv);
   const amount = txTypeVal === 'Buy' ? buyTotal : sellNet;
-  const fcd  = currentModel?.rawFcd ?? 0;
-  const usd  = currentModel?.rawUsd ?? 0;
+  const reg = _portRow(port);
+  const fcd  = Number(reg?.fcd) || 0;
+  const usd  = Number(reg?.usd) || 0;
   let nFcd = fcd, nUsd = usd;
   if (txTypeVal === 'Buy')  { if (src==='FCD') nFcd = fcd-amount; else nUsd = usd-amount; }
   if (txTypeVal === 'Sell') { if (src==='FCD') nFcd = fcd+amount; else nUsd = usd+amount; }
-  recordFetch({ action:'updateCash', fcd:nFcd.toFixed(4), usd:nUsd.toFixed(4) });
+  recordFetch({ action:'updateCash', portfolio:port, fcd:nFcd.toFixed(4), usd:nUsd.toFixed(4) });
 }
+
+// Move shares between portfolios — no cash change, no realized P&L. Apps Script writes the
+// Transfer-Out + Transfer-In pair (at source avg cost) and updates both holding rows atomically.
+async function transferShares(sym, shares, fromPort, toPort) {
+  if (!sym || !shares || shares <= 0 || fromPort === toPort) return false;
+  const fromRow = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === fromPort);
+  const avg = Number(fromRow?.avgPrice) || 0;
+  await recordFetch({ action:'transferShares', symbol:sym, shares:Number(shares).toFixed(6),
+                      fromPortfolio:fromPort, toPortfolio:toPort, price:avg.toFixed(6) });
+  _allTxCache = null;
+  return true;
+}
+window.transferShares = transferShares;
+
 window.updateTxPrice = function(val) {
   const custom = document.getElementById('txTickerCustom');
   if (val === '__custom__') { custom.style.display = 'block'; custom.focus(); return; }
@@ -2288,6 +2336,14 @@ function buildTxModal(defaultSymbol, editData) {
   const submitCall  = isEdit ? `submitEditTx(${editData.row})` : 'submitTx()';
   const submitLabel = isEdit ? t('save_changes_btn') : t('record_tx_btn');
 
+  const defPort = editData?.portfolio || defaultPortFor(sym);
+  const portField = _portfolioRegistry.length > 1
+    ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
+        <select class="tx-input" id="txPortfolio" onchange="updateTxCashPreview()">
+          ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===defPort?' selected':''}>${p.name}</option>`).join('')}
+        </select></div>`
+    : `<input type="hidden" id="txPortfolio" value="${defPort}">`;
+
   return `<div class="tx-modal" onclick="event.stopPropagation()">
     <div class="tx-header"><div class="tx-title">${isEdit ? t('edit_tx_title') : t('add_tx_title')}</div><button class="tx-close" onclick="closeTx()">×</button></div>
     <div class="tx-type-toggle">
@@ -2299,6 +2355,7 @@ function buildTxModal(defaultSymbol, editData) {
       <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${time}"></div>
     </div>
     <div class="tx-field"><label class="tx-label">${t('th_symbol')}</label>${tickerField}</div>
+    ${portField}
     <div class="tx-row2">
       <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">${t('Shares')} <button id="txSellAllBtn" onclick="setSellAll()" style="display:none;font-size:10px;font-weight:700;color:var(--loss);background:transparent;border:none;cursor:pointer;padding:0">${t('sell_all_btn')}</button></label><input class="tx-input" id="txShares" type="number" step="any" min="0" placeholder="0" value="${shares}" oninput="updateTxCalc();txSellAll=false"></div>
       <div class="tx-field"><label class="tx-label">${t('price_per_share_label')}</label><input class="tx-input" id="txPrice" type="number" step="any" min="0" value="${price}" oninput="updateTxCalc()"></div>
@@ -2336,17 +2393,19 @@ window.submitTx = async function() {
   document.getElementById('txSubmit').disabled = true;
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
+    const portfolio = document.getElementById('txPortfolio')?.value || DEFAULT_PORT;
     const params = new URLSearchParams({
       date: document.getElementById('txDate').value,
       time: document.getElementById('txTime').value,
       type: txType, ticker, shares, price,
       tradeValue: tv.toFixed(4),
       commissionFree: noCommission,
+      portfolio,
     });
     await recordFetch(params);
-    await postTransactionUpdates(ticker, shares, price, txType);
+    await postTransactionUpdates(ticker, shares, price, txType, portfolio);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved to Google Sheet</span>';
-    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; refreshTxPanel(); init(); }, 1500); }, 1200);
+    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 1200);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
@@ -2389,6 +2448,7 @@ async function fetchTxList() {
     shares:         Number(cell(r, 'Shares')) || 0,
     price:          Number(cell(r, 'Price_Per_Share')) || 0,
     tradeValue:     Number(cell(r, 'Trade_Value')) || 0,
+    portfolio:      cell(r, 'Portfolio') || DEFAULT_PORT,
     com:            Number(cell(r, 'Com')) || 0,
     tax:            Number(cell(r, 'Tax')) || 0,
     total:          Number(cell(r, 'Trade_Value+Fee') ?? cell(r, 'Trade_Value Fee') ?? 0),
@@ -2401,10 +2461,12 @@ async function fetchTxList() {
 const EDIT_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
 
-function renderTxPanel(list) {
+function renderTxPanel(fullList) {
   const body = document.getElementById('txPanelBody');
   const countEl = document.getElementById('txPanelCount');
   if (!body) return;
+  // Single-portfolio view shows only that portfolio's transactions.
+  const list = activePortfolio === 'ALL' ? fullList : fullList.filter(x => (x.portfolio || DEFAULT_PORT) === activePortfolio);
   if (countEl) countEl.textContent = list.length || '';
   if (!list.length) { body.innerHTML = '<div class="tx-panel-status">No transactions yet.</div>'; return; }
   const sorted = [...list].sort((a,b) => txSortDir * ((a.date+a.time).localeCompare(b.date+b.time)));
@@ -2484,10 +2546,11 @@ window.submitEditTx = async function(row) {
       time: document.getElementById('txTime').value,
       type: txType, ticker, shares, price,
       tradeValue: tv.toFixed(4), commissionFree: noCommission,
+      portfolio: document.getElementById('txPortfolio')?.value || DEFAULT_PORT,
     });
     await recordFetch(params);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; refreshTxPanel(); init(); }, 1500); }, 800);
+    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 800);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
@@ -2513,6 +2576,7 @@ window.confirmDeleteTx = async function(row, btnEl) {
   if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:11px">Deleting…</span>';
   try {
     await recordFetch({ action: 'delete', row: String(row) });
+    _allTxCache = null;
     setTimeout(refreshTxPanel, 700);
   } catch(e) {
     if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">Failed</span>`;
@@ -2532,7 +2596,7 @@ window.openSymbolDetail = function(sym) {
   const pos   = findPos(sym);
   if (!pos) return;
   const color = colorFor(sym);
-  const plan  = planCache[sym] || {};
+  const plan  = getPlan(sym) || {};
   const { tranches=[], sl, note } = plan;
   const td      = getTargetDollar(pos, currentModel);
   const currPct = getCurrentPct(pos, currentModel);
@@ -2960,7 +3024,7 @@ window.openTxHistory = function(sym) {
       <td style="padding:6px 8px;text-align:right;font-weight:600">${fmtCurr(t.total||t.tradeValue)}</td>
     </tr>`).join('');
 
-  const planData = planCache[sym];
+  const planData = getPlan(sym);
   const noteHtml = (planData?.note || planData?.sl) ? `
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap">
       ${planData?.sl ? `<div><span style="font-size:10px;color:var(--muted)">STOP LOSS</span><br><span style="font-weight:700;color:var(--loss)">${fmtCurr(planData.sl)}</span></div>` : ''}
@@ -3019,14 +3083,23 @@ window.openEditCash = function() {
   if (!currentModel) return;
   const overlay = document.getElementById('editCashModal');
   if (!overlay) return;
-  const fcd  = currentModel.rawFcd ?? 0;
-  const usd  = currentModel.rawUsd ?? 0;
-  const cash = currentModel.rawCash;
+  // Cash is per-portfolio. In ALL view default to Long-Term; a selector lets the user pick.
+  const editPort = activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
+  const r0   = _portRow(editPort);
+  const fcd  = Number(r0.fcd) || 0;
+  const usd  = Number(r0.usd) || 0;
+  const cash = fcd + usd;
+  const portSel = _portfolioRegistry.length > 1
+    ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
+        <select class="tx-input" id="editCashPortfolio" onchange="onEditCashPortChange(this.value)">
+          ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
+        </select></div>` : `<input type="hidden" id="editCashPortfolio" value="${editPort}">`;
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
     <div class="tx-header">
       <div class="tx-title">${t('edit_cash_title')}</div>
       <button class="tx-close" onclick="document.getElementById('editCashModal').classList.remove('open')">×</button>
     </div>
+    ${portSel}
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">BEFORE</div>
       <div><strong>${fmtCurr(cash)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span></div>
@@ -3051,6 +3124,14 @@ window.openEditCash = function() {
   overlay.classList.add('open');
 };
 
+window.onEditCashPortChange = function(port) {
+  const r = _portRow(port);
+  const fcdEl = document.getElementById('editCashFcd'), usdEl = document.getElementById('editCashUsd');
+  if (fcdEl) fcdEl.value = Number(r.fcd) || 0;
+  if (usdEl) usdEl.value = Number(r.usd) || 0;
+  updateCashPreview();
+};
+
 window.updateCashPreview = function() {
   const fcd  = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd  = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
@@ -3064,7 +3145,7 @@ window.submitEditCash = async function() {
   const statusEl = document.getElementById('editCashStatus');
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
-    const params = new URLSearchParams({ action: 'updateCash', fcd, usd });
+    const params = new URLSearchParams({ action: 'updateCash', portfolio: document.getElementById('editCashPortfolio')?.value || DEFAULT_PORT, fcd, usd });
     await recordFetch(params);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
     setTimeout(() => {
@@ -3402,28 +3483,49 @@ window.updateActionChartsPreview = function() {
 const ACTION_ICON = `<svg viewBox="0 0 14 4" width="14" height="4" fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/><circle cx="12" cy="2" r="1.8"/></svg><span class="pb-label">Actions</span>`;
 const GEMINI_ICON = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2c-.3 3.4-1.8 6.2-4 8.3C5.8 12.4 3 13.8 0 14c3 .2 5.8 1.6 8 3.7 2.2 2.1 3.7 4.9 4 8.3.3-3.4 1.8-6.2 4-8.3 2.2-2.1 5-3.5 8-3.7-3-.2-5.8-1.6-8-3.7C13.8 8.2 12.3 5.4 12 2z" fill="#4285f4"/></svg>`;
 
-window.openActionModal = function(sym) {
+// Build a model scoped to a single portfolio (for the action modal in ALL view).
+function modelForPort(port) {
+  if (port === activePortfolio || port == null) return currentModel;
+  const m = buildModel(rowsForView(port), cashCtxFor(port));
+  if (_lastQuotes) attachQuotes(m, _lastQuotes);
+  return m;
+}
+function findPosIn(model, sym) {
+  if (!model) return null;
+  return model.positions.find(p => p.symbol === sym)
+      || (model.sgovPos?.symbol === sym ? model.sgovPos : null)
+      || model.watchlist.find(w => w.symbol === sym) || null;
+}
+
+window.openActionModal = function(sym, port) {
   if (!currentModel) return;
   actionModalSym = sym;
   actionModalTab = 'plan';
+  actionModalPort = port || defaultPortFor(sym);
   tabDraft = {};
   // Clear standalone txModal to avoid duplicate ID conflicts (txAllocBars, txTicker, etc.)
   const txOverlay = document.getElementById('txModal');
   if (txOverlay) txOverlay.innerHTML = '';
-  const pos   = findPos(sym);
+  const portModel = modelForPort(actionModalPort);
+  const pos   = findPosIn(portModel, sym) || findPos(sym);
   const color = colorFor(sym);
-  // Init plan state from cache
+  // Init plan state from cache (this portfolio's plan)
   if (pos) {
-    const cached = planCache[sym] || {};
+    const cached = getPlan(sym, actionModalPort) || {};
     const tr = cached.tranches?.length ? cached.tranches : [{cumPct:0}];
     const tp = cached.trimTranches?.length === 3 ? cached.trimTranches : [{},{},{}];
-    planState = {symbol:sym, name:pos.name||'', tranches:tr, trimTranches:tp, model:currentModel,
+    planState = {symbol:sym, name:pos.name||'', tranches:tr, trimTranches:tp, model:portModel,
                  sl:cached.sl??null, note:cached.note??'',
                  pendingTarget:null, pendingCategory:null};
   }
   const overlay = document.getElementById('actionModal');
   if (!overlay) return;
-  const tabs = ['plan','transaction','edit','allocation'];
+  // Trade port has no allocation concept → hide ALLOCATION tab.
+  const tabs = actionModalPort === 'Trade' ? ['plan','transaction','edit'] : ['plan','transaction','edit','allocation'];
+  const portSelector = _portfolioRegistry.length > 1
+    ? `<select onchange="setActionPort(this.value)" title="Portfolio" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--track);color:var(--ink);cursor:pointer">
+        ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===actionModalPort?' selected':''}>${p.name}</option>`).join('')}
+      </select>` : '';
   overlay.innerHTML = `<div class="tx-modal" style="max-width:800px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
     <div class="tx-header">
       <div style="display:flex;align-items:center;gap:10px">
@@ -3439,6 +3541,7 @@ window.openActionModal = function(sym) {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
+        ${portSelector}
         ${!currentModel?.positions.find(p=>p.symbol===sym) && currentModel?.watchlist.find(w=>w.symbol===sym)
           ? `<button onclick="removeFromWatchlist('${sym}')" style="padding:4px 10px;font-size:11px;font-weight:600;color:var(--loss);background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);border-radius:6px;cursor:pointer">Remove</button>`
           : ''}
@@ -3452,6 +3555,15 @@ window.openActionModal = function(sym) {
   </div>`;
   overlay.classList.add('open');
   renderActionTabContent();
+};
+
+// Switch the portfolio the action modal operates on; rebuild it on the same symbol/tab.
+window.setActionPort = function(port) {
+  if (port === actionModalPort) return;
+  const sym = actionModalSym, tab = actionModalTab;
+  openActionModal(sym, port);
+  // openActionModal resets tab to 'plan'; restore the tab the user was on (if still valid for this port).
+  if (tab && tab !== 'plan') switchActionTab(tab === 'allocation' && port === 'Trade' ? 'plan' : tab);
 };
 
 window.onPlanTargetChange = function(val) {
@@ -3534,13 +3646,15 @@ function renderActionTabContent() {
   const el = document.getElementById('actionTabContent');
   if (!el) return;
   const sym = actionModalSym;
-  const pos = findPos(sym);
+  const actionModel = planState.model || currentModel; // portfolio-scoped model for this modal
+  const pos = findPosIn(actionModel, sym) || findPos(sym);
+  const isTradePort = actionModalPort === 'Trade';
 
   if (actionModalTab === 'plan') {
     // Render plan content inline
     if (!pos) { el.innerHTML = '<div style="color:var(--muted);padding:12px 0">No position data</div>'; return; }
-    const td = getTargetDollar(pos, currentModel);
-    const currPct = getCurrentPct(pos, currentModel);
+    const td = getTargetDollar(pos, actionModel);
+    const currPct = getCurrentPct(pos, actionModel);
     const tranchesHtml = planState.tranches.map((t,i) => {
       const dollar = getTrancheDollar(i, planState.tranches, currPct, td);
       const prev   = getPrevEndPct(i, planState.tranches, currPct);
@@ -3575,6 +3689,7 @@ function renderActionTabContent() {
       <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
         <div id="actionTvChartEl" style="height:220px"></div>
       </div>
+      ${isTradePort ? '' : `
       <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm);margin-bottom:12px">
         <span style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">${t('target_alloc_label')}</span>
         <div class="tranche-input-wrap has-suffix" style="width:90px">
@@ -3583,7 +3698,7 @@ function renderActionTabContent() {
             oninput="onPlanTargetChange(this.value)">
           <span class="ti-suffix">%</span>
         </div>
-        <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtUSD(getTargetDollar(pos, currentModel)) : t('set_pct_hint')}</span>
+        <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtUSD(getTargetDollar(pos, actionModel)) : t('set_pct_hint')}</span>
       </div>
       <div class="plan-bar-wrap">
         <div class="plan-bar-track" id="planBarTrack"></div>
@@ -3598,7 +3713,7 @@ function renderActionTabContent() {
         <div></div>
       </div>
       <div id="planTranches">${tranchesHtml}</div>
-      <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>
+      <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>`}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px">
         <div>
           <label style="font-size:10px;font-weight:600;color:var(--loss);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('stop_loss_label')}</label>
@@ -3667,6 +3782,30 @@ function renderActionTabContent() {
     setTimeout(() => { updateTxCalc(); buildActionTvChart(sym); }, 0);
 
   } else if (actionModalTab === 'edit') {
+    // Move-shares block: only when this symbol is held in the current port and >1 portfolio exists.
+    const curQty   = pos?.qty || 0;
+    const showMove = !isReadOnly() && _portfolioRegistry.length > 1 && curQty > 0;
+    const destOpts = _portfolioRegistry
+      .filter(p => p.name !== actionModalPort)
+      .map(p => `<option value="${p.name}">${p.name}</option>`)
+      .join('');
+    const moveBlock = showMove ? `
+      <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Move to portfolio</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px">From <strong>${actionModalPort}</strong> · carried avg <strong>${fmtUSD(pos?.avgPrice || 0)}</strong> — no P&amp;L is realized.</div>
+        <div class="tx-row2">
+          <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">Shares
+            <button onclick="document.getElementById('moveShares').value=${curQty}" style="font-size:10px;font-weight:700;color:var(--loss);background:transparent;border:none;cursor:pointer;padding:0">Max (${curQty.toFixed(4)})</button>
+          </label>
+            <input class="tx-input" id="moveShares" type="number" step="any" min="0" max="${curQty}" placeholder="0">
+          </div>
+          <div class="tx-field"><label class="tx-label">Destination</label>
+            <select class="tx-input" id="moveDest">${destOpts}</select>
+          </div>
+        </div>
+        <button class="tx-submit" id="moveSubmit" onclick="submitMoveShares('${sym}')">Move shares</button>
+        <div class="tx-status" id="moveStatus"></div>
+      </div>` : '';
     el.innerHTML = actionChartsHtml(sym) + `
       <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px">
         <div style="font-size:10px;color:var(--muted);margin-bottom:4px">CURRENT</div>
@@ -3681,7 +3820,7 @@ function renderActionTabContent() {
         </div>
       </div>
       <button class="tx-submit" onclick="submitSymbolEdit('${sym}','edit')">Save to Google Sheet</button>
-      <div class="tx-status" id="symbolEditStatus"></div>`;
+      <div class="tx-status" id="symbolEditStatus"></div>${moveBlock}`;
     setTimeout(() => renderActionCharts(sym), 0);
 
   } else if (actionModalTab === 'allocation') {
@@ -3886,10 +4025,11 @@ window.savePlanInAction = function() {
     if (!isNaN(tgt)) planState.pendingTarget = tgt / 100;
   }
   const tp = planState.trimTranches || [{},{},{}];
-  planCache[symbol] = { tranches, sl, note, trimTranches: tp };
-  savePlanToSheet(symbol, tranches, sl, note, tp);
+  const port = actionModalPort || DEFAULT_PORT;
+  setPlan(symbol, port, { tranches, sl, note, trimTranches: tp });
+  savePlanToSheet(symbol, tranches, sl, note, tp, port);
   // Also save pending allocation/category if changed
-  const params = new URLSearchParams({ action: 'updateSymbol', symbol });
+  const params = new URLSearchParams({ action: 'updateSymbol', symbol, portfolio: actionModalPort || DEFAULT_PORT });
   let hasAlloc = false;
   if (planState.pendingTarget !== null)   { params.set('target',   planState.pendingTarget.toFixed(6)); hasAlloc = true; }
   if (planState.pendingCategory !== null) { params.set('category', planState.pendingCategory);          hasAlloc = true; }
@@ -3903,12 +4043,13 @@ window.clearPlanInAction = function() {
   planState.note = document.getElementById('planNote')?.value?.trim() || '';
   const sl   = planState.sl;
   const note = planState.note;
+  const port = actionModalPort || DEFAULT_PORT;
   if (!sl && !note) {
-    clearPlanFromSheet(symbol);
-    delete planCache[symbol];
+    clearPlanFromSheet(symbol, port);
+    deletePlan(symbol, port);
   } else {
-    planCache[symbol] = { tranches: [], sl, note };
-    savePlanToSheet(symbol, [], sl, note);
+    setPlan(symbol, port, { tranches: [], sl, note });
+    savePlanToSheet(symbol, [], sl, note, [], port);
   }
   planState.tranches = [{cumPct:0}];
   renderActionTabContent();
@@ -3925,27 +4066,57 @@ window.submitTxInAction = async function(sym) {
   document.getElementById('txSubmit').disabled = true;
   if (s) s.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
+    const portfolio = document.getElementById('txPortfolio')?.value || actionModalPort || DEFAULT_PORT;
     const params = new URLSearchParams({
       date: document.getElementById('txDate').value,
       time: document.getElementById('txTime').value,
       type: txType, ticker: sym,
       shares, price, tradeValue: (shares*price).toFixed(4),
       commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
+      portfolio,
     });
     await recordFetch(params);
-    postTransactionUpdates(sym, shares, price, txType);
+    postTransactionUpdates(sym, shares, price, txType, portfolio);
     if (s) s.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); setTimeout(() => { txCache = null; refreshTxPanel(); init(); }, 1500); }, 1000);
+    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 1000);
   } catch(e) {
     if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
   }
 };
 
+window.submitMoveShares = async function(sym) {
+  const s = document.getElementById('moveStatus');
+  const shares = parseFloat(document.getElementById('moveShares')?.value) || 0;
+  const dest   = document.getElementById('moveDest')?.value || '';
+  const from   = actionModalPort || DEFAULT_PORT;
+  const pos    = findPosIn(planState.model || currentModel, sym);
+  const curQty = pos?.qty || 0;
+  const TOL = 1e-6;
+  if (shares <= 0)            { if(s) s.innerHTML='<span style="color:var(--loss)">Enter shares &gt; 0.</span>'; return; }
+  if (shares > curQty + TOL)  { if(s) s.innerHTML=`<span style="color:var(--loss)">Only ${curQty.toFixed(4)} available.</span>`; return; }
+  if (!dest || dest === from) { if(s) s.innerHTML='<span style="color:var(--loss)">Pick a different destination.</span>'; return; }
+  const btn = document.getElementById('moveSubmit');
+  if (btn) btn.disabled = true;
+  if (s) s.innerHTML = '<span style="color:var(--muted)">Moving…</span>';
+  try {
+    const ok = await transferShares(sym, shares, from, dest);
+    if (!ok) throw new Error('transfer rejected');
+    if (s) s.innerHTML = '<span style="color:var(--gain)">✓ Moved</span>';
+    setTimeout(() => {
+      document.getElementById('actionModal')?.classList.remove('open');
+      setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500);
+    }, 1000);
+  } catch(e) {
+    if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+    if (btn) btn.disabled = false;
+  }
+};
+
 window.submitSymbolEdit = async function(sym, tab) {
   const statusEl = document.getElementById('symbolEditStatus');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym });
+  const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, portfolio: actionModalPort || DEFAULT_PORT });
   if (tab === 'edit') {
     const qty = parseFloat(document.getElementById('editQty')?.value);
     const avg = parseFloat(document.getElementById('editAvgCost')?.value);
@@ -3969,11 +4140,23 @@ window.submitSymbolEdit = async function(sym, tab) {
 // ── Plan modal ────────────────────────────────────────────────────────────────
 const TRANCHE_COLORS = ['#6b7eb8','#8a5a7e','#b56a8a','#c79038','#6b8e5a','#7aa3b8','#9a7aa3','#9ca85a'];
 let planState = { symbol: null, name: '', tranches: [], model: null, sl: null, note: '', pendingTarget: null, pendingCategory: null };
-let planCache = {}; // { sym: { tranches, sl, note } } — loaded from sheet at startup
+let planCache = {}; // { [portfolio]: { [sym]: { tranches, sl, note, trimTranches } } } — loaded at startup
+
+// Plan lookup. With an explicit port → that port's plan. Without → the active view's port;
+// in ALL view, prefer Long-Term then any port that has a plan for the symbol.
+function getPlan(sym, port) {
+  const p = port || (activePortfolio === 'ALL' ? null : activePortfolio);
+  if (p) return planCache[p]?.[sym];
+  if (planCache[DEFAULT_PORT]?.[sym]) return planCache[DEFAULT_PORT][sym];
+  for (const k of Object.keys(planCache)) if (planCache[k]?.[sym]) return planCache[k][sym];
+  return undefined;
+}
+function setPlan(sym, port, data) { const p = port || DEFAULT_PORT; (planCache[p] = planCache[p] || {})[sym] = data; }
+function deletePlan(sym, port) { const p = port || DEFAULT_PORT; if (planCache[p]) delete planCache[p][sym]; }
 
 function planKey(sym) { return `plan_${sym}`; }
-function hasSavedPlan(sym) {
-  const d = planCache[sym];
+function hasSavedPlan(sym, port) {
+  const d = getPlan(sym, port);
   if (!d) return false;
   const hasEntries = d.tranches?.some(tr => (tr.price != null && tr.price !== '') || (tr.cumPct ?? 0) > 0);
   const hasTp = d.trimTranches?.some(t => t.price > 0);
@@ -4006,7 +4189,9 @@ function parsePlanTable(table) {
       const price = parseFloat(parts[0]), pct = parseFloat(parts[1]);
       return { price: isNaN(price) ? null : price, pct: isNaN(pct) ? 0 : pct };
     });
-    result[sym] = { tranches, sl: c[1]?.v || null, note: c[2]?.v || '', trimTranches };
+    // Portfolio column appended LAST (c[19]) so the positional T/TP indices above are unaffected.
+    const port = c[19]?.v || DEFAULT_PORT;
+    (result[port] = result[port] || {})[sym] = { tranches, sl: c[1]?.v || null, note: c[2]?.v || '', trimTranches };
   }
   return result;
 }
@@ -4020,11 +4205,11 @@ async function loadAllPlansFromSheet() {
   } catch(e) { console.error('loadAllPlansFromSheet:', e); }
 }
 
-async function savePlanToSheet(sym, tranches, sl, note, trimTranches = []) {
+async function savePlanToSheet(sym, tranches, sl, note, trimTranches = [], portfolio = DEFAULT_PORT) {
   const hasAnyReal = tranches.some(t => (t.price != null && t.price !== '') || (t.cumPct ?? 0) > 0);
   const realTrims  = trimTranches.filter(t => t.price > 0 || t.pct > 0);
   if (!hasAnyReal && !sl && !note && !realTrims.length) {
-    return clearPlanFromSheet(sym);
+    return clearPlanFromSheet(sym, portfolio);
   }
   const pos     = currentModel?.positions.find(p => p.symbol === sym);
   const td      = getTargetDollar(pos, currentModel);
@@ -4040,7 +4225,7 @@ async function savePlanToSheet(sym, tranches, sl, note, trimTranches = []) {
   // Pad trimTranches to 3 slots
   const tp3 = [{},{},{}].map((_, i) => trimTranches[i] || {});
   const params = new URLSearchParams({
-    action: 'savePlan', symbol: sym, tranches: trancheStr, sl: sl ?? '', note: note ?? '',
+    action: 'savePlan', symbol: sym, portfolio, tranches: trancheStr, sl: sl ?? '', note: note ?? '',
     tp1: tp3[0].price ? `${tp3[0].price}/${tp3[0].pct||0}` : '',
     tp2: tp3[1].price ? `${tp3[1].price}/${tp3[1].pct||0}` : '',
     tp3: tp3[2].price ? `${tp3[2].price}/${tp3[2].pct||0}` : '',
@@ -4048,8 +4233,8 @@ async function savePlanToSheet(sym, tranches, sl, note, trimTranches = []) {
   await recordFetch(params, true);
 }
 
-async function clearPlanFromSheet(sym) {
-  const params = new URLSearchParams({ action: 'clearPlan', symbol: sym });
+async function clearPlanFromSheet(sym, portfolio = DEFAULT_PORT) {
+  const params = new URLSearchParams({ action: 'clearPlan', symbol: sym, portfolio });
   await recordFetch(params, true);
 }
 function getTargetDollar(pos, model) {
@@ -4116,10 +4301,10 @@ window.openPlan = async function(sym) {
            || (currentModel.sgovPos?.symbol === sym ? currentModel.sgovPos : null);
   if (!pos) return;
   // Use cache; if not yet loaded for this symbol, re-fetch sheet
-  let data = planCache[sym];
+  let data = getPlan(sym);
   if (!data) {
     await loadAllPlansFromSheet();
-    data = planCache[sym];
+    data = getPlan(sym);
   }
   const tranches = data?.tranches?.length ? data.tranches : [{ cumPct: 0 }];
   planState = { symbol: sym, name: pos.name || '', tranches, model: currentModel,
@@ -4407,8 +4592,9 @@ window.savePlan = function() {
   const sl   = parseFloat(document.getElementById('planSL')?.value)   || null;
   const note = document.getElementById('planNote')?.value?.trim()     || '';
   planState.sl = sl; planState.note = note;
-  planCache[symbol] = { tranches, sl, note };
-  savePlanToSheet(symbol, tranches, sl, note);
+  const port = activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
+  setPlan(symbol, port, { tranches, sl, note });
+  savePlanToSheet(symbol, tranches, sl, note, [], port);
   closePlan();
   if (currentModel) { renderTable(currentModel); renderPlansPanel(); renderPlanWatch(); }
 };
@@ -4418,13 +4604,14 @@ window.clearPlan = function() {
   if (!symbol) return;
   const sl   = parseFloat(document.getElementById('planSL')?.value)   || null;
   const note = document.getElementById('planNote')?.value?.trim()     || '';
+  const port = activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
   if (!sl && !note) {
-    clearPlanFromSheet(symbol);
-    delete planCache[symbol];
+    clearPlanFromSheet(symbol, port);
+    deletePlan(symbol, port);
   } else {
     // Keep SL/Note but clear tranches
-    planCache[symbol] = { tranches: [], sl, note };
-    savePlanToSheet(symbol, [], sl, note);
+    setPlan(symbol, port, { tranches: [], sl, note });
+    savePlanToSheet(symbol, [], sl, note, [], port);
   }
   planState.tranches = [{ cumPct: 0 }];
   renderPlanModal();
@@ -4474,6 +4661,73 @@ async function fetchSheet() {
   return json.table;
 }
 
+// ── Portfolios registry ───────────────────────────────────────────────────────
+const DEFAULT_PORT = 'Long-Term';
+// Used pre-migration (no Portfolios sheet) so the app still loads as a single portfolio.
+const _fallbackRegistry = () => [{ id: DEFAULT_PORT, name: DEFAULT_PORT, color: '#4ade80', cash: 0, cashRes: 0, fcd: 0, usd: 0, _fallback: true }];
+
+async function fetchPortfolios() {
+  if (!PORTFOLIOS_URL) return _fallbackRegistry();
+  try {
+    const res  = await fetch(PORTFOLIOS_URL);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
+    const table = json.table;
+    const idx = {};
+    table.cols.forEach((c, i) => { if (c.label) { idx[c.label.trim()] = i; idx[c.label.trim().toLowerCase()] = i; } });
+    const cell = (row, label) => { const i = idx[label] ?? idx[label.toLowerCase()]; if (i == null) return null; const c = row.c[i]; return c == null ? null : c.v; };
+    const out = table.rows.map(r => ({
+      id:      cell(r, 'id') ?? cell(r, 'Name'),
+      name:    cell(r, 'Name'),
+      color:   cell(r, 'Color') || '#4ade80',
+      cash:    Number(cell(r, 'Cash')) || 0,
+      cashRes: Number(cell(r, 'CashReserves')) || 0,
+      fcd:     Number(cell(r, 'FCD')) || 0,
+      usd:     Number(cell(r, 'USD')) || 0,
+    })).filter(p => p.name);
+    return out.length ? out : _fallbackRegistry();
+  } catch (e) { console.error('fetchPortfolios:', e); return _fallbackRegistry(); }
+}
+
+// Registry row for a portfolio name (falls back to first row / zeros).
+function _portRow(portId) {
+  return _portfolioRegistry.find(p => p.name === portId) || _portfolioRegistry[0] || _fallbackRegistry()[0];
+}
+
+// Cash context fed into buildModel. Single port → its row; ALL → summed cash/fcd/usd + Long-Term's reserve %.
+function cashCtxFor(portId) {
+  if (portId === 'ALL') {
+    const sum = _portfolioRegistry.reduce((a, p) => ({ cash: a.cash + p.cash, fcd: a.fcd + p.fcd, usd: a.usd + p.usd }), { cash: 0, fcd: 0, usd: 0 });
+    const lt = _portfolioRegistry.find(p => p.name === DEFAULT_PORT);
+    return { cash: sum.cash, fcd: sum.fcd, usd: sum.usd, cashRes: lt?.cashRes ?? (_portfolioRegistry[0]?.cashRes ?? 0) };
+  }
+  const r = _portRow(portId);
+  return { cash: r.cash, fcd: r.fcd, usd: r.usd, cashRes: r.cashRes };
+}
+
+// Transfer-Out / Transfer-In rows move shares between portfolios with no realized P&L.
+function isTransfer(tx) { const ty = (tx?.type || '').toLowerCase(); return ty === 'transfer-out' || ty === 'transfer-in'; }
+
+// Slice the master tx list for a view. Single port → its rows; ALL → all rows.
+function filterTxForView(allTx, portId) {
+  if (!allTx) return null;
+  if (portId === 'ALL') return allTx;
+  return allTx.filter(t => (t.portfolio || DEFAULT_PORT) === portId);
+}
+
+// Default portfolio for a new transaction/plan on `sym`: the active port, or (in ALL) the
+// portfolio holding the most of that symbol, else Long-Term.
+function defaultPortFor(sym) {
+  if (activePortfolio !== 'ALL') return activePortfolio;
+  let best = null, bestQty = -1;
+  for (const r of _allRows) {
+    if (r.symbol !== sym) continue;
+    const q = Number(r.qty) || 0;
+    if (q > bestQty) { bestQty = q; best = r.portfolio || DEFAULT_PORT; }
+  }
+  return best || DEFAULT_PORT;
+}
+
 function parseRows(table) {
   const idx = {};
   table.cols.forEach((c, i) => {
@@ -4489,6 +4743,7 @@ function parseRows(table) {
     return c == null ? null : c.v;
   };
   return table.rows.map(r => ({
+    portfolio: cell(r, "Portfolio") || DEFAULT_PORT,
     symbol:   cell(r, "Symbol"),
     name:     cell(r, "Name"),
     sector:   cell(r, "Sector"),
@@ -4505,11 +4760,68 @@ function parseRows(table) {
   })).filter(r => r.symbol);
 }
 
-function buildModel(rows) {
-  const rawCash    = rows[0]?.cash   ?? 0;
-  const cashResPct = rows[0]?.cashRes ?? 0;
-  const rawFcd     = rows[0]?.fcd    ?? 0;
-  const rawUsd     = rows[0]?.usd    ?? 0;
+// Slice _allRows for the active view. Single port → filter; ALL → merge same-symbol rows
+// (sum qty, sum cost basis, weighted avg). Keeps Long-Term's target on the merged row.
+function rowsForView(portId) {
+  if (portId !== 'ALL') {
+    // Price/metadata are per-SYMBOL (Current price is a sheet formula on each row). A row added by a
+    // transfer may lack them, so borrow from any other portfolio's row for the same symbol.
+    const fill = {};
+    for (const r of _allRows) {
+      const f = fill[r.symbol] || (fill[r.symbol] = {});
+      ['price','name','sector','industry'].forEach(k => { if (f[k] == null && r[k] != null && r[k] !== '') f[k] = r[k]; });
+    }
+    return _allRows.filter(r => (r.portfolio || DEFAULT_PORT) === portId).map(r => {
+      const f = fill[r.symbol] || {};
+      return {
+        ...r,
+        price:    r.price    != null && r.price    !== '' ? r.price    : (f.price    ?? null),
+        name:     r.name     != null && r.name     !== '' ? r.name     : (f.name     ?? r.name),
+        sector:   r.sector   != null && r.sector   !== '' ? r.sector   : (f.sector   ?? r.sector),
+        industry: r.industry != null && r.industry !== '' ? r.industry : (f.industry ?? r.industry),
+      };
+    });
+  }
+  const bySym = new Map();
+  for (const r of _allRows) {
+    const g = bySym.get(r.symbol) || { rows: [] };
+    g.rows.push(r);
+    bySym.set(r.symbol, g);
+  }
+  const merged = [];
+  for (const [symbol, g] of bySym) {
+    let sumQty = 0, sumCost = 0;
+    for (const r of g.rows) {
+      const q = Number(r.qty) || 0, a = Number(r.avgPrice) || 0;
+      sumQty += q;
+      if (q > 0 && a > 0) sumCost += q * a;
+    }
+    const ltRow   = g.rows.find(r => (r.portfolio || DEFAULT_PORT) === DEFAULT_PORT);
+    const pick    = (field) => { const r = g.rows.find(x => x[field] != null && x[field] !== ''); return r ? r[field] : null; };
+    const tgtRow  = ltRow && ltRow.target != null ? ltRow : g.rows.find(r => r.target != null);
+    merged.push({
+      portfolio: 'ALL',
+      symbol,
+      name:     pick('name'),
+      sector:   pick('sector'),
+      industry: pick('industry'),
+      category: pick('category'),
+      qty:      sumQty,
+      avgPrice: sumQty > 0 ? sumCost / sumQty : (pick('avgPrice') ?? null),
+      target:   tgtRow ? tgtRow.target : null,
+      price:    pick('price'),
+    });
+  }
+  return merged;
+}
+
+// `rows` are already the active-portfolio slice (see rowsForView). Cash comes from cashCtx (registry),
+// not rows[0] — falls back to rows[0] only when cashCtx is omitted (defensive).
+function buildModel(rows, cashCtx) {
+  const rawCash    = cashCtx?.cash    ?? rows[0]?.cash    ?? 0;
+  const cashResPct = cashCtx?.cashRes ?? rows[0]?.cashRes ?? 0;
+  const rawFcd     = cashCtx?.fcd     ?? rows[0]?.fcd     ?? 0;
+  const rawUsd     = cashCtx?.usd     ?? rows[0]?.usd     ?? 0;
   const positions = [], watchlist = [];
   let sgovValue = 0, sgovCostBasis = 0, sgovRaw = null;
 
@@ -4564,8 +4876,9 @@ function sharesHeldAt(txs, ticker, dateStr) {
   let held = 0;
   for (const t of txs) {
     if (t.ticker !== ticker || t.dateStr > dateStr) continue;
-    if ((t.type||'').toLowerCase() === 'buy')  held += Number(t.shares) || 0;
-    if ((t.type||'').toLowerCase() === 'sell') held -= Number(t.shares) || 0;
+    const ty = (t.type||'').toLowerCase();
+    if (ty === 'buy'  || ty === 'transfer-in')  held += Number(t.shares) || 0;
+    if (ty === 'sell' || ty === 'transfer-out') held -= Number(t.shares) || 0;
   }
   return Math.max(0, held);
 }
@@ -5260,7 +5573,7 @@ function attachQuotes(model, quotes) {
 }
 
 function slWarningBadge(sym, price) {
-  const sl = planCache[sym]?.sl;
+  const sl = getPlan(sym)?.sl;
   if (!sl || !price) return '';
   const pct = (price - sl) / sl * 100;
   if (pct <= 0) return `<span title="${t('sl_reached_tooltip')}" style="margin-left:3px;color:var(--loss);font-size:11px;font-weight:900;vertical-align:middle">🔴</span>`;
@@ -5270,7 +5583,7 @@ function slWarningBadge(sym, price) {
 
 function trancheBadge(sym, price) {
   if (!price) return '';
-  const tranches = planCache[sym]?.tranches || [];
+  const tranches = getPlan(sym)?.tranches || [];
   let html = '';
   tranches.forEach((t, i) => {
     if (!t.price || t.price <= 0) return;
@@ -5288,7 +5601,7 @@ function trancheBadge(sym, price) {
 
 function tpBadge(sym, price) {
   if (!price) return '';
-  const trims = planCache[sym]?.trimTranches || [];
+  const trims = getPlan(sym)?.trimTranches || [];
   let html = '';
   trims.forEach((t, i) => {
     if (!t.price || t.price <= 0) return;
@@ -5771,6 +6084,10 @@ window.openAddSymbol = function() {
     <div class="tx-field"><label class="tx-label">${t('symbol_label')} *</label>
       <input class="tx-input" id="addSymTicker" placeholder="${t('symbol_placeholder')}" style="text-transform:uppercase">
     </div>
+    ${_portfolioRegistry.length > 1 ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
+      <select class="tx-input" id="addSymPortfolio">
+        ${_portfolioRegistry.map(p=>{const sel=p.name===(activePortfolio==='ALL'?DEFAULT_PORT:activePortfolio)?' selected':'';return `<option value="${p.name}"${sel}>${p.name}</option>`;}).join('')}
+      </select></div>` : `<input type="hidden" id="addSymPortfolio" value="${DEFAULT_PORT}">`}
     <div class="tx-row2">
       <div class="tx-field"><label class="tx-label">${t('quantity_label')}</label>
         <input class="tx-input" id="addSymQty" type="number" step="any" min="0" placeholder="${t('blank_watchlist_hint')}">
@@ -5801,7 +6118,7 @@ window.removeFromWatchlist = async function(sym) {
   if (!confirm(`Remove ${sym} from watchlist?`)) return;
   destroyActionCharts();
   document.getElementById('actionModal')?.classList.remove('open');
-  await recordFetch({ action:'removeSymbol', symbol:sym });
+  await recordFetch({ action:'removeSymbol', symbol:sym, portfolio: actionModalPort || defaultPortFor(sym) });
   setTimeout(init, 1500);
 };
 
@@ -5814,7 +6131,7 @@ window.submitAddSymbol = async function() {
   const target = document.getElementById('addSymTarget')?.value.trim();
   const cat    = document.getElementById('addSymCat')?.value;
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  const params = new URLSearchParams({ action:'addSymbol', symbol:ticker });
+  const params = new URLSearchParams({ action:'addSymbol', symbol:ticker, portfolio: document.getElementById('addSymPortfolio')?.value || DEFAULT_PORT });
   if (qty)    params.set('qty',    qty);
   if (avg)    params.set('avgPrice', avg);
   if (target) params.set('target', (parseFloat(target)/100).toFixed(6));
@@ -6339,31 +6656,40 @@ function renderPlanWatch() {
   if (!card || !el || !currentModel) return;
 
   const alerts = [];
-  Object.entries(planCache).forEach(([sym, d]) => {
-    const pos = findPos(sym) || currentModel.watchlist?.find(w => w.symbol === sym);
-    const price = pos?.price ?? null;
-    if (!price) return;
-    const { sl, tranches = [], trimTranches = [] } = d;
+  // Single view → that port's plans; ALL → union across all ports (key + badge carry the port).
+  const _ports = activePortfolio === 'ALL' ? Object.keys(planCache) : [activePortfolio];
+  const _multi = activePortfolio === 'ALL' && _ports.length > 1;
+  _ports.forEach(port => {
+    const portPlans = planCache[port] || {};
+    const pmodel = modelForPort(port);
+    Object.entries(portPlans).forEach(([sym, d]) => {
+      const pos = findPosIn(pmodel, sym) || findPos(sym) || currentModel.watchlist?.find(w => w.symbol === sym);
+      const price = pos?.price ?? null;
+      if (!price) return;
+      const kp = `${port}:`;
+      const pt = _multi ? ` · ${port}` : '';
+      const { sl, tranches = [], trimTranches = [] } = d;
 
-    if (sl) {
-      const pct = (price - sl) / sl * 100;
-      if (pct <= 0)   alerts.push({ sym, key:`${sym}:SL_HIT`,  label:'SL hit',  detail:`${fmtCurr(price)} ≤ SL ${fmtCurr(sl)}`,                       urgency:5, color:'var(--loss)',  bg:'rgba(187,77,60,.14)'  });
-      else if(pct<=5) alerts.push({ sym, key:`${sym}:SL_NEAR`, label:'Near SL', detail:`${pct.toFixed(1)}% above SL ${fmtCurr(sl)}`,                   urgency:4, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
-    }
-    trimTranches.forEach((t, i) => {
-      if (!t.price) return;
-      const pct = (price - t.price) / t.price * 100;
-      if (pct >= 0)    alerts.push({ sym, key:`${sym}:TP${i+1}_HIT`,  label:`TP${i+1} hit`,  detail:`${fmtCurr(t.price)} target reached`,                urgency:3, color:'var(--gain)',  bg:'rgba(107,142,90,.14)' });
-      else if(pct>=-3) alerts.push({ sym, key:`${sym}:TP${i+1}_NEAR`, label:`TP${i+1} near`, detail:`${Math.abs(pct).toFixed(1)}% below TP ${fmtCurr(t.price)}`, urgency:2, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
-    });
-    const td      = getTargetDollar(pos, currentModel);
-    const currPct = getCurrentPct(pos, currentModel);
-    tranches.forEach((t, i) => {
-      if (!t.price) return;
-      const pct    = (price - t.price) / t.price * 100;
-      const dollar = getTrancheDollar(i, tranches, currPct, td);
-      if (pct <= 0)    alerts.push({ sym, key:`${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached`,                  urgency:1,   color:'var(--peri)',  bg:'rgba(107,126,184,.14)', tPrice:t.price, dollar });
-      else if(pct<=3)  alerts.push({ sym, key:`${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)', tPrice:t.price, dollar });
+      if (sl) {
+        const pct = (price - sl) / sl * 100;
+        if (pct <= 0)   alerts.push({ sym, port, key:`${kp}${sym}:SL_HIT`,  label:'SL hit',  detail:`${fmtCurr(price)} ≤ SL ${fmtCurr(sl)}${pt}`,                       urgency:5, color:'var(--loss)',  bg:'rgba(187,77,60,.14)'  });
+        else if(pct<=5) alerts.push({ sym, port, key:`${kp}${sym}:SL_NEAR`, label:'Near SL', detail:`${pct.toFixed(1)}% above SL ${fmtCurr(sl)}${pt}`,                   urgency:4, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+      }
+      trimTranches.forEach((t, i) => {
+        if (!t.price) return;
+        const pct = (price - t.price) / t.price * 100;
+        if (pct >= 0)    alerts.push({ sym, port, key:`${kp}${sym}:TP${i+1}_HIT`,  label:`TP${i+1} hit`,  detail:`${fmtCurr(t.price)} target reached${pt}`,                urgency:3, color:'var(--gain)',  bg:'rgba(107,142,90,.14)' });
+        else if(pct>=-3) alerts.push({ sym, port, key:`${kp}${sym}:TP${i+1}_NEAR`, label:`TP${i+1} near`, detail:`${Math.abs(pct).toFixed(1)}% below TP ${fmtCurr(t.price)}${pt}`, urgency:2, color:'var(--honey)', bg:'rgba(199,144,56,.14)' });
+      });
+      const td      = getTargetDollar(pos, pmodel);
+      const currPct = getCurrentPct(pos, pmodel);
+      tranches.forEach((t, i) => {
+        if (!t.price) return;
+        const pct    = (price - t.price) / t.price * 100;
+        const dollar = getTrancheDollar(i, tranches, currPct, td);
+        if (pct <= 0)    alerts.push({ sym, port, key:`${kp}${sym}:T${i+1}_HIT`,  label:`T${i+1} entry`, detail:`${fmtCurr(t.price)} entry reached${pt}`,                  urgency:1,   color:'var(--peri)',  bg:'rgba(107,126,184,.14)', tPrice:t.price, dollar });
+        else if(pct<=3)  alerts.push({ sym, port, key:`${kp}${sym}:T${i+1}_NEAR`, label:`T${i+1} near`,  detail:`${pct.toFixed(1)}% above T${i+1} ${fmtCurr(t.price)}${pt}`, urgency:0.5, color:'var(--honey)', bg:'rgba(199,144,56,.14)', tPrice:t.price, dollar });
+      });
     });
   });
 
@@ -6392,7 +6718,7 @@ function renderPlanWatch() {
       ? `onclick="event.stopPropagation();window.open('https://imjnoenter.github.io/dimebuy/?sym=${a.sym}&val=${a.dollar.toFixed(2)}&price=${a.tPrice}','_blank')" style="${badgeBase};cursor:pointer;text-decoration:underline dotted"`
       : `style="${badgeBase}"`;
     return `
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid var(--line-soft);cursor:pointer;border-radius:6px;background:${isHit ? a.bg : 'transparent'}" onclick="openActionModal('${a.sym}')">
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid var(--line-soft);cursor:pointer;border-radius:6px;background:${isHit ? a.bg : 'transparent'}" onclick="openActionModal('${a.sym}','${a.port}')">
       <div style="width:${isHit ? '4px' : '3px'};min-height:34px;border-radius:2px;background:${a.color};flex-shrink:0"></div>
       ${logoCell(a.sym, colorFor(a.sym))}
       <div style="flex:1;min-width:0">
@@ -6420,15 +6746,24 @@ function renderPlansPanel() {
   const el = document.getElementById('plansPanel');
   if (!el) return;
   destroyPlanExpandCharts();
-  const rawPlans = Object.entries(planCache)
-    .filter(([,d]) => d.tranches?.length || d.sl || d.note || d.trimTranches?.some(t => t.price > 0));
+  // Flatten nested planCache for the active view (single port, or all ports in ALL).
+  const _ports = activePortfolio === 'ALL' ? Object.keys(planCache) : [activePortfolio];
+  const _multi = activePortfolio === 'ALL' && _ports.length > 1;
+  const _pm = {};
+  const pmodel = port => (_pm[port] = _pm[port] || modelForPort(port));
+  const rawPlans = [];
+  for (const port of _ports) {
+    for (const [sym, d] of Object.entries(planCache[port] || {})) {
+      if (d.tranches?.length || d.sl || d.note || d.trimTranches?.some(t => t.price > 0)) rawPlans.push([sym, d, port]);
+    }
+  }
   if (!rawPlans.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px">${t('no_plans_saved')}</div>`; return; }
 
   // ── Score each plan for alert urgency ────────────────────────────────────
-  const scored = rawPlans.map(([sym, d]) => {
-    const pos = currentModel?.positions.find(p => p.symbol === sym)
-             || (currentModel?.sgovPos?.symbol === sym ? currentModel.sgovPos : null)
-             || currentModel?.watchlist.find(w => w.symbol === sym);
+  const scored = rawPlans.map(([sym, d, port]) => {
+    const m = pmodel(port);
+    const pos = findPosIn(m, sym);
+    const uid = `${port}__${sym}`;
     const price = pos?.price ?? null;
     const { tranches=[], sl, note, trimTranches=[] } = d;
     const realTps = trimTranches.filter(t => t.price > 0);
@@ -6463,7 +6798,7 @@ function renderPlansPanel() {
     const hasNearT = tStatus.some(s => s === 'near');
     // Secondary sort key: how complete the plan is (SL > TP > T with price > note)
     const richness = (sl ? 8 : 0) + (realTps.length * 2) + (tranches.filter(t => t.price).length) + (note ? 1 : 0);
-    return { sym, d, pos, price, tranches, sl, note, realTps, slStatus, tStatus, tpStatus, urgency, hasNearT, richness };
+    return { sym, d, port, uid, m, pos, price, tranches, sl, note, realTps, slStatus, tStatus, tpStatus, urgency, hasNearT, richness };
   }).sort((a, b) =>
     b.urgency - a.urgency ||
     (b.hasNearT ? 1 : 0) - (a.hasNearT ? 1 : 0) ||
@@ -6480,7 +6815,7 @@ function renderPlansPanel() {
   };
 
   const triggeredCount = scored.filter(s => s.urgency > 0).length;
-  el.innerHTML = scored.map(({ sym, d, pos, price, tranches, sl, note, realTps, slStatus, tStatus, tpStatus, urgency }, _idx) => {
+  el.innerHTML = scored.map(({ sym, d, port, uid, m, pos, price, tranches, sl, note, realTps, slStatus, tStatus, tpStatus, urgency }, _idx) => {
     const sectionHeader =
       _idx === 0 && triggeredCount > 0
         ? `<div style="font-size:9px;font-weight:800;color:var(--loss);text-transform:uppercase;letter-spacing:.9px;padding:2px 0 6px;display:flex;align-items:center;gap:5px">🔔 Alerts (${triggeredCount})</div>`
@@ -6488,8 +6823,8 @@ function renderPlansPanel() {
         ? `<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:10px 0 5px;border-top:1px dashed var(--line-soft)">All Plans</div>`
         : '';
     const color = colorFor(sym);
-    const td      = pos ? getTargetDollar(pos, currentModel) : 0;
-    const currPct = pos ? getCurrentPct(pos, currentModel)   : 0;
+    const td      = pos ? getTargetDollar(pos, m) : 0;
+    const currPct = pos ? getCurrentPct(pos, m)   : 0;
 
     // Row accent border based on top alert
     const accentBorder = slStatus==='hit'  ? '3px solid var(--loss)'
@@ -6547,11 +6882,12 @@ function renderPlansPanel() {
     }).join('');
 
     return sectionHeader + `<div style="border-bottom:1px solid var(--line-soft);border-left:${accentBorder};background:${rowBg};border-radius:${accentBorder!=='none'?'0 var(--radius-sm) var(--radius-sm) 0':'0'};margin-bottom:1px">
-      <div onclick="togglePlanExpand('${sym}')" style="display:flex;align-items:flex-start;gap:8px;padding:8px 8px 6px ${accentBorder!=='none'?'10':'8'}px;cursor:pointer">
+      <div onclick="togglePlanExpand('${uid}','${sym}','${port}')" style="display:flex;align-items:flex-start;gap:8px;padding:8px 8px 6px ${accentBorder!=='none'?'10':'8'}px;cursor:pointer">
         <div style="flex-shrink:0;margin-top:1px">${logoCell(sym, color)}</div>
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
             <span style="font-weight:700;font-size:13px">${sym}</span>
+            ${_multi ? `<span style="font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--track);color:var(--muted)">${port}</span>` : ''}
             ${priceEl}
             ${urgency >= 3 && tpStatus.some(s=>s==='hit') ? `<span style="font-size:9px;font-weight:800;color:var(--gain);background:rgba(107,142,90,.15);padding:1px 5px;border-radius:3px">${t('tp_hit_badge')}</span>` : ''}
             ${slStatus==='hit' ? `<span style="font-size:9px;font-weight:800;color:var(--loss);background:rgba(187,77,60,.15);padding:1px 5px;border-radius:3px">${t('sl_hit_badge')}</span>` : ''}
@@ -6559,9 +6895,9 @@ function renderPlansPanel() {
           ${note ? `<div style="font-size:10px;color:var(--muted);margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 ${note}</div>` : ''}
           ${hasChips ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${tChips}${slChip}${tpChips}</div>` : ''}
         </div>
-        <button class="plan-btn saved" onclick="event.stopPropagation();openActionModal('${sym}')" title="${t('actions_tooltip')}" style="flex-shrink:0;margin-top:2px">${ACTION_ICON}</button>
+        <button class="plan-btn saved" onclick="event.stopPropagation();openActionModal('${sym}','${port}')" title="${t('actions_tooltip')}" style="flex-shrink:0;margin-top:2px">${ACTION_ICON}</button>
       </div>
-      <div id="planExpand_${sym}" style="display:none;padding:0 8px 12px 10px">
+      <div id="planExpand_${uid}" style="display:none;padding:0 8px 12px 10px">
         <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm)">
           ${pos?.price  != null  ? `<span style="color:var(--muted)">Last <strong style="color:var(--ink)">${fmtCurr(pos.price)}</strong></span>` : ''}
           ${(pos?.qty||0) > 0    ? `<span style="color:var(--muted)">Qty <strong style="color:var(--ink)">${pos.qty.toFixed(4)}</strong></span>` : ''}
@@ -6580,9 +6916,9 @@ function renderPlansPanel() {
           <tbody>${trancheRows}</tbody>
         </table>` : ''}
         ${realTps.length ? (() => {
-          const pos2 = currentModel?.positions.find(p => p.symbol === sym);
+          const pos2 = m?.positions.find(p => p.symbol === sym);
           const avg  = pos2?.avgPrice || 0;
-          const inv  = currentModel?.investable || 0;
+          const inv  = m?.investable || 0;
           const tgt  = (pos2?.target || 0) * inv;
           const TPCOLORS = ['#6b8e5a','#c79038','#6b7eb8'];
           let qtyRem = pos2?.qty || 0;
@@ -6611,11 +6947,11 @@ function renderPlansPanel() {
         <div class="action-charts-grid" style="margin-bottom:0">
           <div style="background:var(--track);border-radius:var(--radius-sm);padding:8px">
             <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('all_stocks_label')}</div>
-            <div style="position:relative;height:110px"><canvas id="planC1_${sym}"></canvas></div>
+            <div style="position:relative;height:110px"><canvas id="planC1_${uid}"></canvas></div>
           </div>
           <div style="background:var(--track);border-radius:var(--radius-sm);padding:8px">
             <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${pos?.category||'Category'}</div>
-            <div style="position:relative;height:110px"><canvas id="planC2_${sym}"></canvas></div>
+            <div style="position:relative;height:110px"><canvas id="planC2_${uid}"></canvas></div>
           </div>
         </div>
       </div>
@@ -6623,21 +6959,20 @@ function renderPlansPanel() {
   }).join('');
 }
 
-window.togglePlanExpand = function(sym) {
-  const el = document.getElementById(`planExpand_${sym}`);
+window.togglePlanExpand = function(uid, sym, port) {
+  const el = document.getElementById(`planExpand_${uid}`);
   if (!el) return;
   const isOpen = el.style.display !== 'none';
   document.querySelectorAll('[id^="planExpand_"]').forEach(e => { e.style.display = 'none'; });
   destroyPlanExpandCharts();
-  if (!isOpen) { el.style.display = 'block'; renderPlanExpandCharts(sym); }
+  if (!isOpen) { el.style.display = 'block'; renderPlanExpandCharts(uid, sym, port); }
 };
 
-function renderPlanExpandCharts(sym) {
-  if (!currentModel) return;
-  const pos = currentModel.positions.find(p => p.symbol === sym)
-           || (currentModel.sgovPos?.symbol === sym ? currentModel.sgovPos : null)
-           || currentModel.watchlist.find(w => w.symbol === sym);
-  const positions = currentModel.positions;
+function renderPlanExpandCharts(uid, sym, port) {
+  const m = modelForPort(port || activePortfolio);
+  if (!m) return;
+  const pos = findPosIn(m, sym);
+  const positions = m.positions;
   const category  = pos?.category || 'Other';
   const catPos    = positions.filter(p => (p.category||'Other') === category);
 
@@ -6662,9 +6997,9 @@ function renderPlanExpandCharts(sym) {
     });
   };
 
-  const c1 = mkChart(`planC1_${sym}`, positions);
-  const c2 = mkChart(`planC2_${sym}`, catPos.length ? catPos : positions);
-  planExpandCharts[sym] = [c1, c2].filter(Boolean);
+  const c1 = mkChart(`planC1_${uid}`, positions);
+  const c2 = mkChart(`planC2_${uid}`, catPos.length ? catPos : positions);
+  planExpandCharts[uid] = [c1, c2].filter(Boolean);
 }
 
 // ── Render: category donut ────────────────────────────────────────────────────
@@ -6918,7 +7253,7 @@ function renderRiskPanel(model) {
   // ── Stop-Loss coverage ──────────────────────────────────────────────────────
   let protectedVal = 0, unprotectedVal = 0, maxLossToSl = 0;
   for (const p of pos) {
-    const sl = planCache[p.symbol]?.sl;
+    const sl = getPlan(p.symbol)?.sl;
     const v  = p.currentValue || 0;
     if (sl && sl > 0) {
       protectedVal += v;
@@ -7406,7 +7741,8 @@ async function fetchTransactions() {
     }
     return { dateStr, type: cell(r,'Type'), ticker: cell(r,'Ticker'),
              shares: cell(r,'Shares'), price: cell(r,'Price_Per_Share'),
-             tradeValue: cell(r,'Trade_Value') };
+             tradeValue: cell(r,'Trade_Value'),
+             portfolio: cell(r,'Portfolio') || DEFAULT_PORT };
   }).filter(r => r.dateStr && r.type && r.ticker);
 }
 
@@ -7569,7 +7905,8 @@ async function loadBenchmark(retry = 0) {
 
   try {
     setStatus(retry > 0 ? `Retrying… (attempt ${retry + 1}/${MAX_RETRY + 1})` : t('fetching_tx_msg'));
-    const txs = await fetchTransactions();
+    _allTxCache = _allTxCache || await fetchTransactions();
+    const txs = filterTxForView(_allTxCache, activePortfolio);
     if (!txs?.length) { setStatus(t('no_tx_available')); return; }
 
     const sorted = [...txs].sort((a,b) => a.dateStr.localeCompare(b.dateStr));
@@ -7683,7 +8020,8 @@ function computePnLTimeline(txs) {
     if (tx.type === 'Dividend') continue;
     if (!holdings[tx.ticker]) holdings[tx.ticker] = { shares: 0, avgCost: 0 };
     const h = holdings[tx.ticker];
-    if (tx.type === 'Buy') {
+    if (tx.type === 'Buy' || tx.type === 'Transfer-In') {
+      // Transfer-In carries the source avg cost (tx.price) → buy-like, no realized P&L
       const newShares = h.shares + tx.shares;
       h.avgCost  = newShares > 0 ? (h.shares * h.avgCost + tx.shares * tx.price) / newShares : tx.price;
       h.shares   = newShares;
@@ -7691,6 +8029,8 @@ function computePnLTimeline(txs) {
       const pnl = (tx.price - h.avgCost) * tx.shares;
       trades.push({ date: tx.dateStr, ticker: tx.ticker, pnl });
       h.shares = Math.max(0, h.shares - tx.shares);
+    } else if (tx.type === 'Transfer-Out') {
+      h.shares = Math.max(0, h.shares - tx.shares); // share reduction only, no realized P&L
     }
   }
   return trades;
@@ -7706,11 +8046,18 @@ function computeClosedTrades(txs) {
     const tv = tx.tradeValue != null ? tx.tradeValue : sh * px;
     if (!open[tx.ticker]) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
     const h = open[tx.ticker];
-    if (tx.type === 'Buy') {
+    if (tx.type === 'Buy' || tx.type === 'Transfer-In') {
       h.shares    += sh;
       h.totalCost += sh * px;
-      h.fees      += Math.abs(tv - sh * px);
+      if (tx.type === 'Buy') h.fees += Math.abs(tv - sh * px);
       if (!h.firstBuy) h.firstBuy = tx.dateStr;
+    } else if (tx.type === 'Transfer-Out') {
+      // Move shares out at carried avg — no realized P&L, no closed-trade record
+      const avgEntry = h.shares > 1e-9 ? h.totalCost / h.shares : px;
+      const moved    = Math.min(sh, h.shares);
+      h.totalCost -= avgEntry * moved;
+      h.shares    -= moved;
+      if (h.shares < 0.001) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
     } else if (tx.type === 'Sell') {
       const avgEntry  = h.shares > 1e-9 ? h.totalCost / h.shares : px;
       const sold      = Math.min(sh, h.shares);
@@ -8129,6 +8476,19 @@ function setMobileTab(tab) {
 }
 
 // ── Build HTML shell ──────────────────────────────────────────────────────────
+// Segmented [ All | <port> | … ] control. Hidden when only one portfolio exists (pre-migration).
+function portfolioToggleHtml() {
+  if (!_portfolioRegistry || _portfolioRegistry.length < 2) return '';
+  const seg = (port, label, color) =>
+    `<button class="port-toggle-btn${activePortfolio === port ? ' active' : ''}" data-port="${port}"`
+    + (color ? ` style="--port-accent:${color}"` : '')
+    + ` onclick="setPortfolioView('${port}')">${label}</button>`;
+  return `<div class="port-toggle" title="Switch portfolio">`
+    + seg('ALL', t('port_all'))
+    + _portfolioRegistry.map(p => seg(p.name, p.name, p.color)).join('')
+    + `</div>`;
+}
+
 function buildShell() {
   document.getElementById('root').innerHTML = `
   <div class="app mob-tab-overview">
@@ -8148,6 +8508,7 @@ function buildShell() {
             <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
           </div>
         </div>
+        ${portfolioToggleHtml()}
       </div>
       <div class="header-actions">
         <div class="last-updated" id="lastUpdated"></div>
@@ -8516,6 +8877,7 @@ window.submitSetup = function() {
     if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; activePortfolio = 'ALL';
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData,
       theme:    localStorage.getItem('theme')    || 'light',
@@ -8530,6 +8892,7 @@ window.submitSetup = function() {
     closeSetupModal();
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; activePortfolio = 'ALL';
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData };
@@ -8537,6 +8900,7 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null;
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null;
   }
   init();
 };
@@ -9463,7 +9827,7 @@ window.saveAllocToSheet = async function() {
   let saved = 0, failed = 0;
   for (const [sym, t] of entries) {
     try {
-      const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, target: t.target });
+      const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, target: t.target, portfolio: activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio });
       await recordFetch(params, true);
       const pos = currentModel?.positions.find(p => p.symbol === sym)
                || (currentModel?.sgovPos?.symbol === sym ? currentModel.sgovPos : null);
@@ -9479,6 +9843,76 @@ window.saveAllocToSheet = async function() {
   }
   renderTable(currentModel);
   renderDonut(currentModel);
+};
+
+// ── Multi-portfolio view rendering ────────────────────────────────────────────
+// Pure model-based renderers (no network). Mirrors init's sync render block.
+function renderModelViews(model) {
+  if (!model) return;
+  renderStatCards(model, lastTxData);
+  renderGauge(model);
+  renderPosList(model);
+  renderCategoryFilters(model);
+  renderSectorFilters(model);
+  renderTable(model);
+  renderDonut(model);
+  renderCategoryDonut(model);
+  renderSectorDonut(model);
+  renderIndustryDonut(model);
+  renderPnLBySector(model);
+  renderRiskPanel(model);
+  renderWatchlist(model);
+  renderPlansPanel();
+  renderPlanWatch();
+}
+
+// txCache-derived stat cards / dividend / holdings / journal. Mirrors init's tx IIFE body.
+function renderTxAnalytics(model, txs) {
+  if (!model || !txs?.length) return;
+  const dividends = historyCache ? computeDividends(txs) : null;
+  renderStatCards(model, {
+    realizedPnl: computeRealizedPnlTotal(txs),
+    dividends,
+    irr: computeIRR(txs, model.totalCurrent, model.totalInvested),
+  });
+  renderDividendBreakdown(txs);
+  const card = document.getElementById('divBreakdownCard');
+  if (card && dividends?.gross > 0) card.style.display = '';
+  renderHoldingsPerformance();
+  const closedTrades = computeClosedTrades(txs);
+  renderTradeJournal(closedTrades);
+  const jCard = document.getElementById('journalCard');
+  if (jCard) jCard.style.display = closedTrades.length ? '' : 'none';
+}
+
+// Rebuild currentModel + txCache for the active portfolio and re-render everything.
+// No network — operates entirely on the in-memory master caches → instant switch.
+function applyPortfolioView() {
+  if (typeof Chart !== 'undefined' && Chart.instances) Chart.helpers.each(Chart.instances, c => c.destroy());
+  currentModel = buildModel(rowsForView(activePortfolio), cashCtxFor(activePortfolio));
+  if (_lastQuotes) attachQuotes(currentModel, _lastQuotes);
+  txCache = _allTxCache ? filterTxForView(_allTxCache, activePortfolio) : null;
+  renderModelViews(currentModel);
+  if (txList.length) renderTxPanel(txList);
+  if (txCache?.length) {
+    renderPnLChart(txCache);   // sets pnlData (needed by renderHoldingsPerformance)
+    loadNetWorthChart();
+    if (historyCache?.prices && Object.keys(historyCache.prices).length) {
+      const b = computeBenchmark(txCache, historyCache.prices);
+      if (b) { benchmarkData = b; renderBenchmarkChartFiltered(b, chartTimeFilter); }
+    }
+    renderTxAnalytics(currentModel, txCache);
+  }
+}
+
+// Switch the active portfolio view (toggle handler). Network-free.
+window.setPortfolioView = function(port) {
+  if (port === activePortfolio) return;
+  activePortfolio = port;
+  localStorage.setItem('portfolioView.v1', port);
+  document.querySelectorAll('.port-toggle-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.port === port));
+  applyPortfolioView();
 };
 
 async function init() {
@@ -9504,17 +9938,33 @@ async function init() {
   Chart.helpers.each(Chart.instances, c => c.destroy());
 
   try {
-    const [table, rate] = await Promise.all([fetchSheet(), fetchFxRate()]);
+    const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios()]);
     fxRate = rate;
-    const rows  = parseRows(table);
-    const model = buildModel(rows);
+    _allRows = parseRows(table);
+    _portfolioRegistry = portfolios;
+    // Guard a stale saved view that no longer exists in this sheet's registry.
+    if (activePortfolio !== 'ALL' && !_portfolioRegistry.some(p => p.name === activePortfolio)) {
+      activePortfolio = 'ALL'; localStorage.setItem('portfolioView.v1', 'ALL');
+    }
+    // Pre-migration: no Portfolios sheet → seed Long-Term cash from the old Claude row-1 location.
+    if (_portfolioRegistry[0]?._fallback && _allRows[0]) {
+      const r0 = _allRows[0], reg = _portfolioRegistry[0];
+      reg.cash = Number(r0.cash) || 0; reg.cashRes = Number(r0.cashRes) || 0;
+      reg.fcd = Number(r0.fcd) || 0; reg.usd = Number(r0.usd) || 0;
+    }
+    const model = buildModel(rowsForView(activePortfolio), cashCtxFor(activePortfolio));
     currentModel = model;
 
-    // Fetch live quotes for day change + pre/post market (non-blocking)
-    fetchQuotes([...model.positions.map(p=>p.symbol), ...model.watchlist.map(w=>w.symbol), ...(model.sgovPos?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
+    // Fetch live quotes for day change + pre/post market (non-blocking). Request across ALL rows so a
+    // toggle can re-attach without refetching.
+    const _quoteSyms = [...new Set(_allRows.map(r => r.symbol).filter(s => s && s !== 'SGOV'))];
+    fetchQuotes([..._quoteSyms, ...(_allRows.some(r=>r.symbol==='SGOV')?['SGOV']:[]), '^GSPC', '^IXIC', '^RUT'])
       .then(quotes => {
-        if (currentModel !== model) return;
-        attachQuotes(model, quotes); renderStatCards(model, lastTxData); renderTable(model); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(model); renderPnLBySector(model);
+        _lastQuotes = quotes;
+        if (!currentModel) return;
+        // Attach to the live view (currentModel may have changed via a portfolio toggle during load).
+        const m = currentModel;
+        attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderPnLBySector(m);
         const fEl = document.getElementById('quotesFreshness');
         if (fEl) {
           if (_lastQuoteSource?.type === 'sheet') {
@@ -9588,60 +10038,31 @@ async function init() {
 
     document.getElementById('lastUpdated').textContent =
       t('updated') + ' ' + new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-    renderStatCards(model, null);
-    renderGauge(model);
-    renderPosList(model);
-    renderCategoryFilters(model);
-    renderSectorFilters(model);
-    renderTable(model);
-    renderDonut(model);
-    renderCategoryDonut(model);
-    renderSectorDonut(model);
-    renderIndustryDonut(model);
-    renderPnLBySector(model);
-    renderRiskPanel(model);
-    renderWatchlist(model);
-    loadCalendar(model);
     if (isFirstLoad) {
       await loadAllPlansFromSheet();
     }
-    renderPlansPanel();
-    renderPlanWatch();
-    renderTable(model);
-    if (TRANSACTION_URL) {
-      if (!benchmarkLoaded) {
-        loadBenchmark();
-      } else if (benchmarkData) {
-        const bw = document.getElementById('benchmarkChartWrap');
-        const bs = document.getElementById('benchmarkStatus');
-        if (bw) bw.style.display = 'block';
-        if (bs) bs.style.display = 'none';
-        renderBenchmarkChartFiltered(benchmarkData, chartTimeFilter);
-      }
-    }
-    if (TRANSACTION_URL) loadPnLChart();
-    if (TRANSACTION_URL && (isFirstLoad || !txCache)) refreshTxPanel();
+    loadCalendar(model);
+    renderModelViews(model);
     if (TRANSACTION_URL) {
       (async () => {
         try {
-          const txs = txCache || (txCache = await fetchTransactions());
-          if (!txs?.length) return;
-          // historyCache may not be ready yet — skip dividends so the card shows — instead of 0
-          const dividends = historyCache ? computeDividends(txs) : null;
-          renderStatCards(model, {
-            realizedPnl: computeRealizedPnlTotal(txs),
-            dividends,
-            irr: computeIRR(txs, model.totalCurrent, model.totalInvested),
-          });
-          renderDividendBreakdown(txs);
-          const card = document.getElementById('divBreakdownCard');
-          if (card && dividends?.gross > 0) card.style.display = '';
-          renderHoldingsPerformance();
-          const closedTrades = computeClosedTrades(txs);
-          renderTradeJournal(closedTrades);
-          const jCard = document.getElementById('journalCard');
-          if (jCard) jCard.style.display = closedTrades.length ? '' : 'none';
-        } catch(e) { console.error('stat cards:', e); }
+          // Master tx list (all portfolios + Transfer rows) fetched once; txCache is the active-view slice.
+          _allTxCache = _allTxCache || await fetchTransactions();
+          txCache = filterTxForView(_allTxCache, activePortfolio);
+          if (isFirstLoad || !txList.length) refreshTxPanel();
+          // Benchmark first-load also backfills historyCache (readHistory) used by net worth.
+          if (!benchmarkLoaded) {
+            loadBenchmark();
+          } else if (benchmarkData) {
+            const bw = document.getElementById('benchmarkChartWrap');
+            const bs = document.getElementById('benchmarkStatus');
+            if (bw) bw.style.display = 'block';
+            if (bs) bs.style.display = 'none';
+            renderBenchmarkChartFiltered(benchmarkData, chartTimeFilter);
+          }
+          loadPnLChart();
+          if (currentModel === model) renderTxAnalytics(model, txCache);
+        } catch(e) { console.error('tx analytics:', e); }
       })();
     }
   } catch(e) {
@@ -9909,7 +10330,7 @@ function buildGeminiContext(sym) {
   const pos = currentModel?.positions?.find(p => p.symbol === sym) ||
               currentModel?.watchlist?.find(w => w.symbol === sym);
   const m   = currentModel;
-  const plan = planCache?.[sym];
+  const plan = getPlan(sym);
 
   let ctx = `คุณเป็นผู้ช่วยการเงินส่วนตัวสำหรับพอร์ตหุ้นของฉัน\n\n`;
   ctx += `สัญลักษณ์: ${sym}\n`;

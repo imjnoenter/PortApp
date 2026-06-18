@@ -55,7 +55,8 @@ Everything is in `index.html`:
 ## Key Architecture
 ```
 parseRows(table)       → raw rows from gviz JSON — reads: symbol, name, sector, industry, category, qty, avgPrice, target, price, cash, cashRes, fcd, usd
-buildModel(rows)       → { positions[], watchlist[], sgovPos, rawCash, rawFcd, rawUsd,
+buildModel(rows,cashCtx) → cash from cashCtx (registry), rows pre-sliced by rowsForView; see Multi-Portfolio.
+                         { positions[], watchlist[], sgovPos, rawCash, rawFcd, rawUsd,
                            sgovValue, cashResPct, totalCash, totalCurrent, investable,
                            totalInvested, totalPnl, totalPnlPct }
 fetchQuotes(symbols)   → during market hours reads Quotes sheet via fetchSheetQuotes(); symbols
@@ -138,6 +139,34 @@ function doGet(e) {
 - **Cash/Cash Reserves** stored only in row 1 of the Claude sheet
 - **SGOV** = Treasury ETF, treated as cash-equivalent (separate rendering path in `buildModel`; excluded from `computeClosedTrades` and `computePnLTimeline`)
 - Rows with no Qty and no AvgPrice → watchlist entries
+
+## Multi-Portfolio
+Two fixed portfolios — **Long-Term** and **Trade** — with a header toggle `[ All | Long-Term | Trade ]`. A symbol can be held in both (e.g. 5 ARM = 4 Long-Term + 1 Trade). Storage is generic (scales to N); there is no create/edit/delete-portfolio UI yet. Apps Script changes + the one-time `migratePortfolios()` are documented in `APPS_SCRIPT_CHANGES.md`.
+
+**Sheet schema:** `Claude` and `transactions` have a `Portfolio` column (one row per portfolio×symbol / per tx). `Plan` has a `Portfolio` column appended **LAST** (`parsePlanTable` reads it positionally at `c[19]`). New `Portfolios` registry sheet (`id, Name, Color, Cash, CashReserves, FCD, USD`) holds per-portfolio cash — cash no longer lives in `Claude` row 1.
+
+**Model flow:** one master parse; `currentModel`/`txCache` are rebuilt as the active-view slice on every toggle — so the ~20 render functions are unchanged.
+```
+activePortfolio        → 'ALL' | 'Long-Term' | 'Trade'  (localStorage 'portfolioView.v1')
+_allRows               → full parseRows() output (every portfolio×symbol row)
+_portfolioRegistry     → parsed Portfolios sheet [{id,name,color,cash,cashRes,fcd,usd}]
+_allTxCache            → full minimal tx list incl Portfolio tag + Transfer rows; txCache = filtered slice
+_lastQuotes            → cached quote map, re-attached on toggle (no refetch)
+rowsForView(port)      → single port → filter; ALL → merge same-symbol rows (sum qty, sum cost, weighted avg)
+cashCtxFor(port)       → single → registry row; ALL → summed cash/fcd/usd + Long-Term's reserve %
+buildModel(rows,cashCtx) → cash comes from cashCtx (registry), not rows[0]
+applyPortfolioView()   → rebuild currentModel+txCache from caches, re-render everything (NO network)
+setPortfolioView(port) → toggle handler; renderModelViews + renderTxAnalytics + pnl/nw/benchmark recompute
+filterTxForView / isTransfer → tx slicing; Transfer-Out/In skipped in realized-P&L fns
+defaultPortFor(sym)    → active port, or (in ALL) the port holding most of sym, else Long-Term
+modelForPort(port)/findPosIn(model,sym) → port-scoped model + lookup for the action modal
+```
+- **Transfers:** moving shares between ports = `Transfer-Out` + `Transfer-In` tx pair at carried avg cost (Apps Script `transferShares`). `computePnLTimeline`/`computeClosedTrades`/`sharesHeldAt` handle them with no realized P&L. Client helper `transferShares(sym,shares,from,to)` exists; no UI entry point yet.
+- **Action modal:** has a portfolio dropdown (`actionModalPort`, `setActionPort`); operates on that port's model. **Trade** hides the ALLOCATION tab and the plan tab's target/entry-tranche UI (SL/TP only).
+- **Plans:** `planCache[portfolio][symbol]`. Use `getPlan(sym,port)` / `setPlan` / `deletePlan`; `hasSavedPlan(sym,port)`. Plan Watch + Plans panel iterate per-port in ALL (DOM IDs keyed `port__sym`).
+- **Cash writes** (`updateCash`), holding writes (`addSymbol`/`updateSymbol`/`removeSymbol`), and plan writes (`savePlan`/`clearPlan`) all carry a `portfolio` param.
+- **ALL-view target approximation:** only Long-Term carries target allocations; `getTargetDollar` uses ALL `investable`, so LT target dollars are slightly larger in ALL than in the LT-only view (accepted tradeoff).
+- **Profile switch / pre-migration:** the 5 globals reset on profile switch; a stale `activePortfolio` not in the registry resets to ALL; missing `Portfolios` sheet → fallback single Long-Term registry seeded from old `Claude` row-1 cash, toggle hidden.
 
 ## Plan System
 - `planCache` loaded from Plan sheet at `init()` via `loadAllPlansFromSheet()` (gated to `isFirstLoad`)
