@@ -93,7 +93,7 @@ _planAlertSigs         → Set of alert keys already fired — prevents duplicat
 ## Currency Toggle Rule
 - Portfolio values (current value, P&L, dividends, allocation amounts) → `fmtCurr(n)`
 - Per-share stock prices and all plan tab content → `fmtUSD(n)` (plan tab prices are inherently USD)
-- `toggleCurrency` re-renders: stat cards, table, watchlist, donut, sector chart, tx panel, dividend breakdown, trade journal, risk panel, allocation list, gauge, holdings performance, net worth chart, industry donut
+- `toggleCurrency` (triggered from settings gear dropdown) re-renders: stat cards, table, watchlist, donut, sector chart, tx panel, dividend breakdown, trade journal, risk panel, allocation list, gauge, holdings performance, net worth chart, industry donut
 
 ## Multi-User / Auth
 No URLs or secrets are in the source code. Each user sets up their own device once via the setup modal. Config is stored in `localStorage` under key `portfolioConfig.v1`.
@@ -119,7 +119,7 @@ No URLs or secrets are in the source code. Each user sets up their own device on
 **Setup flow:** First visit → setup modal → `_saveCfg()` → `init()`.
 **Switch account:** Tweaks panel → Account → "Switch account" (clears localStorage, reloads).
 **Emergency reset:** Open `index.html#reset` — clears config and reloads.
-**Profile switch resets:** `txCache`, `historyCache`, `planCache`, `_journalTrades`, `benchmarkData`, `pnlData`, `shellBuilt`.
+**Profile switch resets:** `txCache`, `historyCache`, `planCache`, `_journalTrades`, `benchmarkData`, `pnlData`, `shellBuilt`, `_allRows`, `_portfolioRegistry`, `_allTxCache`, `_lastQuotes`, `activePortfolio`.
 
 **Apps Script auth guard** (must be added to each user's `doGet`):
 ```javascript
@@ -211,8 +211,12 @@ Two instances: symbol detail modal (`sdTvChart`) and action modal PLAN tab (`act
 
 ## Layout
 - Desktop (≥769px): 2-column grid (`1fr 380px`). Profile picture (`.brand-mark`) is 88×88px, matching the clock pill's outer height (72px canvas + 7+7px padding + border). Mobile: 42×42px. The `<img>` inside uses `width:100%;height:100%` to inherit from the container.
+- **Mobile (≤700px):** Single column. Header wraps: row 1 = profile pic + name + portfolio toggle; row 2 = market clock (full width). The `.header-divider` is hidden. `env(safe-area-inset-*)` offsets applied to header, sticky mob-tab-bar, and fixed overlays for iPhone Dynamic Island / notch.
 - **Main panel (left):** Stat cards → Positions (with 52W range column) → Holdings Performance → Benchmark → Transactions → Trade Journal (hidden when no closed trades)
 - **Side panel (right):** Plan Watch (alerts only, hidden when none) → Allocation → Total Net Worth → Category Breakdown → Sector Breakdown → Industry Breakdown → P&L by Sector → Risk & Concentration → Calendar → Watchlist → Dividend Breakdown
+
+## Settings Gear (`settings-gear-wrap` in `header-actions`)
+Gear icon opens a dropdown with Language (EN/TH), Currency ($/฿), Theme (light/dark), and Tone (warm/cool) toggles. `toggleSettingsDropdown(event)` toggles the `.open` class; a document-level click listener closes it when clicking outside. i18n keys: `language_label`, `currency_label`, `theme_label`, `tone_label`. The controls use the same element IDs (`currencyBtn`, `themeBtn`, `toneBtn`) and toggle functions (`toggleCurrency`, `toggleTheme`, `toggleTone`) as before — just relocated from the old inline `header-tools` bar.
 
 ## Risk & Concentration Panel (`id="riskPanel"`)
 `renderRiskPanel(model)` — pure, idempotent, no state. Four sections:
