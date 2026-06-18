@@ -771,7 +771,7 @@ body {
 @media (max-width: 700px) {
   .mob-tab-bar {
     position: sticky;
-    top: 6px;
+    top: calc(6px + env(safe-area-inset-top, 0px));
     z-index: 200;
   }
 }
@@ -803,7 +803,7 @@ body {
   .sc-label  { font-size: 10px; margin-bottom: 6px; }
 
   .last-updated { display: none; }
-  .header { padding: 12px 14px; flex-wrap: wrap; }
+  .header { padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px; flex-wrap: wrap; }
   .header-title { font-size: 18px; }
   .refresh-btn { padding: 7px 12px; }
 
@@ -912,7 +912,7 @@ body {
 }
 
 /* ── Tx modal ── */
-.tx-overlay { position: fixed; inset: 0; z-index: 1001; background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+.tx-overlay { position: fixed; inset: 0; z-index: 1001; background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: max(40px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
 .tx-overlay.open { display: flex; }
 .tx-modal { background: var(--card); color: var(--ink); border-radius: var(--radius); border: 1px solid var(--card-edge); box-shadow: var(--shadow-lg); width: 100%; max-width: 440px; padding: 22px; }
 .tx-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
@@ -1027,8 +1027,8 @@ body {
 .tx-panel-status.error { color: var(--loss); }
 
 /* ── Plan modal ── */
-.plan-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-@media (max-width: 600px) { .plan-overlay { padding-top: 59px; } }
+.plan-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: max(40px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 600px) { .plan-overlay { padding-top: max(59px, env(safe-area-inset-top, 0px)); } }
 .plan-overlay.open { display: flex; }
 .plan-modal { background: var(--card); color: var(--ink); border-radius: var(--radius); border: 1px solid var(--card-edge); box-shadow: var(--shadow-lg); width: 100%; max-width: 500px; padding: 22px; max-height: calc(100vh - 80px); overflow-y: auto; }
 .plan-modal-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
