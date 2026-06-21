@@ -1420,14 +1420,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pnl-tab-btn.active { background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12); }
 .hp-axis { position: relative; height: 16px; margin-top: 2px; margin-left: 108px; margin-right: 62px; padding: 0 8px; }
 .hp-axis-label { position: absolute; transform: translateX(-50%); font-size: 9px; color: var(--muted); font-family: var(--font-mono); }
-#hpTip {
+/* Shared floating-tooltip base (weight bar + holdings perf); ids add the deltas. */
+.float-tip {
   position: fixed; z-index: var(--z-tooltip);
   background: var(--tooltip-bg); color: var(--btn-fg);
-  border-radius: 10px; padding: 10px 14px;
-  font-size: 11px; pointer-events: none; opacity: 0;
+  border-radius: 10px; font-size: 11px;
+  pointer-events: none; opacity: 0;
   transition: opacity .12s; white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0,0,0,.4); min-width: 200px;
 }
+#wbTip { padding: 8px 12px;  box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+#hpTip { padding: 10px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.4); min-width: 200px; }
 
 /* ── Allocation Management modal — responsive ── */
 .alloc-body-grid  { display:grid; grid-template-columns:320px 1fr; gap:16px; flex:1; overflow:hidden; min-height:0; }
@@ -2852,12 +2854,8 @@ window.openSymbolDetail = function(sym) {
         priceMap = await fetchYahooPrices(sym, p1, p2);
       }
 
-      const st = getComputedStyle(document.documentElement);
-      const clrInk    = st.getPropertyValue('--ink').trim();
-      const clrTrack  = st.getPropertyValue('--track').trim();
-      const clrCard   = st.getPropertyValue('--card').trim();
-      const clrMuted  = st.getPropertyValue('--ink-soft').trim();
-      const clrGain   = st.getPropertyValue('--gain').trim();
+      const clrInk = css('--ink'), clrTrack = css('--track'), clrCard = css('--card'),
+            clrMuted = css('--ink-soft'), clrGain = css('--gain');
       const symColor  = colorFor(sym);
 
       // Legend overlay (clear any leftover content from a previous open)
@@ -2869,37 +2867,11 @@ window.openSymbolDetail = function(sym) {
       legend.innerHTML = `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>`;
       tvEl.appendChild(legend);
 
-      const tvChart = LightweightCharts.createChart(tvEl, {
-        width:  tvEl.clientWidth,
-        height: 260,
-        layout: { background: { color: 'transparent' }, textColor: clrMuted, fontSize: 11 },
-        grid:   { vertLines: { color: clrTrack }, horzLines: { color: clrTrack } },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        rightPriceScale: { borderColor: clrTrack },
-        timeScale: { borderColor: clrTrack, timeVisible: false },
-        handleScroll: true,
-        handleScale: true,
-      });
-
-      const areaSeries = tvChart.addAreaSeries({
-        lineColor:      symColor,
-        topColor:       symColor + '55',
-        bottomColor:    symColor + '00',
-        lineWidth:      2,
-        priceLineVisible: false,
-        lastValueVisible: true,
-      });
+      const { chart: tvChart, series: areaSeries } = createTvAreaChart(tvEl, 260, symColor, clrTrack, clrMuted);
 
       let seriesData = [];
       if (priceMap && Object.keys(priceMap).length) {
-        seriesData = Object.entries(priceMap)
-          .map(([date, value]) => ({ time: date, value }))
-          .sort((a, b) => a.time.localeCompare(b.time));
-        const livePrice = findPos(sym)?.price;
-        const todayStr  = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-        if (livePrice && todayStr >= (seriesData[seriesData.length-1]?.time || '')) {
-          seriesData = [...seriesData.filter(d => d.time !== todayStr), { time: todayStr, value: livePrice }];
-        }
+        seriesData = buildTvSeriesData(sym, priceMap);
         areaSeries.setData(seriesData);
         tvChart.timeScale().fitContent();
 
@@ -3275,22 +3247,11 @@ function destroyActionCharts() {
   destroyActionTvChart();
 }
 
-async function buildActionTvChart(sym) {
-  const el = document.getElementById('actionTvChartEl');
-  if (!el || typeof LightweightCharts === 'undefined') return;
-  destroyActionTvChart();
-  el.innerHTML = '';
-
-  const st       = getComputedStyle(document.documentElement);
-  const clrInk   = st.getPropertyValue('--ink').trim();
-  const clrTrack = st.getPropertyValue('--track').trim();
-  const clrMuted = st.getPropertyValue('--ink-soft').trim();
-  const symColor = colorFor(sym);
-
-  el.style.position = 'relative';
-  el.style.touchAction = 'none';
-  actionTvChart = LightweightCharts.createChart(el, {
-    width: el.clientWidth, height: 220,
+// Shared Lightweight-Charts setup for the two area charts (symbol-detail +
+// action PLAN tab). Both use identical chart/series config bar the height.
+function createTvAreaChart(el, height, symColor, clrTrack, clrMuted) {
+  const chart = LightweightCharts.createChart(el, {
+    width: el.clientWidth, height,
     layout: { background: { color: 'transparent' }, textColor: clrMuted, fontSize: 11 },
     grid:   { vertLines: { color: clrTrack }, horzLines: { color: clrTrack } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -3298,11 +3259,39 @@ async function buildActionTvChart(sym) {
     timeScale: { borderColor: clrTrack, timeVisible: false },
     handleScroll: true, handleScale: true,
   });
-
-  actionTvSeries = actionTvChart.addAreaSeries({
+  const series = chart.addAreaSeries({
     lineColor: symColor, topColor: symColor + '55', bottomColor: symColor + '00',
     lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
   });
+  return { chart, series };
+}
+
+// Build sorted {time,value} series from a date→price map, splicing today's live
+// price onto the tail when newer than the last cached point.
+function buildTvSeriesData(sym, priceMap) {
+  let seriesData = Object.entries(priceMap)
+    .map(([date, value]) => ({ time: date, value }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+  const livePrice = findPos(sym)?.price;
+  const todayStr  = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  if (livePrice && todayStr >= (seriesData[seriesData.length - 1]?.time || '')) {
+    seriesData = [...seriesData.filter(d => d.time !== todayStr), { time: todayStr, value: livePrice }];
+  }
+  return seriesData;
+}
+
+async function buildActionTvChart(sym) {
+  const el = document.getElementById('actionTvChartEl');
+  if (!el || typeof LightweightCharts === 'undefined') return;
+  destroyActionTvChart();
+  el.innerHTML = '';
+
+  const clrInk = css('--ink'), clrTrack = css('--track'), clrMuted = css('--ink-soft');
+  const symColor = colorFor(sym);
+
+  el.style.position = 'relative';
+  el.style.touchAction = 'none';
+  ({ chart: actionTvChart, series: actionTvSeries } = createTvAreaChart(el, 220, symColor, clrTrack, clrMuted));
 
   const legend = document.createElement('div');
   legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
@@ -3319,14 +3308,7 @@ async function buildActionTvChart(sym) {
     historyCache.prices[sym] = priceMap;
   }
   if (priceMap && Object.keys(priceMap).length) {
-    let seriesData = Object.entries(priceMap)
-      .map(([date, value]) => ({ time: date, value }))
-      .sort((a, b) => a.time.localeCompare(b.time));
-    const livePrice = findPos(sym)?.price;
-    const todayStr  = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-    if (livePrice && todayStr >= (seriesData[seriesData.length-1]?.time || '')) {
-      seriesData = [...seriesData.filter(d => d.time !== todayStr), { time: todayStr, value: livePrice }];
-    }
+    const seriesData = buildTvSeriesData(sym, priceMap);
     actionTvSeries.setData(seriesData);
 
     const fromStr = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
@@ -5672,6 +5654,11 @@ function slWarningBadge(sym, price) {
   return '';
 }
 
+// Small pill badge shared by the entry-tranche and take-profit indicators.
+function planBadge(label, title, bg, color) {
+  return `<span title="${title}" style="margin-left:3px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:${bg};color:${color};vertical-align:middle">${label}</span>`;
+}
+
 function trancheBadge(sym, price) {
   if (!price) return '';
   const tranches = getPlan(sym)?.tranches || [];
@@ -5680,11 +5667,9 @@ function trancheBadge(sym, price) {
     if (!t.price || t.price <= 0) return;
     const pct = (price - t.price) / t.price * 100;
     if (pct <= 0) {
-      html += `<span title="T${i+1} entry reached! (${fmtCurr(t.price)})"
-        style="margin-left:3px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(107,142,90,.2);color:var(--gain);vertical-align:middle">T${i+1}</span>`;
+      html += planBadge(`T${i+1}`, `T${i+1} entry reached! (${fmtCurr(t.price)})`, 'rgba(107,142,90,.2)', 'var(--gain)');
     } else if (pct <= 3) {
-      html += `<span title="T${i+1} within ${pct.toFixed(1)}% (${fmtCurr(t.price)})"
-        style="margin-left:3px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(199,144,56,.2);color:var(--honey);vertical-align:middle">T${i+1}</span>`;
+      html += planBadge(`T${i+1}`, `T${i+1} within ${pct.toFixed(1)}% (${fmtCurr(t.price)})`, 'rgba(199,144,56,.2)', 'var(--honey)');
     }
   });
   return html;
@@ -5698,11 +5683,9 @@ function tpBadge(sym, price) {
     if (!t.price || t.price <= 0) return;
     const pct = (price - t.price) / t.price * 100; // positive = price above TP level
     if (pct >= 0) {
-      html += `<span title="TP${i+1} reached! (${fmtCurr(t.price)})"
-        style="margin-left:3px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(107,142,90,.25);color:var(--gain);vertical-align:middle">TP${i+1}</span>`;
+      html += planBadge(`TP${i+1}`, `TP${i+1} reached! (${fmtCurr(t.price)})`, 'rgba(107,142,90,.25)', 'var(--gain)');
     } else if (pct >= -3) {
-      html += `<span title="TP${i+1} within ${Math.abs(pct).toFixed(1)}% (${fmtCurr(t.price)})"
-        style="margin-left:3px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(199,144,56,.2);color:var(--honey);vertical-align:middle">TP${i+1}</span>`;
+      html += planBadge(`TP${i+1}`, `TP${i+1} within ${Math.abs(pct).toFixed(1)}% (${fmtCurr(t.price)})`, 'rgba(199,144,56,.2)', 'var(--honey)');
     }
   });
   return html;
@@ -6280,32 +6263,32 @@ function renderSectorFilters(model) {
   ).join('');
 }
 
+// ── Shared floating-tooltip mechanics (weight bar + holdings perf) ────────────
+// Lazily create a body-level tip element styled by the .float-tip CSS class.
+function ensureTip(id) {
+  let el = document.getElementById(id);
+  if (!el) { el = document.createElement('div'); el.id = id; el.className = 'float-tip'; document.body.appendChild(el); }
+  return el;
+}
+// Position a pointer-following tip near the cursor/touch, clamped to the viewport.
+// dx/dy are the desired horizontal/vertical offsets from the pointer.
+function positionTip(el, e, dx, dy) {
+  const x = e.touches ? e.touches[0].clientX : e.clientX;
+  const y = e.touches ? e.touches[0].clientY : e.clientY;
+  el.style.left = Math.min(x + dx, window.innerWidth - el.offsetWidth - 8) + 'px';
+  el.style.top  = (y - el.offsetHeight - dy < 0 ? y + dy + 4 : y - el.offsetHeight - dy) + 'px';
+}
+
 // ── Render: weight bar ────────────────────────────────────────────────────────
 (function() {
-  let tip = null;
-  function getOrCreateTip() {
-    if (!tip) {
-      tip = document.createElement('div');
-      tip.id = 'wbTip';
-      tip.style.cssText = 'position:fixed;z-index:var(--z-tooltip);background:var(--tooltip-bg);color:var(--btn-fg);border-radius:10px;padding:8px 12px;font-size:11px;pointer-events:none;opacity:0;transition:opacity .12s;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.3)';
-      document.body.appendChild(tip);
-    }
-    return tip;
-  }
+  const getOrCreateTip = () => ensureTip('wbTip');
   function showTip(e, html) {
     const t = getOrCreateTip();
     t.innerHTML = html;
     t.style.opacity = '1';
     moveTip(e);
   }
-  function moveTip(e) {
-    const t = getOrCreateTip();
-    const x = (e.touches ? e.touches[0].clientX : e.clientX);
-    const y = (e.touches ? e.touches[0].clientY : e.clientY);
-    const tw = t.offsetWidth, th = t.offsetHeight;
-    t.style.left = Math.min(x + 12, window.innerWidth - tw - 8) + 'px';
-    t.style.top  = (y - th - 10 < 0 ? y + 14 : y - th - 10) + 'px';
-  }
+  function moveTip(e) { positionTip(getOrCreateTip(), e, 12, 10); }
   function hideTip() { getOrCreateTip().style.opacity = '0'; }
 
   window.tpShow = showTip;
@@ -6339,33 +6322,39 @@ function renderSectorFilters(model) {
 
 // ── Render: sector donut ─────────────────────────────────────────────────────
 let sectorDonutInst = null, sectorDrilldown = null;
-function renderSectorDonut(model) {
-  const el = document.getElementById('sectorDonutChart');
+// One config-driven renderer backs three near-identical donuts (sector,
+// industry, category). Each config supplies the grouping field, element id,
+// drilldown-state accessors, and the post-drill side effects. The drilldown/
+// instance state stays in module-level vars (read by setSectorFilter,
+// setCategoryFilter, rerenderDonuts, rerenderAllCharts).
+function renderGroupedDonut(cfg, model) {
+  const el = document.getElementById(cfg.elId);
   if (!el) return;
-  if (sectorDonutInst) { sectorDonutInst.destroy(); sectorDonutInst = null; }
+  if (cfg.getInst()) { cfg.getInst().destroy(); cfg.setInst(null); }
+  if (cfg.beforeRender) cfg.beforeRender();
 
   const map = {};
-  for (const p of model.positions) { const s = p.sector||'Other'; map[s] = (map[s]||0) + p.currentValue; }
-  const grandTotal = Object.values(map).reduce((s,v) => s+v, 0);
-  const secs = Object.keys(map).sort((a,b) => map[b]-map[a]);
+  for (const p of model.positions) { const k = p[cfg.field] || 'Other'; map[k] = (map[k] || 0) + p.currentValue; }
+  const grandTotal = Object.values(map).reduce((s, v) => s + v, 0);
+  const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
 
-  const drilled = sectorDrilldown;
+  const drilled = cfg.getDrill();
   let labels, data, colors, drillTotal;
   if (drilled) {
-    const stocks = model.positions.filter(p => (p.sector||'Other') === drilled);
-    drillTotal = stocks.reduce((s,p) => s + p.currentValue, 0);
+    const stocks = model.positions.filter(p => (p[cfg.field] || 'Other') === drilled);
+    drillTotal = stocks.reduce((s, p) => s + p.currentValue, 0);
     labels = stocks.map(p => p.symbol);
     data   = stocks.map(p => p.currentValue);
     colors = stocks.map(p => colorFor(p.symbol));
   } else {
     drillTotal = grandTotal;
-    labels = secs.map(s => t(s));
-    data   = secs.map(s => map[s]);
-    colors = secs.map(colorFor);
+    labels = keys.map(k => t(k));
+    data   = keys.map(k => map[k]);
+    colors = keys.map(cfg.color);
   }
 
   const centerPlugin = {
-    id: 'sectorCenter',
+    id: cfg.elId + 'Center',
     afterDatasetsDraw(chart) {
       if (!drilled) return;
       const meta = chart.getDatasetMeta(0);
@@ -6376,7 +6365,7 @@ function renderSectorDonut(model) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = `500 9px ${css('--font-mono')||'monospace'}`;
       ctx.fillStyle = css('--muted');
-      ctx.fillText(t(drilled), arc.x, arc.y - 16);
+      ctx.fillText(cfg.translateCenter ? t(drilled) : drilled, arc.x, arc.y - 16);
       ctx.font = `600 14px ${css('--font-display')||'serif'}`;
       ctx.fillStyle = css('--ink');
       ctx.fillText(fmtCurr(drillTotal), arc.x, arc.y + 1);
@@ -6388,123 +6377,63 @@ function renderSectorDonut(model) {
   };
 
   const tooltipFn = drilled
-    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of sector)`
+    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of ${cfg.noun})`
     : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
 
   el.style.cursor = 'pointer';
-  sectorDonutInst = new Chart(el.getContext('2d'), {
+  cfg.setInst(new Chart(el.getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, colors) },
     options: {
       ...donutBaseOptions(tooltipFn),
-      layout: { padding: drilled ? 50 : 65 },
+      layout: { padding: drilled ? 50 : cfg.topPadding },
       onClick(event, elements, chart) {
         const meta = chart.getDatasetMeta(0);
         if (!meta?.data?.length) return;
         const arc = meta.data[0];
         const dx = event.x - arc.x, dy = event.y - arc.y;
         if (Math.sqrt(dx*dx + dy*dy) < arc.innerRadius) {
-          if (sectorDrilldown) {
-            sectorDrilldown = null; sectorFilter = 'All';
-            renderSectorDonut(currentModel);
-            renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
-            renderTable(currentModel); renderDonut(currentModel);
-          }
+          if (cfg.getDrill()) { cfg.setDrill(null); cfg.afterChange(); }
           return;
         }
-        if (!elements.length || sectorDrilldown) return;
-        sectorDrilldown = secs[elements[0].index];
-        sectorFilter = sectorDrilldown;
-        renderSectorDonut(currentModel);
-        renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
-        renderTable(currentModel); renderDonut(currentModel);
+        if (!elements.length || cfg.getDrill()) return;
+        cfg.setDrill(keys[elements[0].index]);
+        cfg.afterChange();
       }
     },
     plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
-  });
+  }));
 }
+
+// Shared post-drill sync for the filter-coupled donuts (sector + category).
+function _syncDonutFilters() {
+  renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
+  renderTable(currentModel); renderDonut(currentModel);
+}
+
+const SECTOR_DONUT = {
+  elId: 'sectorDonutChart', field: 'sector', noun: 'sector',
+  topPadding: 65, translateCenter: true, color: colorFor,
+  getInst: () => sectorDonutInst, setInst: v => { sectorDonutInst = v; },
+  getDrill: () => sectorDrilldown, setDrill: v => { sectorDrilldown = v; },
+  afterChange() {
+    sectorFilter = sectorDrilldown || 'All';
+    renderSectorDonut(currentModel);
+    _syncDonutFilters();
+  }
+};
+function renderSectorDonut(model) { renderGroupedDonut(SECTOR_DONUT, model); }
 
 // ── Render: industry donut ───────────────────────────────────────────────────
 let industryDonutInst = null, industryDrilldown = null;
-function renderIndustryDonut(model) {
-  const el = document.getElementById('industryDonutChart');
-  if (!el) return;
-  if (industryDonutInst) { industryDonutInst.destroy(); industryDonutInst = null; }
-
-  const map = {};
-  for (const p of model.positions) { const s = p.industry||'Other'; map[s] = (map[s]||0) + p.currentValue; }
-  const grandTotal = Object.values(map).reduce((s,v) => s+v, 0);
-  const inds = Object.keys(map).sort((a,b) => map[b]-map[a]);
-
-  const drilled = industryDrilldown;
-  let labels, data, colors, drillTotal;
-  if (drilled) {
-    const stocks = model.positions.filter(p => (p.industry||'Other') === drilled);
-    drillTotal = stocks.reduce((s,p) => s + p.currentValue, 0);
-    labels = stocks.map(p => p.symbol);
-    data   = stocks.map(p => p.currentValue);
-    colors = stocks.map(p => colorFor(p.symbol));
-  } else {
-    drillTotal = grandTotal;
-    labels = inds.map(s => t(s));
-    data   = inds.map(s => map[s]);
-    colors = inds.map(colorFor);
-  }
-
-  const centerPlugin = {
-    id: 'industryCenter',
-    afterDatasetsDraw(chart) {
-      if (!drilled) return;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      const { ctx } = chart;
-      ctx.save();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = `500 9px ${css('--font-mono')||'monospace'}`;
-      ctx.fillStyle = css('--muted');
-      ctx.fillText(drilled, arc.x, arc.y - 16);
-      ctx.font = `600 14px ${css('--font-display')||'serif'}`;
-      ctx.fillStyle = css('--ink');
-      ctx.fillText(fmtCurr(drillTotal), arc.x, arc.y + 1);
-      ctx.font = `400 9px ${css('--font-ui')||'sans-serif'}`;
-      ctx.fillStyle = css('--muted'); ctx.globalAlpha = .7;
-      ctx.fillText(t('tap_back_hint'), arc.x, arc.y + 17);
-      ctx.restore();
-    }
-  };
-
-  const tooltipFn = drilled
-    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of industry)`
-    : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
-
-  el.style.cursor = 'pointer';
-  industryDonutInst = new Chart(el.getContext('2d'), {
-    type: 'doughnut',
-    data: { labels, datasets: donutDataset(data, colors) },
-    options: {
-      ...donutBaseOptions(tooltipFn),
-      layout: { padding: drilled ? 50 : 65 },
-      onClick(event, elements, chart) {
-        const meta = chart.getDatasetMeta(0);
-        if (!meta?.data?.length) return;
-        const arc = meta.data[0];
-        const dx = event.x - arc.x, dy = event.y - arc.y;
-        if (Math.sqrt(dx*dx + dy*dy) < arc.innerRadius) {
-          if (industryDrilldown) {
-            industryDrilldown = null;
-            renderIndustryDonut(currentModel);
-          }
-          return;
-        }
-        if (!elements.length || industryDrilldown) return;
-        industryDrilldown = inds[elements[0].index];
-        renderIndustryDonut(currentModel);
-      }
-    },
-    plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
-  });
-}
+const INDUSTRY_DONUT = {
+  elId: 'industryDonutChart', field: 'industry', noun: 'industry',
+  topPadding: 65, translateCenter: false, color: colorFor,
+  getInst: () => industryDonutInst, setInst: v => { industryDonutInst = v; },
+  getDrill: () => industryDrilldown, setDrill: v => { industryDrilldown = v; },
+  afterChange() { renderIndustryDonut(currentModel); }
+};
+function renderIndustryDonut(model) { renderGroupedDonut(INDUSTRY_DONUT, model); }
 
 // ── Render: holdings performance ─────────────────────────────────────────────
 let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = false;
@@ -6659,8 +6588,7 @@ window.showHpTip = function(e, sym) {
   const isDivTab = _hpTab === 'dividends';
   const item = isDivTab ? _hpDivData.find(i => i.symbol === sym) : _hpData.find(i => i.symbol === sym);
   if (!item) return;
-  let tip = document.getElementById('hpTip');
-  if (!tip) { tip = document.createElement('div'); tip.id = 'hpTip'; document.body.appendChild(tip); }
+  const tip = ensureTip('hpTip');
 
   let rows;
   if (isDivTab) {
@@ -6694,11 +6622,7 @@ window.showHpTip = function(e, sym) {
 };
 window.moveHpTip = function(e) {
   const tip = document.getElementById('hpTip');
-  if (!tip) return;
-  const x = e.touches ? e.touches[0].clientX : e.clientX;
-  const y = e.touches ? e.touches[0].clientY : e.clientY;
-  tip.style.left = Math.min(x + 14, window.innerWidth  - tip.offsetWidth  - 8) + 'px';
-  tip.style.top  = (y - tip.offsetHeight - 12 < 0 ? y + 16 : y - tip.offsetHeight - 12) + 'px';
+  if (tip) positionTip(tip, e, 14, 12);
 };
 window.hideHpTip = function() {
   const tip = document.getElementById('hpTip'); if (tip) tip.style.opacity = '0';
@@ -7095,94 +7019,22 @@ function renderPlanExpandCharts(uid, sym, port) {
 
 // ── Render: category donut ────────────────────────────────────────────────────
 let catDonutInst = null, catDrilldown = null;
-function renderCategoryDonut(model) {
-  const el = document.getElementById('catDonutChart');
-  if (!el) return;
-  if (catDonutInst) { catDonutInst.destroy(); catDonutInst = null; }
-
-  const map = {};
-  for (const p of model.positions) { const cat = p.category||'Other'; map[cat] = (map[cat]||0) + p.currentValue; }
-  const grandTotal = Object.values(map).reduce((s,v) => s+v, 0);
-  const cats = Object.keys(map).sort((a,b) => map[b]-map[a]);
-  const catColors = { Big: '#6b7eb8', Medium: '#c79038', Growth: '#6b8e5a', Other: '#8a7458' };
-
-  const legendEl = document.getElementById('catDonutLegend');
-  if (legendEl) legendEl.innerHTML = '';
-
-  const drilled = catDrilldown;
-  let labels, data, colors, drillTotal;
-  if (drilled) {
-    const stocks = model.positions.filter(p => (p.category||'Other') === drilled);
-    drillTotal = stocks.reduce((s,p) => s + p.currentValue, 0);
-    labels = stocks.map(p => p.symbol);
-    data   = stocks.map(p => p.currentValue);
-    colors = stocks.map(p => colorFor(p.symbol));
-  } else {
-    drillTotal = grandTotal;
-    labels = cats.map(c => t(c));
-    data   = cats.map(c => map[c]);
-    colors = cats.map(c => catColors[c] || colorFor(c));
+// Category-specific fixed colors (Chart.js canvas config — CSS vars unavailable).
+const CAT_DONUT_COLORS = { Big: '#6b7eb8', Medium: '#c79038', Growth: '#6b8e5a', Other: '#8a7458' };
+const CATEGORY_DONUT = {
+  elId: 'catDonutChart', field: 'category', noun: 'category',
+  topPadding: 50, translateCenter: true,
+  color: c => CAT_DONUT_COLORS[c] || colorFor(c),
+  beforeRender() { const el = document.getElementById('catDonutLegend'); if (el) el.innerHTML = ''; },
+  getInst: () => catDonutInst, setInst: v => { catDonutInst = v; },
+  getDrill: () => catDrilldown, setDrill: v => { catDrilldown = v; },
+  afterChange() {
+    categoryFilter = catDrilldown || 'All';
+    renderCategoryDonut(currentModel);
+    _syncDonutFilters();
   }
-
-  const centerPlugin = {
-    id: 'catCenter',
-    afterDatasetsDraw(chart) {
-      if (!drilled) return;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      const { ctx } = chart;
-      ctx.save();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = `500 9px ${css('--font-mono')||'monospace'}`;
-      ctx.fillStyle = css('--muted');
-      ctx.fillText(t(drilled), arc.x, arc.y - 16);
-      ctx.font = `600 14px ${css('--font-display')||'serif'}`;
-      ctx.fillStyle = css('--ink');
-      ctx.fillText(fmtCurr(drillTotal), arc.x, arc.y + 1);
-      ctx.font = `400 9px ${css('--font-ui')||'sans-serif'}`;
-      ctx.fillStyle = css('--muted'); ctx.globalAlpha = .7;
-      ctx.fillText(t('tap_back_hint'), arc.x, arc.y + 17);
-      ctx.restore();
-    }
-  };
-
-  const tooltipFn = drilled
-    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of category)`
-    : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
-
-  el.style.cursor = 'pointer';
-  catDonutInst = new Chart(el.getContext('2d'), {
-    type: 'doughnut',
-    data: { labels, datasets: donutDataset(data, colors) },
-    options: {
-      ...donutBaseOptions(tooltipFn),
-      layout: { padding: 50 },
-      onClick(event, elements, chart) {
-        const meta = chart.getDatasetMeta(0);
-        if (!meta?.data?.length) return;
-        const arc = meta.data[0];
-        const dx = event.x - arc.x, dy = event.y - arc.y;
-        if (Math.sqrt(dx*dx + dy*dy) < arc.innerRadius) {
-          if (catDrilldown) {
-            catDrilldown = null; categoryFilter = 'All';
-            renderCategoryDonut(currentModel);
-            renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
-            renderTable(currentModel); renderDonut(currentModel);
-          }
-          return;
-        }
-        if (!elements.length || catDrilldown) return;
-        catDrilldown = cats[elements[0].index];
-        categoryFilter = catDrilldown;
-        renderCategoryDonut(currentModel);
-        renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
-        renderTable(currentModel); renderDonut(currentModel);
-      }
-    },
-    plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
-  });
-}
+};
+function renderCategoryDonut(model) { renderGroupedDonut(CATEGORY_DONUT, model); }
 
 // ── Render: P&L by Sector accordion panel ────────────────────────────────────
 function _bindPnlSectorEvents() {
