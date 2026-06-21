@@ -21,10 +21,38 @@ python -m http.server 8000
 Open `http://localhost:8000`. No build step needed.
 
 ## File Structure
-Everything is in `index.html`:
-- CSS (top `<style>` block)
+Everything is in `index.html` (~10.6K lines):
+- CSS (top `<style>` block, ~1460 lines)
 - HTML shell built by `buildShell()` JS function
 - All JavaScript inline at the bottom
+- Fonts loaded via `<link rel="preconnect">` + `<link rel="stylesheet">` (not `@import`)
+
+## Design Tokens
+All new CSS should use tokens, not raw values.
+
+**Spacing scale** (`--sp-1` through `--sp-9`): 4, 8, 12, 16, 20, 24, 32, 48, 64px. Use for structural spacing (padding, gap, margin on cards, panels, modals, grids). Leave micro-component spacing (badge padding, icon gaps, 2-3px nudges) as raw values.
+
+**Z-index scale** — never use arbitrary z-index values:
+```
+--z-sticky: 100    --z-dropdown: 200   --z-overlay: 1000
+--z-modal: 1100    --z-popover: 1200   --z-toast: 2000    --z-tooltip: 2100
+```
+
+**Easing curves** — use for animations, not `ease` or `linear`:
+- `--ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1)` — smooth deceleration
+- `--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)` — confident, decisive
+
+**Color tokens** — never hard-code hex in CSS or inline JS styles. Use `var(--terracotta)`, `var(--btn-fg)`, `var(--sage)`, `var(--plum)`, `var(--honey)`, `var(--muted)`, etc. These change across all 4 themes. Exception: Chart.js canvas config and `ctx.fillStyle` calls can't use CSS vars.
+
+## Theming
+4-theme system: warm light (default), warm dark, cool light, cool dark. Controlled by `data-theme="dark"` and `data-tone="cool"` attributes on `<html>`. All colors defined as CSS custom properties in `:root` with overrides in `[data-tone="cool"]`, `[data-theme="dark"]`, and `[data-theme="dark"][data-tone="cool"]` blocks.
+
+## Accessibility
+- `@media (prefers-reduced-motion: reduce)` blanket-kills all animation/transition durations
+- `:focus-visible` outlines on all interactive elements (terracotta, 2px, offset 2px)
+- Viewport allows pinch-to-zoom (no `maximum-scale` or `user-scalable=no`)
+- ARIA labels on tranche inputs in plan tab
+- Modal overlays use `animation: overlayIn` + `modalIn` for smooth reveal
 
 ## Data Sources
 
