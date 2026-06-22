@@ -117,6 +117,13 @@ _planAlertSigs         → Set of alert keys already fired — prevents duplicat
 - `findPos(sym)` — finds a position in `currentModel` (positions + sgovPos)
 - `recordFetch(params, needsResponse)` — authenticated Apps Script write call
 - `nearestPrice(priceMap, dateStr)` — finds closest available price on or before a date
+- `css(v)` — resolves a CSS custom property to its trimmed value (`getComputedStyle` on `<html>`). Use this instead of inlining `getComputedStyle(...).getPropertyValue(...).trim()`.
+
+## Shared Render Helpers (avoid re-duplicating)
+Several render paths were consolidated — extend the existing helper rather than copy-pasting a sibling:
+- **Donuts:** `renderGroupedDonut(cfg, model)` backs the sector / industry / category donuts. `renderSectorDonut` / `renderIndustryDonut` / `renderCategoryDonut` are thin wrappers around the `SECTOR_DONUT` / `INDUSTRY_DONUT` / `CATEGORY_DONUT` configs (grouping field, element id, drilldown-state accessors, post-drill side effects). Drilldown/instance state stays in module-level vars (`sectorDrilldown`, `catDonutInst`, …) read by `setSectorFilter` / `setCategoryFilter` / `rerenderDonuts`. To add a donut, add a config — don't fork the renderer.
+- **Floating tooltips:** `ensureTip(id)` (lazily creates a body-level `.float-tip` div) + `positionTip(el, e, dx, dy)` (cursor-following, viewport-clamped) back both the weight-bar (`wbTip`) and holdings-perf (`hpTip`) tooltips. Per-tooltip style deltas live in `#wbTip` / `#hpTip` CSS rules.
+- **Plan badges:** `planBadge(label, title, bg, color)` renders the pill markup shared by `trancheBadge` and `tpBadge`.
 
 ## Currency Toggle Rule
 - Portfolio values (current value, P&L, dividends, allocation amounts) → `fmtCurr(n)`
@@ -232,6 +239,7 @@ All functions below operate on `txCache` (minimal fields). They are called insid
 
 ## TV Chart (Lightweight Charts)
 Two instances: symbol detail modal (`sdTvChart`) and action modal PLAN tab (`actionTvChartEl`).
+- Both builders share `createTvAreaChart(el, height, symColor, clrTrack, clrMuted)` (chart + area-series config) and `buildTvSeriesData(sym, priceMap)` (sorted `{time,value}` series with today's live price spliced onto the tail). The two differ only in height (260 vs 220) and what they draw on top (the symbol-detail one adds tranche/SL/avg price lines + range buttons).
 - Data source: `historyCache.prices[sym]` merged with Yahoo Finance 2Y fetch
 - Yahoo fetch triggers lazily when range buttons can't be satisfied by cached data (`dates[0] > fromStr`)
 - Fetched Yahoo data is merged back into `historyCache` for the session (in-memory only, not persisted to sheet)
