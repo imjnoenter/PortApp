@@ -1,0 +1,1051 @@
+// ============================================================================
+//  PortApp Google Apps Script — Multi-Portfolio edition
+//  Paste this ENTIRE file into your Apps Script project (replace existing code).
+//
+//  SETUP:
+//   1. Set SHEET_ID below to the sheet you want this to operate on.
+//      (To test on a COPY: set it to the copy's ID, run migratePortfolios(),
+//       verify, then set it back to the real sheet and run it there.)
+//   2. Run migratePortfolios() ONCE from the editor (Run ▸ migratePortfolios).
+//   3. Deploy ▸ Manage deployments ▸ edit ▸ New version (so the web app serves this code).
+// ============================================================================
+
+const SHEET_ID = '11pdwfY3jAPSY18tbAbfeQUImx708l1dQCHXzHltiQPk';
+const KEY1 = 'd8c4di9r01qidic6asngd8c4di9r01qidic6aso0';
+const KEY2 = 'd8skl29r01qh5rerlg4gd8skl29r01qh5rerlg50';
+
+const DEFAULT_PORT = 'Long-Term';
+
+function doGet(e) {
+  try {
+    const expected = PropertiesService.getScriptProperties().getProperty('WRITE_KEY');
+    const provided = e?.parameter?.key;
+    if (!expected || provided !== expected) return jsonResp({ ok: false, error: 'unauthorized' });
+
+    const p  = e.parameter;
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+
+    switch (p.action) {
+      case 'fetchHistory':   return fetchHistoryAction(ss, p);
+      case 'updateCash':     return updateCashAction(ss, p);
+      case 'updateSymbol':   return updateSymbolAction(ss, p);
+      case 'addSymbol':      return addSymbolAction(ss, p);
+      case 'savePlan':       return savePlanAction(ss, p);
+      case 'clearPlan':      return clearPlanAction(ss, p);
+      case 'removeSymbol':   return removeSymbolAction(ss, p);
+      case 'transferShares': return transferSharesAction(ss, p);
+      case 'fetchHoldings':  return fetchHoldingsAction(p);
+      case 'fetchStockSectors': return fetchStockSectorsAction(p);
+      case 'fetchStockReturns': return fetchStockReturnsAction(p);
+      case 'delete':         return deleteTxnAction(ss, p);
+      case 'update':         return updateTxnAction(ss, p);
+      case '':
+      case undefined:
+      case null:             return appendTxnAction(ss, p);
+      default:               return jsonResp({ ok: false, error: 'Unknown action: ' + p.action });
+    }
+  } catch (err) {
+    return jsonResp({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+// ============================================================================
+//  ONE-TIME MIGRATION — run once from the editor.  Idempotent.
+// ============================================================================
+function migratePortfolios() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  if (ss.getSheetByName('Portfolios')) { Logger.log('Already migrated.'); return; }
+
+  // (a) Append "Portfolio" column to Claude / transactions / Plan; stamp existing rows "Long-Term".
+  ['Claude', 'transactions', 'Plan'].forEach(name => {
+    const sh = ss.getSheetByName(name);
+    if (!sh || sh.getLastColumn() === 0) return;
+    const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    if (head.indexOf('Portfolio') === -1) {
+      const col = sh.getLastColumn() + 1;
+      sh.getRange(1, col).setValue('Portfolio');
+      const n = sh.getLastRow() - 1;
+      if (n > 0) sh.getRange(2, col, n, 1).setValue(DEFAULT_PORT);
+    }
+  });
+
+  // (b) Read old cash from Claude row 2 (the first data row).
+  const cl     = ss.getSheetByName('Claude');
+  const clHead = cl.getRange(1, 1, 1, cl.getLastColumn()).getValues()[0];
+  const cell   = label => { const i = clHead.indexOf(label); return i === -1 ? '' : cl.getRange(2, i + 1).getValue(); };
+  const oldFcd  = Number(cell('FCD')) || 0;
+  const oldUsd  = Number(cell('USD')) || 0;
+  const oldRes  = Number(cell('Cash Reserves')) || 0;
+  const oldCash = (Number(cell('Cash')) || 0) || (oldFcd + oldUsd);
+
+  // (c) Create the Portfolios registry sheet.
+  const p = ss.insertSheet('Portfolios');
+  p.getRange(1, 1, 1, 7).setValues([['id','Name','Color','Cash','CashReserves','FCD','USD']]);
+  p.getRange(1, 1, 1, 7).setFontWeight('bold');
+  p.getRange(2, 1, 2, 7).setValues([
+    ['Long-Term', 'Long-Term', '#4ade80', oldCash, oldRes, oldFcd, oldUsd],
+    ['Trade',     'Trade',     '#f87171', 0,       0,      0,      0],
+  ]);
+
+  // (d) Clear old cash cells in Claude row 2 (cash now lives only in Portfolios).
+  ['Cash','Cash Reserves','FCD','USD'].forEach(label => {
+    const i = clHead.indexOf(label);
+    if (i !== -1) cl.getRange(2, i + 1).clearContent();
+  });
+
+  Logger.log('Migration complete. Portfolios: Long-Term (cash %s / res %s / FCD %s / USD %s) + Trade.',
+             oldCash, oldRes, oldFcd, oldUsd);
+}
+
+// ============================================================================
+//  ADD ETF PORTFOLIO — run once from the editor after migratePortfolios().
+// ============================================================================
+function addEtfPortfolio() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var p  = ss.getSheetByName('Portfolios');
+  if (!p) { Logger.log('Portfolios sheet not found — run migratePortfolios() first.'); return; }
+
+  var names = p.getRange(2, 2, p.getLastRow() - 1, 1).getValues().map(function(r) { return r[0]; });
+  if (names.indexOf('ETF') !== -1) { Logger.log('ETF portfolio already exists.'); return; }
+
+  p.appendRow(['ETF', 'ETF', '#5B8DEF', 0, 0, 0, 0]);
+  Logger.log('ETF portfolio added.');
+}
+
+// ── Diagnostics (unchanged) ──────────────────────────────────────────────────
+function diagYahooIndices() {
+  var c = getYahooCrumb();
+  Logger.log('crumb=' + c.crumb + '  cookieLen=' + (c.cookieStr && c.cookieStr.length));
+  var symEnc = '%5EGSPC,%5EIXIC,%5ERUT';
+  var url1 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + symEnc + '&crumb=' + encodeURIComponent(c.crumb);
+  var r1 = UrlFetchApp.fetch(url1, { headers: { Cookie: c.cookieStr, Accept: 'application/json' }, muteHttpExceptions: true });
+  Logger.log('WITH crumb -> code=' + r1.getResponseCode());
+  Logger.log('WITH crumb -> body=' + r1.getContentText().substring(0, 800));
+  var url2 = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + symEnc;
+  var r2 = UrlFetchApp.fetch(url2, { muteHttpExceptions: true });
+  Logger.log('NO crumb   -> code=' + r2.getResponseCode());
+  Logger.log('NO crumb   -> body=' + r2.getContentText().substring(0, 800));
+}
+
+function diagCrumb() {
+  var c = getYahooCrumb();
+  Logger.log(JSON.stringify(c));
+}
+
+// ── Cached Yahoo crumb (reused for 1 hour to save UrlFetch quota) ────────────
+function getCachedCrumb_() {
+  const props = PropertiesService.getScriptProperties();
+  const cached = props.getProperty('yahooCrumb');
+  const cachedAt = parseInt(props.getProperty('yahooCrumbAt') || '0');
+  if (cached && Date.now() / 1000 - cachedAt < 3600) {
+    return JSON.parse(cached);
+  }
+  const yc = getYahooCrumb();
+  props.setProperty('yahooCrumb', JSON.stringify(yc));
+  props.setProperty('yahooCrumbAt', String(Math.floor(Date.now() / 1000)));
+  return yc;
+}
+
+// ── Finnhub quote refresh (called by 1-min time trigger) ─────────────────────
+function refreshQuotes() {
+    const props = PropertiesService.getScriptProperties();
+    const skip = props.getProperty('quoteSkip') === '1';
+    props.setProperty('quoteSkip', skip ? '0' : '1');
+    if (skip) return;
+
+    if (!isMarketOpenET_()) return;
+
+    const ss           = SpreadsheetApp.openById(SHEET_ID);
+    const claudeData   = ss.getSheetByName('Claude').getDataRange().getValues();
+    const portSymbols  = [...new Set(claudeData.slice(1)
+      .map(r => String(r[0]).trim())
+      .filter(s => s && s !== 'Symbol'))];
+    const indexSymbols = ['^GSPC', '^IXIC', '^RUT'];
+
+    if (!portSymbols.length) return;
+
+    const mid   = Math.ceil(portSymbols.length / 2);
+    const half1 = portSymbols.slice(0, mid);
+    const half2 = portSymbols.slice(mid);
+    const requests = [
+      ...half1.map(s => ({ url: `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${KEY1}`,
+  muteHttpExceptions: true })),
+      ...half2.map(s => ({ url: `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(s)}&token=${KEY2}`,
+  muteHttpExceptions: true })),
+    ];
+
+    let responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      Logger.log('Finnhub fetchAll error: ' + e);
+      return;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const rows = [...half1, ...half2].map((sym, i) => {
+      try {
+        const d = JSON.parse(responses[i].getContentText());
+        if (!(d.c > 0)) return null;
+        const chg    = d.d  != null ? d.d  : (d.c && d.pc ? +(d.c - d.pc).toFixed(4) : '');
+        const chgPct = d.dp != null ? d.dp : (d.c && d.pc ? +((d.c - d.pc) / d.pc * 100).toFixed(4) : '');
+        return [sym, d.c, chg, chgPct, nowSec];
+      } catch { return null; }
+    }).filter(Boolean);
+
+    try {
+      const yc     = getCachedCrumb_();
+      const syms   = indexSymbols.map(s => encodeURIComponent(s)).join(',');
+      const idxUrl =
+  `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&crumb=${encodeURIComponent(yc.crumb)}`;
+      const idxRes = UrlFetchApp.fetch(idxUrl, { muteHttpExceptions: true, headers: { Cookie: yc.cookieStr } });
+      (JSON.parse(idxRes.getContentText())?.quoteResponse?.result || []).forEach(q => {
+        if (q.regularMarketPrice > 0)
+          rows.push([q.symbol, q.regularMarketPrice, q.regularMarketChange ?? '', q.regularMarketChangePercent ?? '',
+  nowSec]);
+      });
+    } catch (e) { Logger.log('Index fetch error: ' + e); }
+
+    if (!rows.length) { Logger.log('No quote data returned — skipping sheet write'); return; }
+
+    let qs = ss.getSheetByName('Quotes');
+    if (!qs) qs = ss.insertSheet('Quotes');
+    const allRows = [['Symbol', 'Price', 'Change', 'ChangePct', 'UpdatedAt'], ...rows];
+    qs.getRange(1, 1, allRows.length, 5).setValues(allRows);
+    const prevLast = qs.getLastRow();
+    if (prevLast > allRows.length) qs.deleteRows(allRows.length + 1, prevLast - allRows.length);
+}
+
+function isMarketOpenET_() {
+  const now  = new Date();
+  const day  = parseInt(Utilities.formatDate(now, 'America/New_York', 'u'));
+  const hhmm = Utilities.formatDate(now, 'America/New_York', 'HHmm');
+  return day >= 1 && day <= 5 && hhmm >= '0930' && hhmm < '1605';
+}
+
+/* ── helpers ─────────────────────────────────────────────────────────────── */
+
+function jsonResp(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function readHeaders(sheet) {
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+}
+
+function findColIdx(headers, name) {
+  let c = headers.indexOf(name);
+  if (c < 0) {
+    const lower = String(name).toLowerCase();
+    c = headers.findIndex(h => String(h || '').toLowerCase() === lower);
+  }
+  return c + 1; // 1-based; 0 = not found
+}
+
+function normSym(x) { return String(x == null ? '' : x).trim(); }
+
+// Find a Claude row by BOTH symbol and portfolio. Returns 1-based row, or -1.
+function findClaudeRow(sh, headers, sym, portfolio) {
+  const symCol  = findColIdx(headers, 'Symbol');
+  const portCol = findColIdx(headers, 'Portfolio');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2 || !symCol) return -1;
+  const n     = lastRow - 1;
+  const syms  = sh.getRange(2, symCol, n, 1).getValues().flat().map(normSym);
+  const ports = portCol > 0
+    ? sh.getRange(2, portCol, n, 1).getValues().flat().map(x => normSym(x) || DEFAULT_PORT)
+    : new Array(n).fill(DEFAULT_PORT);
+  const want = normSym(portfolio) || DEFAULT_PORT;
+  for (let i = 0; i < n; i++) if (syms[i] === sym && ports[i] === want) return i + 2;
+  return -1;
+}
+
+/* ── Cash (now in the Portfolios sheet) ───────────────────────────────────── */
+
+function updateCashAction(ss, p) {
+  const sh = ss.getSheetByName('Portfolios');
+  if (!sh) return jsonResp({ ok: false, error: 'Portfolios sheet not found — run migratePortfolios()' });
+  const headers = readHeaders(sh);
+  const nameCol = findColIdx(headers, 'Name');
+  const fcdCol  = findColIdx(headers, 'FCD');
+  const usdCol  = findColIdx(headers, 'USD');
+  const cashCol = findColIdx(headers, 'Cash');
+  const port    = normSym(p.portfolio) || DEFAULT_PORT;
+  const lastRow = sh.getLastRow();
+  const names   = sh.getRange(2, nameCol, lastRow - 1, 1).getValues().flat().map(normSym);
+  const ri      = names.indexOf(port);
+  if (ri < 0) return jsonResp({ ok: false, error: 'Portfolio not found: ' + port });
+  const row = ri + 2;
+  const fcd = Number(p.fcd) || 0, usd = Number(p.usd) || 0;
+  if (fcdCol  > 0) sh.getRange(row, fcdCol).setValue(fcd);
+  if (usdCol  > 0) sh.getRange(row, usdCol).setValue(usd);
+  if (cashCol > 0) sh.getRange(row, cashCol).setValue(fcd + usd); // keep Cash = FCD + USD
+  return jsonResp({ ok: true });
+}
+
+/* ── Claude sheet ─────────────────────────────────────────────────────────── */
+
+function addSymbolAction(ss, p) {
+  const sym  = normSym(p.symbol);
+  const port = normSym(p.portfolio) || DEFAULT_PORT;
+  if (!sym) return jsonResp({ ok: false, error: 'symbol required' });
+
+  const sh = ss.getSheetByName('Claude');
+  if (!sh) return jsonResp({ ok: false, error: 'Claude sheet not found' });
+  const headers = readHeaders(sh);
+  const symCol  = findColIdx(headers, 'Symbol');
+  if (!symCol) return jsonResp({ ok: false, error: 'Symbol column not found' });
+
+  if (findClaudeRow(sh, headers, sym, port) > 0)
+    return jsonResp({ ok: false, error: 'Already exists: ' + sym + ' in ' + port });
+
+  const meta = fetchYahooMetadata(sym);
+  if (!p.name     && meta?.name)     p.name     = meta.name;
+  if (!p.sector   && meta?.sector)   p.sector   = meta.sector;
+  if (!p.industry && meta?.industry) p.industry = meta.industry;
+  if (meta?.holdingsCount != null)   p.holdingsCount = meta.holdingsCount;
+
+  const newRow = new Array(headers.length).fill('');
+  const setH = (name, val) => { const c = findColIdx(headers, name); if (c > 0) newRow[c - 1] = val; };
+
+  setH('Symbol', sym);
+  setH('Portfolio', port);
+  if (p.name     !== undefined && p.name     !== '') setH('Name',              p.name);
+  if (p.sector   !== undefined && p.sector   !== '') setH('Sector',            p.sector);
+  if (p.industry !== undefined && p.industry !== '') setH('Industry',          p.industry);
+  if (p.qty      !== undefined && p.qty      !== '') setH('Qty',               Number(p.qty));
+  if (p.avgPrice !== undefined && p.avgPrice !== '') setH('Avg price',         Number(p.avgPrice));
+  if (p.target   !== undefined && p.target   !== '') setH('Target Allocation', Number(p.target));
+  if (p.category !== undefined && p.category !== '') setH('Category',          p.category);
+
+  sh.appendRow(newRow);
+
+  const newRowIdx  = sh.getLastRow();
+  const prevRowIdx = newRowIdx - 1;
+  if (prevRowIdx >= 2) {
+    ['Current price', 'Market Cap'].forEach(colName => {
+      const colIdx = findColIdx(headers, colName);
+      if (colIdx <= 0) return;
+      const src = sh.getRange(prevRowIdx, colIdx);
+      if (src.getFormula()) src.copyTo(sh.getRange(newRowIdx, colIdx), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+    });
+  }
+  return jsonResp({ status: 'ok', symbol: sym });
+}
+
+function updateSymbolAction(ss, p) {
+  const sym  = normSym(p.symbol);
+  const port = normSym(p.portfolio) || DEFAULT_PORT;
+  if (!sym) return jsonResp({ ok: false, error: 'symbol required' });
+
+  const sh = ss.getSheetByName('Claude');
+  if (!sh) return jsonResp({ ok: false, error: 'Claude sheet not found' });
+  const headers = readHeaders(sh);
+  const symCol  = findColIdx(headers, 'Symbol');
+  if (!symCol) return jsonResp({ ok: false, error: 'Symbol column not found' });
+
+  let row = findClaudeRow(sh, headers, sym, port);
+  if (row < 0) {
+    const newRow = new Array(headers.length).fill('');
+    const setH = (name, val) => { const c = findColIdx(headers, name); if (c > 0) newRow[c - 1] = val; };
+    setH('Symbol', sym);
+    setH('Portfolio', port);
+    if (p.name     !== undefined && p.name     !== '') setH('Name',     p.name);
+    if (p.sector   !== undefined && p.sector   !== '') setH('Sector',   p.sector);
+    if (p.industry !== undefined && p.industry !== '') setH('Industry', p.industry);
+    sh.appendRow(newRow);
+    const newRowIdx  = sh.getLastRow();
+    const prevRowIdx = newRowIdx - 1;
+    if (prevRowIdx >= 2) {
+      ['Current price', 'Market Cap'].forEach(colName => {
+        const colIdx = findColIdx(headers, colName);
+        if (colIdx <= 0) return;
+        const src = sh.getRange(prevRowIdx, colIdx);
+        if (src.getFormula()) src.copyTo(sh.getRange(newRowIdx, colIdx), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+      });
+    }
+    row = newRowIdx;
+  }
+
+  let categoryCol = findColIdx(headers, 'Category');
+  if (!categoryCol && p.category !== undefined) {
+    categoryCol = sh.getLastColumn() + 1;
+    sh.getRange(1, categoryCol).setValue('Category');
+    headers.push('Category');
+  }
+
+  if (p.qty      !== undefined) sh.getRange(row, findColIdx(headers, 'Qty')).setValue(Number(p.qty));
+  if (p.avgPrice !== undefined) sh.getRange(row, findColIdx(headers, 'Avg price')).setValue(Number(p.avgPrice));
+  if (p.target   !== undefined) sh.getRange(row, findColIdx(headers, 'Target Allocation')).setValue(Number(p.target));
+  if (p.category !== undefined && categoryCol > 0) sh.getRange(row, categoryCol).setValue(p.category);
+
+  return jsonResp({ ok: true });
+}
+
+function removeSymbolAction(ss, p) {
+  const sym  = normSym(p.symbol);
+  const port = normSym(p.portfolio) || DEFAULT_PORT;
+  if (!sym) return jsonResp({ ok: false, error: 'symbol required' });
+  const sh = ss.getSheetByName('Claude');
+  if (!sh) return jsonResp({ ok: false, error: 'Claude sheet not found' });
+  const headers = readHeaders(sh);
+  const row = findClaudeRow(sh, headers, sym, port);
+  if (row < 0) return jsonResp({ ok: false, error: 'Not found: ' + sym + ' in ' + port });
+  sh.deleteRow(row);
+  return jsonResp({ status: 'ok' });
+}
+
+/* ── Transfer shares between portfolios (no cash change, no realized P&L) ──── */
+
+function appendTransferTxn(sheet, type, ticker, shares, price, portfolio) {
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Date','Time','Type','Ticker','Shares','Price_Per_Share','Trade_Value','Com','Tax','Trade_Value+Fee','Commission_Free','Portfolio']);
+    sheet.getRange(1, 1, 1, 12).setFontWeight('bold');
+  }
+  const row  = sheet.getLastRow() + 1;
+  const date = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const time = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'HH:mm:ss');
+  sheet.getRange(row, 1, 1, 7).setValues([[date, time, type, ticker, Number(shares), Number(price), Number(shares) * Number(price)]]);
+  sheet.getRange(row, 8, 1, 3).setValues([[0, 0, 0]]); // no fees on a transfer
+  sheet.getRange(row, 11).setValue(true);
+  sheet.getRange(row, 12).setValue(portfolio || DEFAULT_PORT);
+}
+
+function transferSharesAction(ss, p) {
+  const sym  = normSym(p.symbol);
+  const from = normSym(p.fromPortfolio) || DEFAULT_PORT;
+  const to   = normSym(p.toPortfolio)   || DEFAULT_PORT;
+  const sh_  = Number(p.shares) || 0;
+  const px   = Number(p.price)  || 0;
+  if (!sym || sh_ <= 0 || from === to) return jsonResp({ ok: false, error: 'bad transfer args' });
+
+  const sh = ss.getSheetByName('Claude');
+  if (!sh) return jsonResp({ ok: false, error: 'Claude sheet not found' });
+  const headers = readHeaders(sh);
+  const qtyCol  = findColIdx(headers, 'Qty');
+  const avgCol  = findColIdx(headers, 'Avg price');
+  const symCol  = findColIdx(headers, 'Symbol');
+  const portCol = findColIdx(headers, 'Portfolio');
+
+  // 1. Decrement / remove source row
+  const fromRow = findClaudeRow(sh, headers, sym, from);
+  if (fromRow > 0) {
+    const q0 = Number(sh.getRange(fromRow, qtyCol).getValue()) || 0;
+    const nq = q0 - sh_;
+    if (nq <= 1e-6) sh.deleteRow(fromRow);
+    else sh.getRange(fromRow, qtyCol).setValue(nq);
+  }
+
+  // 2. Increment / create destination row (re-find — indices may have shifted after a delete)
+  const toRow = findClaudeRow(sh, headers, sym, to);
+  if (toRow > 0) {
+    const q0 = Number(sh.getRange(toRow, qtyCol).getValue()) || 0;
+    const a0 = Number(sh.getRange(toRow, avgCol).getValue()) || 0;
+    const nq = q0 + sh_;
+    const na = nq > 0 ? (q0 * a0 + sh_ * px) / nq : px;
+    sh.getRange(toRow, qtyCol).setValue(nq);
+    sh.getRange(toRow, avgCol).setValue(na);
+  } else {
+    const anyRow = findClaudeRow(sh, headers, sym, from); // may be -1 if source was deleted
+    const newRow = new Array(headers.length).fill('');
+    if (anyRow > 0) {
+      const src = sh.getRange(anyRow, 1, 1, headers.length).getValues()[0];
+      ['Name','Sector','Industry','Category'].forEach(c => { const i = findColIdx(headers, c); if (i > 0) newRow[i - 1] = src[i - 1]; });
+    }
+    newRow[symCol - 1] = sym;
+    newRow[qtyCol - 1] = sh_;
+    newRow[avgCol - 1] = px;
+    if (portCol > 0) newRow[portCol - 1] = to;
+    sh.appendRow(newRow);
+  }
+
+  // 3. Write the Transfer-Out / Transfer-In pair
+  const tx = getTxnSheet(ss);
+  appendTransferTxn(tx, 'Transfer-Out', sym, sh_, px, from);
+  appendTransferTxn(tx, 'Transfer-In',  sym, sh_, px, to);
+  return jsonResp({ ok: true });
+}
+
+/* ── Plan sheet ───────────────────────────────────────────────────────────── */
+
+const PLAN_HDR =
+['Symbol','SL','Note','T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12','T13','TP1','TP2','TP3','Portfolio'];
+
+function getOrCreatePlanSheet(ss) {
+  const existed = !!ss.getSheetByName('Plan');
+  const planSheet = ss.getSheetByName('Plan') || ss.insertSheet('Plan');
+  const existingHdr = planSheet.getLastRow() > 0
+    ? planSheet.getRange(1, 1, 1, PLAN_HDR.length).getValues()[0] : [];
+  let headerChanged = false;
+  if (existingHdr[0] !== 'Symbol') {
+    if (planSheet.getLastRow() > 0) planSheet.insertRowsBefore(1, 1);
+    planSheet.getRange(1, 1, 1, PLAN_HDR.length).setValues([PLAN_HDR]).setFontWeight('bold');
+    headerChanged = true;
+  } else if (existingHdr[PLAN_HDR.length - 1] !== 'Portfolio') {
+    planSheet.getRange(1, 1, 1, PLAN_HDR.length).setValues([PLAN_HDR]).setFontWeight('bold');
+    headerChanged = true;
+  }
+  if (!existed || headerChanged) {
+    planSheet.getRange(1, 17, planSheet.getMaxRows(), 3).setNumberFormat('@');
+    planSheet.getRange(1, 4,  planSheet.getMaxRows(), 13).setNumberFormat('@');
+  }
+  return planSheet;
+}
+
+function findPlanRow(planSheet, sym, port) {
+  const lastRow = planSheet.getLastRow();
+  if (lastRow < 2) return -1;
+  const want = normSym(port) || DEFAULT_PORT;
+  const data = planSheet.getRange(2, 1, lastRow - 1, PLAN_HDR.length).getValues();
+  for (let r = data.length - 1; r >= 0; r--) {
+    const rowPort = normSym(data[r][19]) || DEFAULT_PORT; // col 20 = Portfolio
+    if (String(data[r][0]).trim() === sym && rowPort === want) return r;
+  }
+  return -1;
+}
+
+function savePlanAction(ss, p) {
+  const planSheet = getOrCreatePlanSheet(ss);
+  const sym  = normSym(p.symbol);
+  const port = normSym(p.portfolio) || DEFAULT_PORT;
+  if (!sym) return jsonResp({ ok: false, error: 'symbol required' });
+
+  const slParsed = parseFloat(p.sl);
+  const slVal    = (p.sl != null && p.sl !== '' && Number.isFinite(slParsed)) ? slParsed : '';
+  const noteVal  = p.note || '';
+  const trancheStr = p.tranches || '';
+  const trancheArr = trancheStr ? trancheStr.split(',') : [];
+
+  const isEmpty = !trancheStr && slVal === '' && !noteVal && !p.tp1 && !p.tp2 && !p.tp3;
+  if (isEmpty) {
+    const r = findPlanRow(planSheet, sym, port);
+    if (r >= 0) planSheet.deleteRow(r + 2);
+    return jsonResp({ ok: true });
+  }
+
+  const rowVals = new Array(PLAN_HDR.length).fill('');
+  rowVals[0] = sym;
+  rowVals[1] = slVal;
+  rowVals[2] = noteVal;
+  for (let i = 0; i < Math.min(trancheArr.length, 13); i++) rowVals[3 + i] = trancheArr[i];
+  rowVals[16] = p.tp1 || '';
+  rowVals[17] = p.tp2 || '';
+  rowVals[18] = p.tp3 || '';
+  rowVals[19] = port; // Portfolio (last column)
+
+  const ri = findPlanRow(planSheet, sym, port);
+  const targetRow = ri >= 0 ? ri + 2 : planSheet.getLastRow() + 1;
+  planSheet.getRange(targetRow, 4, 1, 16).setNumberFormat('@'); // T1..TP3 text
+  planSheet.getRange(targetRow, 1, 1, PLAN_HDR.length).setValues([rowVals]);
+  return jsonResp({ ok: true });
+}
+
+function clearPlanAction(ss, p) {
+  const planSheet = ss.getSheetByName('Plan');
+  if (!planSheet) return jsonResp({ ok: true });
+  const sym  = normSym(p.symbol);
+  const port = normSym(p.portfolio) || DEFAULT_PORT;
+  if (!sym) return jsonResp({ ok: false, error: 'symbol required' });
+  const r = findPlanRow(planSheet, sym, port);
+  if (r >= 0) planSheet.deleteRow(r + 2);
+  return jsonResp({ ok: true });
+}
+
+/* ── transactions sheet ───────────────────────────────────────────────────── */
+
+function getTxnSheet(ss) {
+  const sh = ss.getSheetByName('transactions');
+  if (!sh) throw new Error('transactions sheet not found');
+  return sh;
+}
+
+function writeTxnRow(sheet, row, p) {
+  sheet.getRange(row, 1, 1, 7).setValues([[
+    p.date, p.time, p.type, p.ticker,
+    Number(p.shares), Number(p.price), Number(p.tradeValue)
+  ]]);
+  sheet.getRange(row, 11).setValue(p.commissionFree === 'TRUE');
+  sheet.getRange(row, 12).setValue(p.portfolio || DEFAULT_PORT); // Portfolio
+  sheet.getRange(row, 8, 1, 3).setFormulas([[
+    `=IF(K${row}=TRUE,0,G${row}*0.15%)`,
+    `=H${row}*7%`,
+    `=IF(C${row}="Buy",G${row}+H${row}+I${row},G${row}-H${row}-I${row})`
+  ]]);
+}
+
+function deleteTxnAction(ss, p) {
+  const sheet = getTxnSheet(ss);
+  const row = parseInt(p.row, 10);
+  if (!Number.isFinite(row) || row < 2 || row > sheet.getLastRow()) return jsonResp({ ok: false, error: 'invalid row' });
+  sheet.deleteRow(row);
+  return jsonResp({ ok: true });
+}
+
+function updateTxnAction(ss, p) {
+  const sheet = getTxnSheet(ss);
+  const row = parseInt(p.row, 10);
+  if (!Number.isFinite(row) || row < 2 || row > sheet.getLastRow()) return jsonResp({ ok: false, error: 'invalid row' });
+  writeTxnRow(sheet, row, p);
+  return jsonResp({ ok: true });
+}
+
+function appendTxnAction(ss, p) {
+  const sheet = getTxnSheet(ss);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Date','Time','Type','Ticker','Shares',
+      'Price_Per_Share','Trade_Value','Com','Tax','Trade_Value+Fee','Commission_Free','Portfolio']);
+    sheet.getRange(1, 1, 1, 12).setFontWeight('bold');
+  }
+  const row = sheet.getLastRow() + 1;
+  writeTxnRow(sheet, row, p);
+  return jsonResp({ ok: true });
+}
+
+/* ── history fetch (unchanged) ────────────────────────────────────────────── */
+
+function fetchHistoryAction(ss, p) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  if (!p)  p  = {};
+
+  const histSheet = ss.getSheetByName('History');
+  if (!histSheet) return jsonResp({ error: 'History sheet not found' });
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return jsonResp({ status: 'locked', rows: 0 });
+
+  try {
+    if (histSheet.getLastRow() === 0) {
+      histSheet.appendRow(['Date', 'Ticker', 'Close', 'Dividend']);
+      histSheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+    }
+
+    const tickers  = (p.tickers || '').split(',').map(t => t.trim()).filter(Boolean);
+    const fromDate = p.from || '2020-01-01';
+
+    const lastSaved = {};
+    const existing  = new Set();
+    const lastRow   = histSheet.getLastRow();
+
+    if (lastRow > 1) {
+      const data = histSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+      const cleanRows = [];
+      for (const [rawDate, ticker, close, div] of data) {
+        if (!ticker) continue;
+        const d = rawDate instanceof Date
+          ? Utilities.formatDate(rawDate, 'UTC', 'yyyy-MM-dd')
+          : String(rawDate).slice(0, 10);
+        const rowType = (close !== '' && close != null) ? 'c' : 'd';
+        const key = ticker + ':' + d + ':' + rowType;
+        if (!existing.has(key)) {
+          existing.add(key);
+          cleanRows.push([rawDate, ticker, close, div]);
+          if (!lastSaved[ticker] || d > lastSaved[ticker]) lastSaved[ticker] = d;
+        }
+      }
+      if (cleanRows.length < lastRow - 1) {
+        Logger.log('Removing ' + (lastRow - 1 - cleanRows.length) + ' duplicate rows');
+        histSheet.deleteRows(2, lastRow - 1);
+        if (cleanRows.length > 0) histSheet.getRange(2, 1, cleanRows.length, 4).setValues(cleanRows);
+      }
+    }
+
+    const todayStr = Utilities.formatDate(new Date(), 'UTC', 'yyyy-MM-dd');
+    const nowSec   = Math.floor(Date.now() / 1000);
+
+    const fetchTargets = [];
+    for (const ticker of tickers) {
+      if (lastSaved[ticker] && lastSaved[ticker] >= todayStr) { Logger.log(ticker + ' already up to date'); continue; }
+      const startDate = lastSaved[ticker]
+        ? new Date(new Date(lastSaved[ticker]).getTime() + 86400000)
+        : new Date(fromDate);
+      const p1 = Math.floor(startDate.getTime() / 1000);
+      if (p1 >= nowSec) continue;
+      fetchTargets.push({
+        ticker,
+        request: {
+          url: 'https://query1.finance.yahoo.com/v8/finance/chart/'
+            + encodeURIComponent(ticker.replace(/\./g, '-'))
+            + '?period1=' + p1 + '&period2=' + nowSec + '&interval=1d&events=div',
+          muteHttpExceptions: true,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json'
+          }
+        }
+      });
+    }
+
+    const newRows = [];
+    if (fetchTargets.length > 0) {
+      let responses;
+      try { responses = UrlFetchApp.fetchAll(fetchTargets.map(t => t.request)); }
+      catch (err) { Logger.log('fetchAll error: ' + err); responses = []; }
+
+      for (let i = 0; i < responses.length; i++) {
+        const ticker = fetchTargets[i].ticker;
+        try {
+          const code = responses[i].getResponseCode();
+          if (code !== 200) { Logger.log(ticker + ' HTTP ' + code); continue; }
+          const result = JSON.parse(responses[i].getContentText())?.chart?.result?.[0];
+          if (!result) { Logger.log(ticker + ' => no result'); continue; }
+
+          const ts     = result.timestamp || [];
+          const closes = result.indicators?.quote?.[0]?.close || [];
+          const divs   = result.events?.dividends || {};
+
+          for (let j = 0; j < ts.length; j++) {
+            if (closes[j] == null) continue;
+            const d   = Utilities.formatDate(new Date(ts[j] * 1000), 'UTC', 'yyyy-MM-dd');
+            const key = ticker + ':' + d + ':c';
+            if (!existing.has(key)) { newRows.push([d, ticker, closes[j], '']); existing.add(key); }
+          }
+          for (const div of Object.values(divs)) {
+            if (!div || !div.date) continue;
+            const d   = Utilities.formatDate(new Date(div.date * 1000), 'UTC', 'yyyy-MM-dd');
+            const key = ticker + ':' + d + ':d';
+            if (!existing.has(key)) { newRows.push([d, ticker, '', div.amount]); existing.add(key); }
+          }
+        } catch (err) { Logger.log('Parse exception for ' + ticker + ': ' + err); }
+      }
+    }
+
+    if (newRows.length > 0) {
+      newRows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : (a[1] < b[1] ? -1 : 1)));
+      histSheet.getRange(histSheet.getLastRow() + 1, 1, newRows.length, 4).setValues(newRows);
+    }
+
+    return jsonResp({ status: 'ok', rows: newRows.length });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getYahooCrumb() {
+  const hdrs = { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' };
+  const r1 = UrlFetchApp.fetch('https://fc.yahoo.com/', { muteHttpExceptions: true, headers: hdrs });
+  const raw = r1.getAllHeaders()['Set-Cookie'];
+  const cookieStr = raw ? (Array.isArray(raw) ? raw : [raw]).map(c => c.split(';')[0]).join('; ') : '';
+  const r2 = UrlFetchApp.fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+    muteHttpExceptions: true, headers: { ...hdrs, 'Cookie': cookieStr }
+  });
+  if (r2.getResponseCode() !== 200) throw new Error('crumb HTTP ' + r2.getResponseCode());
+  return { crumb: r2.getContentText().trim(), cookieStr };
+}
+
+function fetchYahooMetadata(sym) {
+  try {
+    const { crumb, cookieStr } = getYahooCrumb();
+    const ySym = sym.replace(/\./g, '-');
+    const url  = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/'
+      + encodeURIComponent(ySym) + '?modules=assetProfile,quoteType,defaultKeyStatistics&crumb=' + encodeURIComponent(crumb);
+    const resp = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Cookie': cookieStr }
+    });
+    if (resp.getResponseCode() !== 200) return null;
+    const result = JSON.parse(resp.getContentText())?.quoteSummary?.result?.[0];
+    if (!result) return null;
+    const profile  = result.assetProfile || {};
+    const qt       = result.quoteType    || {};
+    const stats    = result.defaultKeyStatistics || {};
+    const isEquity = qt.quoteType === 'EQUITY';
+    return {
+      name:           qt.longName || qt.shortName || '',
+      sector:         isEquity ? (profile.sector   || '') : 'ETF',
+      industry:       isEquity ? (profile.industry || '') : '',
+      holdingsCount:  stats.holdings?.raw ?? null
+    };
+  } catch (err) {
+    Logger.log('fetchYahooMetadata failed for ' + sym + ': ' + err);
+    return null;
+  }
+}
+
+function fetchHoldingsAction(p) {
+  const num = (x) => x == null ? null : typeof x === 'number' ? x : typeof x === 'object' && typeof x.raw === 'number' ? x.raw : null;
+  const raw = (p.symbols || '').toString();
+  const syms = raw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 30);
+  if (!syms.length) return jsonResp({ ok: false, error: 'symbols required' });
+
+  let crumb, cookieStr;
+  try { ({ crumb, cookieStr } = getYahooCrumb()); }
+  catch (err) { return jsonResp({ ok: false, error: 'crumb failed: ' + err }); }
+
+  const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Cookie': cookieStr } };
+
+  // 1. quoteSummary for volume, averages, yield, net assets, ytd return
+  const summaryReqs = syms.map(sym => ({
+    ...fetchOpts,
+    url: 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/'
+      + encodeURIComponent(sym.replace(/\./g, '-')) + '?modules=defaultKeyStatistics,fundProfile,summaryDetail,fundPerformance,topHoldings&crumb=' + encodeURIComponent(crumb)
+  }));
+  // 2. v7/quote for expense ratio (annualReportExpenseRatio) — not in quoteSummary
+  const v7Req = [{
+    ...fetchOpts,
+    url: 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='
+      + syms.map(s => encodeURIComponent(s.replace(/\./g, '-'))).join(',') + '&crumb=' + encodeURIComponent(crumb)
+  }];
+
+  let summaryResps, v7Resp;
+  try { const all = UrlFetchApp.fetchAll([...summaryReqs, ...v7Req]); summaryResps = all.slice(0, syms.length); v7Resp = all[syms.length]; }
+  catch (err) { return jsonResp({ ok: false, error: 'fetchAll failed: ' + err }); }
+
+  // Parse v7/quote for expense ratio + ytdReturn (same fields ETFbuilder uses)
+  const v7Data = {};
+  try {
+    if (v7Resp.getResponseCode() === 200) {
+      const items = JSON.parse(v7Resp.getContentText())?.quoteResponse?.result || [];
+      items.forEach(q => {
+        v7Data[q.symbol.replace(/-/g, '.')] = {
+          expenseRatio: q.annualReportExpenseRatio ?? null,
+          ytdReturn: q.ytdReturn != null ? q.ytdReturn / 100 : null,
+        };
+      });
+    }
+  } catch {}
+
+  const results = {};
+  for (let i = 0; i < syms.length; i++) {
+    const sym = syms[i];
+    if (summaryResps[i].getResponseCode() !== 200) { results[sym] = null; continue; }
+    try {
+      const r = JSON.parse(summaryResps[i].getContentText())?.quoteSummary?.result?.[0];
+      if (!r) { results[sym] = null; continue; }
+      const stats   = r.defaultKeyStatistics || {};
+      const profile = r.fundProfile || {};
+      const detail  = r.summaryDetail || {};
+      const fees    = profile.feesExpensesInvestment || {};
+      const trailing = r.fundPerformance?.trailingReturns || {};
+      const topH = (r.topHoldings?.holdings || []).map(h => ({
+        symbol: (h.symbol || '').replace(/-/g, '.'),
+        name:   h.holdingName || '',
+        weight: num(h.holdingPercent) || 0
+      })).filter(h => h.symbol && h.weight > 0);
+      results[sym] = {
+        holdingsCount:        null,
+        netAssets:            num(detail.totalAssets) ?? num(stats.totalAssets),
+        ytdReturn:            (v7Data[sym]?.ytdReturn) ?? num(stats.ytdReturn),
+        expenseRatio:         num(fees.netExpenseRatio) ?? num(stats.annualReportExpenseRatio) ?? (v7Data[sym]?.expenseRatio ?? null),
+        volume:               num(detail.regularMarketVolume) ?? num(detail.volume),
+        fiftyDayAverage:      num(detail.fiftyDayAverage),
+        twoHundredDayAverage: num(detail.twoHundredDayAverage),
+        dividendYield:        num(detail.trailingAnnualDividendYield) ?? num(detail.yield),
+        trailingReturns: {
+          '1M':  num(trailing.oneMonth),
+          '3M':  num(trailing.threeMonth),
+          '1Y':  num(trailing.oneYear),
+          '3Y':  num(trailing.threeYear),
+          '5Y':  num(trailing.fiveYear),
+        },
+        topHoldings: topH.length ? topH : null,
+      };
+    } catch { results[sym] = null; }
+  }
+
+  // 3. stockanalysis.com for holdings count + top holdings list
+  for (const sym of syms) {
+    if (!results[sym]) continue;
+    try {
+      const saUrl = 'https://stockanalysis.com/etf/' + sym.toLowerCase() + '/holdings/';
+      const resp = UrlFetchApp.fetch(saUrl, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+      if (resp.getResponseCode() !== 200) continue;
+      const html = resp.getContentText();
+      let count = null;
+      let m = html.match(/total of ([\d,]+) individual holdings/i);
+      if (m) count = parseInt(m[1].replace(/,/g, ''));
+      if (!count) { m = html.match(/Showing \d+ of ([\d,]+) holdings/i); if (m) count = parseInt(m[1].replace(/,/g, '')); }
+      if (count) results[sym].holdingsCount = count;
+
+      // Parse individual stock holdings from the table
+      const saHoldings = [];
+      const trBlocks = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+      for (const tr of trBlocks) {
+        if (saHoldings.length >= 20) break;
+        const linkMatch = tr.match(/href="\/stocks\/([^"\/]+)\/"/i);
+        if (!linkMatch) continue;
+        const wtMatch = tr.match(/>(\d+\.\d+)%</);
+        if (!wtMatch) continue;
+        const tds = [];
+        const tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        let tdm;
+        while ((tdm = tdRe.exec(tr))) tds.push(tdm[1].replace(/<[^>]+>/g, '').trim());
+        const ticker = linkMatch[1].toUpperCase().replace(/-/g, '.');
+        saHoldings.push({
+          symbol: ticker,
+          name: tds[2] || ticker,
+          weight: parseFloat(wtMatch[1]) / 100
+        });
+      }
+      if (saHoldings.length > (results[sym].topHoldings?.length || 0)) {
+        results[sym].topHoldings = saHoldings;
+      }
+    } catch {}
+  }
+
+  return jsonResp({ ok: true, etfData: results });
+}
+
+function fetchStockSectorsAction(p) {
+  const raw = (p.symbols || '').toString();
+  const syms = raw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 30);
+  if (!syms.length) return jsonResp({ ok: false, error: 'symbols required' });
+
+  const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } };
+  const reqs = syms.map(sym => ({
+    ...fetchOpts,
+    url: 'https://stockanalysis.com/stocks/' + sym.toLowerCase().replace(/\./g, '-') + '/'
+  }));
+
+  let resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); }
+  catch (err) { return jsonResp({ ok: false, error: 'fetchAll failed: ' + err }); }
+
+  const sectors = {};
+  for (let i = 0; i < syms.length; i++) {
+    if (resps[i].getResponseCode() !== 200) continue;
+    try {
+      const html = resps[i].getContentText();
+      let sector = '';
+      let industry = '';
+      const sectorMatch = html.match(/href="\/stocks\/sector\/([^/"]+)\/"[^>]*>([^<]+)<\/a>/);
+      if (sectorMatch) sector = sectorMatch[2].trim();
+      const industryMatch = html.match(/href="\/stocks\/sector\/[^/"]+\/([^/"]+)\/"[^>]*>([^<]+)<\/a>/);
+      if (industryMatch) industry = industryMatch[2].trim();
+      if (sector || industry) sectors[syms[i]] = { sector, industry };
+    } catch {}
+  }
+
+  return jsonResp({ ok: true, sectors });
+}
+
+function fetchStockReturnsAction(p) {
+  const raw = (p.symbols || '').toString();
+  const syms = raw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 30);
+  if (!syms.length) return jsonResp({ ok: false, error: 'symbols required' });
+
+  const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
+  const reqs = syms.map(sym => ({
+    ...fetchOpts,
+    url: 'https://query1.finance.yahoo.com/v8/finance/chart/'
+      + encodeURIComponent(sym.replace(/\./g, '-'))
+      + '?range=5y&interval=1wk'
+  }));
+
+  let resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); }
+  catch (err) { return jsonResp({ ok: false, error: 'fetchAll failed: ' + err }); }
+
+  const results = {};
+  for (let i = 0; i < syms.length; i++) {
+    const sym = syms[i];
+    if (resps[i].getResponseCode() !== 200) { results[sym] = null; continue; }
+    try {
+      const chart = JSON.parse(resps[i].getContentText())?.chart?.result?.[0];
+      if (!chart) { results[sym] = null; continue; }
+
+      const timestamps = chart.timestamp || [];
+      const closes = chart.indicators?.quote?.[0]?.close || [];
+      const currentPrice = chart.meta?.regularMarketPrice;
+      if (!currentPrice || !timestamps.length) { results[sym] = null; continue; }
+
+      const bars = [];
+      for (let j = 0; j < timestamps.length; j++) {
+        if (closes[j] != null) bars.push({ ts: timestamps[j] * 1000, close: closes[j] });
+      }
+
+      const now = Date.now();
+      const findClose = (monthsAgo) => {
+        const target = new Date(now);
+        target.setMonth(target.getMonth() - monthsAgo);
+        const targetMs = target.getTime();
+        let closest = null, minDiff = Infinity;
+        for (const b of bars) {
+          const diff = Math.abs(b.ts - targetMs);
+          if (diff < minDiff) { minDiff = diff; closest = b.close; }
+        }
+        return minDiff < 10 * 86400000 ? closest : null;
+      };
+
+      const ytdTarget = new Date(new Date().getFullYear(), 0, 1).getTime();
+      let ytdClose = null, ytdMinDiff = Infinity;
+      for (const b of bars) {
+        const diff = Math.abs(b.ts - ytdTarget);
+        if (diff < ytdMinDiff) { ytdMinDiff = diff; ytdClose = b.close; }
+      }
+      if (ytdMinDiff > 10 * 86400000) ytdClose = null;
+
+      const ret = (ref) => ref != null && ref > 0 ? (currentPrice - ref) / ref : null;
+
+      results[sym] = {
+        '1M': ret(findClose(1)),
+        '3M': ret(findClose(3)),
+        'YTD': ret(ytdClose),
+        '1Y': ret(findClose(12)),
+        '3Y': ret(findClose(36)),
+        '5Y': ret(findClose(60)),
+      };
+    } catch { results[sym] = null; }
+  }
+
+  return jsonResp({ ok: true, returns: results });
+}
+
+function backfillMetadata() {
+  const ss      = SpreadsheetApp.openById(SHEET_ID);
+  const sh      = ss.getSheetByName('Claude');
+  const headers = readHeaders(sh);
+
+  const symCol      = findColIdx(headers, 'Symbol');
+  const nameCol     = findColIdx(headers, 'Name');
+  const sectorCol   = findColIdx(headers, 'Sector');
+  const industryCol = findColIdx(headers, 'Industry');
+  if (!symCol) { Logger.log('Symbol column not found'); return; }
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) { Logger.log('No data rows'); return; }
+
+  const symbols = sh.getRange(2, symCol, lastRow - 1, 1).getValues().flat().map(normSym).filter(Boolean);
+
+  let crumb, cookieStr;
+  try { ({ crumb, cookieStr } = getYahooCrumb()); Logger.log('crumb: ' + crumb); }
+  catch (err) { Logger.log('Failed to get crumb: ' + err); return; }
+
+  const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Cookie': cookieStr } };
+  const requests = symbols.map(sym => ({
+    ...fetchOpts,
+    url: 'https://query2.finance.yahoo.com/v10/finance/quoteSummary/'
+      + encodeURIComponent(sym.replace(/\./g, '-')) + '?modules=assetProfile,quoteType&crumb=' + encodeURIComponent(crumb)
+  }));
+
+  let responses;
+  try { responses = UrlFetchApp.fetchAll(requests); }
+  catch (err) { Logger.log('fetchAll failed: ' + err); return; }
+
+  let updated = 0;
+  for (let i = 0; i < symbols.length; i++) {
+    const sym  = symbols[i];
+    const row  = i + 2;
+    const code = responses[i].getResponseCode();
+    if (code !== 200) { Logger.log(sym + ' HTTP ' + code); continue; }
+    try {
+      const result = JSON.parse(responses[i].getContentText())?.quoteSummary?.result?.[0];
+      if (!result) { Logger.log(sym + ' => no result'); continue; }
+      const profile  = result.assetProfile || {};
+      const qt       = result.quoteType    || {};
+      const isEquity = qt.quoteType === 'EQUITY';
+      const nameVal   = qt.longName || qt.shortName || '';
+      const sectorVal = isEquity ? (profile.sector   || '') : 'ETF';
+      const indVal    = isEquity ? (profile.industry || '') : '';
+      if (nameCol     > 0 && nameVal)   sh.getRange(row, nameCol).setValue(nameVal);
+      if (sectorCol   > 0 && sectorVal) sh.getRange(row, sectorCol).setValue(sectorVal);
+      if (industryCol > 0 && indVal)    sh.getRange(row, industryCol).setValue(indVal);
+      updated++;
+      Logger.log(sym + ' → ' + (sectorVal || '—') + ' / ' + (indVal || '—'));
+    } catch (err) { Logger.log(sym + ' parse error: ' + err); }
+  }
+  Logger.log('Done. Updated ' + updated + ' of ' + symbols.length + ' symbols.');
+}
+
+function authorize() {
+  UrlFetchApp.fetch('https://www.google.com');
+}

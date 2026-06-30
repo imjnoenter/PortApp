@@ -8,11 +8,7 @@ External dependencies via CDN:
 - Chart.js 4.4.1
 - Lightweight Charts 4.2.0 (TradingView — used for per-symbol price chart in modal)
 
-Open directly in browser or host on GitHub Pages.
-
-## Working Style
-- Use **Opus** (model:opus via Plan agent) for planning/architecture decisions only.
-- Use **Sonnet** (default) for all coding and implementation.
+Open directly in browser or host on GitHub Pages. See `PRODUCT.md` for brand personality, design principles, and anti-references.
 
 ## Running Locally
 ```
@@ -21,28 +17,24 @@ python -m http.server 8000
 Open `http://localhost:8000`. No build step needed.
 
 ## File Structure
-Everything is in `index.html` (~10.6K lines):
-- CSS (top `<style>` block, ~1460 lines)
+Everything is in `index.html` (single file, no build step):
+- CSS (top `<style>` block)
 - HTML shell built by `buildShell()` JS function
 - All JavaScript inline at the bottom
 - Fonts loaded via `<link rel="preconnect">` + `<link rel="stylesheet">` (not `@import`)
 
+**Apps Script:** `apps_script.js` is the canonical source for the Google Apps Script backend. The user copies this file's contents into the Apps Script editor. **Always edit `apps_script.js` directly** — never just show code snippets for the user to manually integrate. (`apps-script.gs` is a stale older version; ignore it.)
+
 ## Design Tokens
 All new CSS should use tokens, not raw values.
 
-**Spacing scale** (`--sp-1` through `--sp-9`): 4, 8, 12, 16, 20, 24, 32, 48, 64px. Use for structural spacing (padding, gap, margin on cards, panels, modals, grids). Leave micro-component spacing (badge padding, icon gaps, 2-3px nudges) as raw values.
+**Spacing** (`--sp-1` through `--sp-9`): Use for structural spacing (padding, gap, margin on cards, panels, modals, grids). Leave micro-component spacing (badge padding, icon gaps, 2-3px nudges) as raw values.
 
-**Z-index scale** — never use arbitrary z-index values:
-```
---z-sticky: 100    --z-dropdown: 200   --z-overlay: 1000
---z-modal: 1100    --z-popover: 1200   --z-toast: 2000    --z-tooltip: 2100
-```
+**Z-index** (`--z-sticky` through `--z-tooltip`): Never use arbitrary z-index values; always use the scale defined in `:root`.
 
-**Easing curves** — use for animations, not `ease` or `linear`:
-- `--ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1)` — smooth deceleration
-- `--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1)` — confident, decisive
+**Easing** (`--ease-out-quint`, `--ease-out-expo`): Use for animations, not `ease` or `linear`.
 
-**Color tokens** — never hard-code hex in CSS or inline JS styles. Use `var(--terracotta)`, `var(--btn-fg)`, `var(--sage)`, `var(--plum)`, `var(--honey)`, `var(--muted)`, etc. These change across all 4 themes. Exception: Chart.js canvas config and `ctx.fillStyle` calls can't use CSS vars.
+**Colors**: Never hard-code hex in CSS or inline JS styles. Use CSS custom properties (`var(--terracotta)`, `var(--sage)`, etc.) — they change across all 4 themes. Exception: Chart.js canvas config and `ctx.fillStyle` calls can't use CSS vars.
 
 ## Theming
 4-theme system: warm light (default), warm dark, cool light, cool dark. Controlled by `data-theme="dark"` and `data-tone="cool"` attributes on `<html>`. All colors defined as CSS custom properties in `:root` with overrides in `[data-tone="cool"]`, `[data-theme="dark"]`, and `[data-theme="dark"][data-tone="cool"]` blocks.
@@ -62,7 +54,7 @@ All new CSS should use tokens, not raw values.
 - Plan data: `sheet=Plan` — columns: Symbol, SL, Note, T1…T13, TP1…TP3
 - Price history cache: `sheet=History`
 - Earnings calendar: `sheet=Calendar`
-- Live quotes cache: `sheet=Quotes` — columns: Symbol, Price, Change, ChangePct, UpdatedAt (Unix seconds). Written by `refreshQuotes()` trigger every minute during market hours. Only rows where Finnhub returned `price > 0` are written — absent rows mean Finnhub had no data for that symbol.
+- Live quotes cache: `sheet=Quotes` — columns: Symbol, Price, Change, ChangePct, UpdatedAt (Unix seconds). Written by `refreshQuotes()` trigger every ~2 minutes during market hours (1-min trigger with skip-every-other-run). Only rows where Finnhub returned `price > 0` are written — absent rows mean Finnhub had no data for that symbol.
 
 **Google Apps Script (write operations + quote refresh):**
 - `RECORD_URL` = Apps Script web app (`doGet`)
@@ -71,10 +63,12 @@ All new CSS should use tokens, not raw values.
 - `addSymbol` fetches Name/Sector/Industry server-side via `fetchYahooMetadata()` (Yahoo quoteSummary + crumb) — no client-side metadata fetch needed
 - `getYahooCrumb()` returns `{ crumb, cookieStr }` — acquires Yahoo Finance session cookie + crumb; required for quoteSummary and v7/quote from Apps Script. **Property is `cookieStr`, not `cookie`.**
 - `backfillMetadata()` — one-time function (run from Apps Script editor) to populate Name/Sector/Industry for existing symbols
-- `refreshQuotes()` — time-triggered (every 1 min, market hours only via `isMarketOpenET_()`). Fetches portfolio symbols from Finnhub (split across two API keys via `fetchAll`), index symbols (`^GSPC`, `^IXIC`, `^RUT`) from Yahoo v7/quote with crumb. Writes to `Quotes` sheet atomically (single `setValues`, trims leftover rows). `KEY1`/`KEY2` are Finnhub API keys hardcoded at top of script.
+- `refreshQuotes()` — time-triggered (1-min Apps Script trigger, but skip-every-other-run for effective ~2-min cadence to stay under UrlFetch daily quota). Market hours only via `isMarketOpenET_()` (Mon–Fri 9:30 AM–4:05 PM ET). Fetches portfolio symbols from Finnhub (split across two API keys via `fetchAll`), index symbols (`^GSPC`, `^IXIC`, `^RUT`) from Yahoo v7/quote with cached crumb (`getCachedCrumb_()`, 1-hour TTL). Writes to `Quotes` sheet atomically (single `setValues`, trims leftover rows). `KEY1`/`KEY2` are Finnhub API keys hardcoded at top of script. `fetchAll` is wrapped in try/catch to prevent uncaught exceptions from disabling the trigger.
 
 **Live quotes — two-path routing:**
-- **Market hours (Mon–Fri 9:30–16:00 ET):** `fetchQuotes` reads from the `Quotes` sheet tab (written every minute by Apps Script `refreshQuotes` via Finnhub). Symbols missing from the sheet (e.g. index symbols) fall back to a Yahoo browser call. Non-market hours always use Yahoo.
+- **Market hours (Mon–Fri 9:30–16:00 ET):** `fetchQuotes` reads from the `Quotes` sheet tab (written every ~2 min by Apps Script `refreshQuotes` via Finnhub). Symbols missing from the sheet (e.g. index symbols) fall back to a Yahoo browser call.
+- **Extended hours (pre/post-market, Mon–Fri):** `fetchQuotes` uses Yahoo path (no sheet data during extended hours). Auto-refreshes every 5 min via `isExtendedHours()`.
+- **Non-market hours:** Yahoo path only, manual refresh.
 - **Yahoo path:** v7/quote batch for all symbols, v8/chart per-symbol as final fallback. CORS via corsproxy.io fallback. Pre/post-market prices included.
 - Ticker mapping: `yahooTicker(s)` converts `.` → `-` (e.g. `BRK.B` → `BRK-B`)
 - `_staticQuoteCache` — in-memory cache of 52W/earnings fields from the last Yahoo call; merged into sheet quotes so those fields persist across market-hours refreshes
@@ -171,7 +165,7 @@ function doGet(e) {
 ## Sheet Schema
 - **Category** values: `"Big Value"`, `"Medium Value"`, `"Growth"`, `"Dividend"`, `"Other"`
 - **Industry** — free-form string from Yahoo Finance `assetProfile.industry`; ETFs use `"ETF"`; falls back to `'Other'` in charts
-- **Cash/Cash Reserves** stored only in row 1 of the Claude sheet
+- **Cash/Cash Reserves** — per-portfolio, stored in the `Portfolios` registry sheet. Pre-migration fallback reads from `Claude` row 1.
 - **SGOV** = Treasury ETF, treated as cash-equivalent (separate rendering path in `buildModel`; excluded from `computeClosedTrades` and `computePnLTimeline`)
 - Rows with no Qty and no AvgPrice → watchlist entries
 
@@ -264,7 +258,7 @@ Gear icon opens a dropdown with Language (EN/TH), Currency ($/฿), Theme (light
 Called from: sync render block (after `renderSectorBar`), `fetchQuotes().then(...)`, `toggleCurrency`.
 
 ## Auto-Refresh
-- Every 60s when `isMarketOpen()` (Mon–Fri, 9:30AM–4:00PM ET, regular market hours only)
+- Every 60s during regular market hours (`isMarketOpen()`, Mon–Fri 9:30AM–4:00PM ET); every 5 min during extended hours (`isExtendedHours()`, pre/post-market)
 - Benchmark skipped on auto-refresh once `benchmarkLoaded = true`
 - Auto-refresh is suppressed while any modal is open
 - `isFirstLoad` flag gates: `loadAllPlansFromSheet()`, `refreshTxPanel()`, `buildShell()`
@@ -274,7 +268,14 @@ Called from: sync render block (after `renderSectorBar`), `fetchQuotes().then(..
 - Index symbols (`^GSPC`, `^IXIC`, `^RUT`) are NOT supported by Finnhub free tier — they are fetched via Yahoo v7/quote (with crumb) inside the Apps Script and appended to the same Quotes sheet write.
 - Client `fetchSheetQuotes()` checks `regularMarketPrice > 0` as a safety guard before using a row — symbols with null/zero prices fall to `missingFromSheet` and are fetched from Yahoo browser-side.
 - `_staticQuoteCache` is populated from Yahoo calls and merged into sheet quotes: `out[s] = { ...stat, ...live }`. This preserves 52W range and earnings data across sheet-based refreshes.
-- gviz cache lag: Google CDN caches the Quotes sheet read for ~5–30s. Worst-case quote age ≈ script period (60s) + gviz lag.
+- gviz cache lag: Google CDN caches the Quotes sheet read for ~5–30s. Worst-case quote age ≈ script period (~120s) + gviz lag.
+
+## Apps Script Quota & Rate Limits
+- **UrlFetch daily quota:** 20,000 calls/day (free) or 100,000 (Workspace). Each symbol in `fetchAll` counts as 1 call. With ~50 symbols + `getYahooCrumb` (2 calls) + 1 Yahoo index fetch = ~53 calls/run. At 200 runs/day (skip-every-other) = ~10,600 calls — well within limit.
+- **Skip-every-other-run:** `quoteSkip` Script Property toggles `'0'`/`'1'` each trigger invocation. Effective ~2-min quote interval. No Apps Script trigger change needed (trigger stays at 1 min).
+- **Crumb caching:** `getCachedCrumb_()` stores Yahoo crumb + cookie in Script Properties with 1-hour TTL. Saves ~400 UrlFetch calls/day vs fetching fresh every run.
+- **Finnhub rate limit:** 60 calls/min per API key. ~25 symbols per key per burst is well within limit regardless of interval.
+- **Error resilience:** `fetchAll` wrapped in try/catch — logs error and returns cleanly instead of crashing the trigger. Empty `rows` array skips sheet write to avoid overwriting good data with header-only.
 
 ## Holdings Performance Panel (`id="holdingsPerf"`)
 `buildHpBaseData()` computes per-symbol total gain for the All/Gainers/Losers tabs:
