@@ -687,7 +687,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .top-holdings-tbl th:first-child,
 .top-holdings-tbl td:first-child { position: static; max-width: none; text-align: center; }
 .top-holdings-tbl .thold-rank { font-family: var(--font-mono); color: var(--muted); text-align: center; }
-.top-holdings-tbl .thold-ticker { font-family: var(--font-mono); font-weight: 600; }
+.top-holdings-tbl .thold-ticker { font-family: var(--font-ui); font-weight: 600; }
 .top-holdings-tbl .thold-name { overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 .top-holdings-tbl .thold-weight { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
 .top-holdings-tbl .thold-breakdown { font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
@@ -760,12 +760,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .pos-sub-tab:not(.active):hover { color: var(--ink); }
 
 /* ── Performance table cells ── */
-.perf-ret { font-family: var(--font-mono); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.perf-ret { font-family: var(--font-ui); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .perf-ret.up   { color: var(--gain); }
 .perf-ret.dn   { color: var(--loss); }
 .perf-ret.flat { color: var(--muted); }
-.perf-num  { font-family: var(--font-mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
-.perf-muted { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.perf-num  { font-family: var(--font-ui); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink); white-space: nowrap; }
+.perf-muted { font-family: var(--font-ui); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
 
 /* ── 1Y sparkline ── */
 .perf-spark { display: inline-block; vertical-align: middle; }
@@ -825,9 +825,56 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 @media (max-width: 700px) { .chart-wrap.bench-h { height: 200px; } }
 .bench-status { color: var(--muted); font-size: 12px; text-align: center; padding: 30px 0; font-style: italic; font-family: var(--font-display); }
 
-/* Loading / Error */
-.loading { text-align: center; padding: 80px 20px; color: var(--muted); font-size: 16px; font-family: var(--font-display); font-style: italic; }
+/* Error */
 .error-banner { background: rgba(187,77,60,.12); color: var(--loss); padding: var(--sp-3) var(--sp-4); border-radius: var(--radius); font-size: 13px; border: 1px solid rgba(187,77,60,.25); }
+
+/* ── First-load skeleton (mirrors the real shell; reuses .app/.header/.stat-grid/.card) ── */
+.sk-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.sk { position: relative; overflow: hidden; background: var(--track); border-radius: var(--radius-sm); }
+.sk::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, var(--sk-sheen) 50%, transparent 100%);
+  animation: sk-sweep 1.5s var(--ease-out-quint) infinite;
+  /* Negative delay keyed to --sk-d starts each block mid-cycle, so the sheen reads as one
+     light raking diagonally across the page rather than every block pulsing in lockstep. */
+  animation-delay: calc(var(--sk-d, 0) * -0.11s);
+}
+:root                              { --sk-sheen: color-mix(in oklab, var(--honey) 34%, transparent); }
+[data-theme="dark"]               { --sk-sheen: color-mix(in oklab, var(--honey) 20%, transparent); }
+@keyframes sk-sweep { to { transform: translateX(100%); } }
+
+/* Diagonal stagger map (top-left → bottom-right). Scoped to #loadingSkeleton so the live app
+   is untouched; --sk-d inherits into each .sk block from its nearest container here. */
+#loadingSkeleton .header                          { --sk-d: 0; }
+#loadingSkeleton .stat-card:nth-child(1)          { --sk-d: 1; }
+#loadingSkeleton .stat-card:nth-child(2)          { --sk-d: 2; }
+#loadingSkeleton .stat-card:nth-child(3)          { --sk-d: 3; }
+#loadingSkeleton .stat-card:nth-child(4)          { --sk-d: 4; }
+#loadingSkeleton .main-panel > .card              { --sk-d: 3; }
+#loadingSkeleton .sk-posrow                        { --sk-d: 4; }
+#loadingSkeleton .sk-posrow:nth-child(3)          { --sk-d: 5; }
+#loadingSkeleton .sk-posrow:nth-child(4)          { --sk-d: 6; }
+#loadingSkeleton .sk-posrow:nth-child(5)          { --sk-d: 7; }
+#loadingSkeleton .sk-posrow:nth-child(6)          { --sk-d: 8; }
+#loadingSkeleton .sk-posrow:nth-child(7)          { --sk-d: 9; }
+#loadingSkeleton .side-panel > .card:nth-child(1) { --sk-d: 5; }
+#loadingSkeleton .side-panel > .card:nth-child(2) { --sk-d: 7; }
+
+.sk-brand  { width: 88px; height: 88px; border-radius: 22px; flex-shrink: 0; }
+.sk-clock  { width: 152px; height: 64px; border-radius: var(--radius-pill); flex-shrink: 0; }
+.sk-toggle { width: 188px; height: 38px; border-radius: var(--radius-pill); flex-shrink: 0; }
+.sk-gear   { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; }
+.sk-line   { border-radius: var(--radius-pill); }
+.sk-circle { border-radius: 50%; flex-shrink: 0; }
+.sk-donut  { width: 168px; height: 168px; border-radius: 50%; margin: 6px auto var(--sp-2); }
+.sk-posrow { display: flex; align-items: center; gap: var(--sp-3); padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.sk-posrow:last-child { border-bottom: 0; }
+
+@media (max-width: 700px) {
+  .sk-brand  { width: 42px; height: 42px; border-radius: 12px; }
+  .sk-clock  { order: 10; width: 100%; }
+  .sk-donut  { width: 140px; height: 140px; }
+}
 
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
 
@@ -1534,12 +1581,76 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 </head>
 <body>
 <div id="root">
-  <div class="loading">Loading portfolio…</div>
+  <div id="loadingSkeleton" class="app" role="status">
+    <span class="sk-only">Loading portfolio…</span>
+
+    <div class="header" aria-hidden="true">
+      <div class="header-left">
+        <div class="sk sk-brand"></div>
+        <div class="header-title-group" style="display:flex;flex-direction:column;gap:9px">
+          <div class="sk sk-line" style="width:132px;height:19px"></div>
+          <div class="sk sk-line" style="width:66px;height:11px"></div>
+        </div>
+        <div class="header-divider"></div>
+        <div class="sk sk-clock"></div>
+        <div class="sk sk-toggle"></div>
+      </div>
+      <div class="sk sk-gear"></div>
+    </div>
+
+    <div class="main-panel" aria-hidden="true">
+      <div class="stat-grid">
+        <div class="stat-card"><div class="sk sk-line" style="width:54%;height:11px"></div><div class="sk sk-line" style="width:78%;height:26px;margin-top:16px"></div><div class="sk sk-line" style="width:42%;height:10px;margin-top:14px"></div></div>
+        <div class="stat-card"><div class="sk sk-line" style="width:48%;height:11px"></div><div class="sk sk-line" style="width:70%;height:26px;margin-top:16px"></div><div class="sk sk-line" style="width:38%;height:10px;margin-top:14px"></div></div>
+        <div class="stat-card"><div class="sk sk-line" style="width:58%;height:11px"></div><div class="sk sk-line" style="width:82%;height:26px;margin-top:16px"></div><div class="sk sk-line" style="width:46%;height:10px;margin-top:14px"></div></div>
+        <div class="stat-card"><div class="sk sk-line" style="width:44%;height:11px"></div><div class="sk sk-line" style="width:64%;height:26px;margin-top:16px"></div><div class="sk sk-line" style="width:40%;height:10px;margin-top:14px"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="sk sk-line" style="width:122px;height:15px;margin-bottom:18px"></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:190px"></div><div class="sk sk-line" style="width:78px;height:12px"></div></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:150px"></div><div class="sk sk-line" style="width:66px;height:12px"></div></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:210px"></div><div class="sk sk-line" style="width:82px;height:12px"></div></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:130px"></div><div class="sk sk-line" style="width:70px;height:12px"></div></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:172px"></div><div class="sk sk-line" style="width:74px;height:12px"></div></div>
+        <div class="sk-posrow"><div class="sk sk-circle" style="width:30px;height:30px"></div><div class="sk sk-line" style="flex:1;height:12px;max-width:200px"></div><div class="sk sk-line" style="width:60px;height:12px"></div></div>
+      </div>
+    </div>
+
+    <div class="side-panel" aria-hidden="true">
+      <div class="card">
+        <div class="sk sk-line" style="width:104px;height:15px;margin-bottom:18px"></div>
+        <div class="sk sk-donut"></div>
+      </div>
+      <div class="card">
+        <div class="sk sk-line" style="width:128px;height:15px;margin-bottom:18px"></div>
+        <div class="sk sk-line" style="width:100%;height:12px;margin-bottom:12px"></div>
+        <div class="sk sk-line" style="width:86%;height:12px;margin-bottom:12px"></div>
+        <div class="sk sk-line" style="width:92%;height:12px"></div>
+      </div>
+    </div>
+  </div>
 </div>
+<script>
+  // Localize the skeleton's screen-reader announcement before the CDN/main scripts load.
+  // Mirrors the loading_portfolio_msg i18n values; static first-paint HTML can't call t() this early.
+  if ((localStorage.getItem('lang') || 'EN') === 'TH') {
+    var _skSr = document.querySelector('#loadingSkeleton .sk-only');
+    if (_skSr) _skSr.textContent = 'กำลังโหลดข้อมูลพอร์ตการลงทุน…';
+  }
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
+// Snapshot the instant-paint loading skeleton (static in <body>) before anything mutates #root,
+// so init() can re-inject it after the setup-modal path (which replaces #root pre-first-load).
+const _skeletonHTML = document.getElementById('loadingSkeleton')?.outerHTML || '';
+function showLoadingSkeleton() {
+  const root = document.getElementById('root');
+  if (root && !document.getElementById('loadingSkeleton')) root.innerHTML = _skeletonHTML;
+}
+
 // ── Config — multi-profile, stored in localStorage, never in code ────────────
 const PALETTE = ["#c46a4a","#6b7eb8","#8a5a7e","#c79038","#6b8e5a","#7aa3b8","#b56a8a","#9ca85a","#d4825e","#8a7458","#9a7aa3","#7a9a82"];
 
@@ -1634,7 +1745,7 @@ function _buildUrls(c) {
   const b = `https://docs.google.com/spreadsheets/d/${c.sheetId}/gviz/tq?tqx=out:json&sheet=`;
   return { SHEET_URL: b+'Claude', TRANSACTION_URL: b+'transactions', TX_LIST_URL: b+'transactions',
            HISTORY_URL: b+'History', CALENDAR_URL: b+'Calendar', PLAN_URL: b+'Plan',
-           QUOTES_URL: b+'Quotes', PORTFOLIOS_URL: b+'Portfolios',
+           QUOTES_URL: b+'Quotes', RETURNS_URL: b+'Returns', PORTFOLIOS_URL: b+'Portfolios',
            RECORD_URL: c.recordUrl, WRITE_KEY: c.writeKey };
 }
 function _applyActiveProfile() {
@@ -1643,7 +1754,7 @@ function _applyActiveProfile() {
   const u = _buildUrls(a);
   SHEET_URL = u.SHEET_URL; TRANSACTION_URL = u.TRANSACTION_URL; TX_LIST_URL = u.TX_LIST_URL;
   HISTORY_URL = u.HISTORY_URL; CALENDAR_URL = u.CALENDAR_URL; PLAN_URL = u.PLAN_URL;
-  QUOTES_URL = u.QUOTES_URL; PORTFOLIOS_URL = u.PORTFOLIOS_URL;
+  QUOTES_URL = u.QUOTES_URL; RETURNS_URL = u.RETURNS_URL; PORTFOLIOS_URL = u.PORTFOLIOS_URL;
   RECORD_URL = u.RECORD_URL; _WRITE_KEY = u.WRITE_KEY;
   _staticQuoteCache = {};
 }
@@ -1691,6 +1802,7 @@ let PLAN_URL        = _u.PLAN_URL        || '';
 let RECORD_URL      = _u.RECORD_URL      || '';
 let _WRITE_KEY      = _u.WRITE_KEY       || '';
 let QUOTES_URL      = _u.QUOTES_URL      || '';
+let RETURNS_URL     = _u.RETURNS_URL     || '';
 let PORTFOLIOS_URL  = _u.PORTFOLIOS_URL  || '';
 let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, earningsTimestamp, ... } }
 let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo', updatedAt?: unixSec }
@@ -1762,7 +1874,7 @@ const I18N = {
     th_quantity: "Quantity", th_avg_cost: "Avg Cost", th_total_cost: "Total Cost",
     th_current_value: "Current Value",
     last_price_short: "Last", qty_short: "Qty", avg_short: "Avg",
-    sector_label: "Sector", category_label: "Category", sl_label: "SL",
+    sector_label: "Sector", industry_label: "Industry", category_label: "Category", sl_label: "SL",
     realized_pnl_label: "Realized P/L", entry_price_label: "Entry",
     cum_pct_label: "Cum %", amount_label: "Amount",
     charts_tab: "Charts", transactions_tab: "Transactions",
@@ -1889,6 +2001,8 @@ const I18N = {
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
     industry_breakdown_title: "Industry Breakdown",
+    top_holding_breakdown_title: "Top Holding Breakdown",
+    other_unclassified_label: "Other/Unclassified",
     pnl_by_sector_title: "P&L by Sector", total_unrealized: "Total Unrealized P&L", th_value: "Value",
     my_plans_title: "My Plans",
     transactions_title: "Transactions", dividend_breakdown_title: "Dividend Breakdown",
@@ -1927,7 +2041,7 @@ const I18N = {
     th_quantity: "จำนวนหุ้น", th_avg_cost: "ต้นทุนเฉลี่ย",
     th_total_cost: "ราคาทุนรวม", th_current_value: "มูลค่าปัจจุบัน",
     last_price_short: "ล่าสุด", qty_short: "จำนวน", avg_short: "เฉลี่ย",
-    sector_label: "กลุ่ม", category_label: "หมวดหมู่", sl_label: "SL",
+    sector_label: "กลุ่ม", industry_label: "อุตสาหกรรม", category_label: "หมวดหมู่", sl_label: "SL",
     realized_pnl_label: "กำไรเมื่อขาย", entry_price_label: "ราคาเข้า",
     cum_pct_label: "สะสม %", amount_label: "จำนวนเงิน",
     charts_tab: "กราฟ", transactions_tab: "รายการซื้อขาย",
@@ -2078,6 +2192,8 @@ const I18N = {
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
     industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
+    top_holding_breakdown_title: "สัดส่วนหุ้นที่ถือครองสูงสุด",
+    other_unclassified_label: "อื่นๆ/ไม่จัดประเภท",
     pnl_by_sector_title: "กำไร/ขาดทุนตามกลุ่มอุตสาหกรรม", total_unrealized: "กำไร/ขาดทุนที่ยังไม่รับรู้รวม", th_value: "มูลค่า",
     my_plans_title: "แผนการลงทุนของฉัน",
     transactions_title: "รายการซื้อขายทั้งหมด",
@@ -2807,6 +2923,7 @@ window.openSymbolDetail = function(sym) {
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-bottom:12px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm)">
       ${pos.sector     ? `<span style="color:var(--muted)">${t('sector_label')} <strong style="color:var(--ink)">${t(pos.sector)}</strong></span>` : ''}
+      ${pos.industry   ? `<span style="color:var(--muted)">${t('industry_label')} <strong style="color:var(--ink)">${pos.industry}</strong></span>` : ''}
       ${pos.category   ? `<span style="color:var(--muted)">${t('category_label')} <strong style="color:var(--ink)">${t(pos.category)}</strong></span>` : ''}
       ${sl             ? `<span style="color:var(--muted)">SL <strong style="color:var(--loss)">${fmtCurr(sl)}</strong></span>` : ''}
       ${hasRealizedPnl ? `<span style="color:var(--muted)">Realized P/L <strong style="color:var(${realizedPnl>=0?'--gain':'--loss'})">${realizedPnl>=0?'+':''}${fmtCurr(realizedPnl)}</strong></span>` : ''}
@@ -3205,6 +3322,7 @@ window.openEditCash = function() {
   const fcd  = Number(r0.fcd) || 0;
   const usd  = Number(r0.usd) || 0;
   const cash = fcd + usd;
+  const resPct = (Number(r0.cashRes) || 0) * 100;
   const portSel = _portfolioRegistry.length > 1
     ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
         <select class="tx-input" id="editCashPortfolio" onchange="onEditCashPortChange(this.value)">
@@ -3219,6 +3337,7 @@ window.openEditCash = function() {
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">BEFORE</div>
       <div><strong>${fmtCurr(cash)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span></div>
+      <div style="color:var(--muted);margin-top:2px">Reserve target: ${resPct.toFixed(1)}%</div>
     </div>
     <div class="tx-row2">
       <div class="tx-field">
@@ -3229,6 +3348,10 @@ window.openEditCash = function() {
         <label class="tx-label">USD</label>
         <input class="tx-input" id="editCashUsd" type="number" step="any" min="0" value="${usd}" oninput="updateCashPreview()">
       </div>
+    </div>
+    <div class="tx-field" style="margin-bottom:14px">
+      <label class="tx-label">Reserve %</label>
+      <input class="tx-input" id="editCashReserve" type="number" step="any" min="0" max="100" value="${resPct}" oninput="updateCashPreview()">
     </div>
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">AFTER</div>
@@ -3243,26 +3366,30 @@ window.openEditCash = function() {
 window.onEditCashPortChange = function(port) {
   const r = _portRow(port);
   const fcdEl = document.getElementById('editCashFcd'), usdEl = document.getElementById('editCashUsd');
+  const resEl = document.getElementById('editCashReserve');
   if (fcdEl) fcdEl.value = Number(r.fcd) || 0;
   if (usdEl) usdEl.value = Number(r.usd) || 0;
+  if (resEl) resEl.value = (Number(r.cashRes) || 0) * 100;
   updateCashPreview();
 };
 
 window.updateCashPreview = function() {
   const fcd  = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd  = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
+  const res  = parseFloat(document.getElementById('editCashReserve')?.value) || 0;
   const el   = document.getElementById('editCashAfter');
-  if (el) el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span>`;
+  if (el) el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">Reserve target: ${res.toFixed(1)}%</div>`;
 };
 
 window.submitEditCash = async function() {
   const fcd = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
+  const cashRes = (parseFloat(document.getElementById('editCashReserve')?.value) || 0) / 100;
   const statusEl = document.getElementById('editCashStatus');
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
     const rawPort = document.getElementById('editCashPortfolio')?.value || DEFAULT_PORT;
-    const params = new URLSearchParams({ action: 'updateCash', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort, fcd, usd });
+    const params = new URLSearchParams({ action: 'updateCash', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort, fcd, usd, cashRes });
     await recordFetch(params);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
     setTimeout(() => {
@@ -4893,6 +5020,7 @@ function parseRows(table) {
     avgPrice: cell(r, "Avg price"),
     target:   cell(r, "Target Allocation"),
     price:    cell(r, "Current price"),
+    marketCap: cell(r, "Market Cap"),
     cash:     cell(r, "Cash"),
     cashRes:  cell(r, "Cash Reserves"),
     fcd:      cell(r, "FCD"),
@@ -4909,7 +5037,7 @@ function rowsForView(portId) {
     const fill = {};
     for (const r of _allRows) {
       const f = fill[r.symbol] || (fill[r.symbol] = {});
-      ['price','name','sector','industry'].forEach(k => { if (f[k] == null && r[k] != null && r[k] !== '') f[k] = r[k]; });
+      ['price','name','sector','industry','marketCap'].forEach(k => { if (f[k] == null && r[k] != null && r[k] !== '') f[k] = r[k]; });
     }
     return _allRows.filter(r => (r.portfolio || DEFAULT_PORT) === portId).map(r => {
       const f = fill[r.symbol] || {};
@@ -4919,6 +5047,7 @@ function rowsForView(portId) {
         name:     r.name     != null && r.name     !== '' ? r.name     : (f.name     ?? r.name),
         sector:   r.sector   != null && r.sector   !== '' ? r.sector   : (f.sector   ?? r.sector),
         industry: r.industry != null && r.industry !== '' ? r.industry : (f.industry ?? r.industry),
+        marketCap: r.marketCap != null && r.marketCap !== '' ? r.marketCap : (f.marketCap ?? null),
       };
     });
   }
@@ -4950,6 +5079,7 @@ function rowsForView(portId) {
       avgPrice: sumQty > 0 ? sumCost / sumQty : (pick('avgPrice') ?? null),
       target:   tgtRow ? tgtRow.target : null,
       price:    pick('price'),
+      marketCap: pick('marketCap'),
     });
   }
   return merged;
@@ -5188,7 +5318,7 @@ function renderGauge(model) {
     ctx2.closePath();
   }
 
-  const RESERVE = 0.15;           // 15 % cash reserve threshold
+  const RESERVE = model.cashResPct || 0;   // cash reserve threshold (from portfolio settings)
   const target  = Math.max(0, Math.min(100, pct)) / 100;
   const startTs = performance.now();
   const dur     = 900;
@@ -5267,9 +5397,9 @@ function renderGauge(model) {
     ctx.stroke();
     ctx.restore();
 
-    // ── 15 % reserve threshold marker ───────────────────────────
+    // ── Reserve threshold marker ───────────────────────────
     const reserveX  = barX + barW * (1 - RESERVE);
-    const overLimit = cur > (1 - RESERVE);   // cash < 15 % = warning
+    const overLimit = cur > (1 - RESERVE);   // cash below reserve target = warning
     const mrkCol    = overLimit ? C.clay : C.sage;
 
     // Vertical dashed line spanning above + through bar
@@ -5296,14 +5426,14 @@ function renderGauge(model) {
     ctx.fill();
     ctx.restore();
 
-    // "15% RESERVE" label below bar
+    // "X% RESERVE" label below bar
     ctx.save();
     ctx.font          = `500 7.5px ${monoFont}`;
     ctx.fillStyle     = C.muted;
     ctx.textAlign     = 'center';
     ctx.textBaseline  = 'top';
     ctx.letterSpacing = '0.6px';
-    ctx.fillText('15% RESERVE', reserveX, barY + barH + 5);
+    ctx.fillText(`${(RESERVE * 100).toFixed(0)}% RESERVE`, reserveX, barY + barH + 5);
     ctx.restore();
 
     // ── Labels above bar — 3 designs ──────────────────────────────
@@ -5563,7 +5693,39 @@ async function fetchYahooBatch(syms) {
 }
 
 // ── Live quotes (day change + pre/post market) ────────────────────────────────
+// Volume source for stocks AND ETFs — CNBC batch quote (CORS-open, no key, no proxy, no Apps Script).
+async function fetchCnbcVolumes(symbols) {
+  const syms = [...new Set(symbols.filter(s => s && !s.startsWith('^')))];
+  if (!syms.length) return {};
+  const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=${encodeURIComponent(syms.join('|'))}&output=json`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return {};
+    const j = await r.json();
+    let arr = j?.QuickQuoteResult?.QuickQuote ?? j?.FormattedQuoteResult?.FormattedQuote ?? [];
+    if (!Array.isArray(arr)) arr = [arr];
+    const out = {};
+    arr.forEach(q => {
+      const v = Number(q.fullVolume ?? q.volume);
+      if (q.symbol && Number.isFinite(v)) out[q.symbol] = v;
+    });
+    return out;
+  } catch { return {}; }
+}
+
+// Thin wrapper: merges CNBC volume into every quote-source path of _fetchQuotesBase.
 async function fetchQuotes(symbols) {
+  const out = await _fetchQuotesBase(symbols);
+  try {
+    const vols = await fetchCnbcVolumes(symbols);
+    for (const s of Object.keys(vols)) {
+      (out[s] || (out[s] = {})).regularMarketVolume = vols[s];
+    }
+  } catch (_) {}
+  return out;
+}
+
+async function _fetchQuotesBase(symbols) {
   if (!symbols.length) return {};
 
   // Market hours: read from Quotes sheet; fetch anything missing from Yahoo
@@ -5694,17 +5856,10 @@ function attachQuotes(model, quotes) {
     p.postMarketPrice = q.postMarketPrice ?? null;
     p.preMarketPct  = p.preMarketPrice  && reg ? (p.preMarketPrice  - reg) / reg * 100 : null;
     p.postMarketPct = p.postMarketPrice && reg ? (p.postMarketPrice - reg) / reg * 100 : null;
-    // Calendar data
-    p.nextEarnings    = q.earningsTimestamp     ? new Date(q.earningsTimestamp     * 1000) : null;
-    p.nextEarningsEnd = q.earningsTimestampEnd  ? new Date(q.earningsTimestampEnd  * 1000) : null;
-    p.exDivDate       = q.exDividendDate        ? new Date(q.exDividendDate        * 1000) : null;
     // 52-week range
     p.week52High = q.fiftyTwoWeekHigh ?? null;
     p.week52Low  = q.fiftyTwoWeekLow  ?? null;
-    p.fiftyDayAvg      = q.fiftyDayAverage             ?? null;
-    p.twoHundredDayAvg = q.twoHundredDayAverage        ?? null;
     p.volume           = q.regularMarketVolume          ?? null;
-    p.dividendYield    = q.trailingAnnualDividendYield  ?? null;
     p.expenseRatio     = q.netExpenseRatio              ?? null;
     p.netAssets        = q.netAssets                    ?? null;
     p.ytdReturnQ       = q.ytdReturn                    ?? null;
@@ -5720,13 +5875,7 @@ function attachQuotes(model, quotes) {
     w.postMarketPrice = q.postMarketPrice ?? null;
     w.preMarketPct  = w.preMarketPrice  && reg ? (w.preMarketPrice  - reg) / reg * 100 : null;
     w.postMarketPct = w.postMarketPrice && reg ? (w.postMarketPrice - reg) / reg * 100 : null;
-    w.nextEarnings    = q.earningsTimestamp    ? new Date(q.earningsTimestamp    * 1000) : null;
-    w.nextEarningsEnd = q.earningsTimestampEnd ? new Date(q.earningsTimestampEnd * 1000) : null;
-    w.exDivDate       = q.exDividendDate       ? new Date(q.exDividendDate       * 1000) : null;
-    w.fiftyDayAvg      = q.fiftyDayAverage             ?? null;
-    w.twoHundredDayAvg = q.twoHundredDayAverage        ?? null;
     w.volume           = q.regularMarketVolume          ?? null;
-    w.dividendYield    = q.trailingAnnualDividendYield  ?? null;
     w.expenseRatio     = q.netExpenseRatio              ?? null;
     w.netAssets        = q.netAssets                    ?? null;
     w.ytdReturnQ       = q.ytdReturn                    ?? null;
@@ -5743,17 +5892,6 @@ function _readEtfLocalCache() {
 
 function _writeEtfLocalCache(cache) {
   try { localStorage.setItem(ETF_DATA_LS_KEY, JSON.stringify(cache)); }
-  catch {}
-}
-
-const STOCK_RETURNS_TTL = 24 * 60 * 60 * 1000;
-const STOCK_RETURNS_LS_KEY = 'stockReturns.v1';
-function _readStockReturnsCache() {
-  try { return JSON.parse(localStorage.getItem(STOCK_RETURNS_LS_KEY)) || {}; }
-  catch { return {}; }
-}
-function _writeStockReturnsCache(cache) {
-  try { localStorage.setItem(STOCK_RETURNS_LS_KEY, JSON.stringify(cache)); }
   catch {}
 }
 
@@ -5805,7 +5943,7 @@ async function fetchEtfData(symbols) {
   for (const p of [...currentModel.positions, ...(currentModel.sgovPos ? [currentModel.sgovPos] : [])]) {
     const d = _etfDataCache[p.symbol];
     if (!d) continue;
-    if (d.volume != null)              p.volume           = d.volume;
+    // volume now comes from CNBC via fetchQuotes/attachQuotes (always-fresh); ETF cache no longer sets it
     if (d.ytdReturn != null)           p.ytdReturnQ       = d.ytdReturn;
     if (d.expenseRatio != null)        p.expenseRatio     = d.expenseRatio;
     if (d.netAssets != null)           p.netAssets         = d.netAssets;
@@ -5816,45 +5954,34 @@ async function fetchEtfData(symbols) {
   }
   renderTable(currentModel);
   renderTopHoldings(currentModel);
+  renderSectorDonut(currentModel);
+  renderIndustryDonut(currentModel);
 }
 
-async function fetchStockReturns(symbols) {
-  const stockSyms = symbols.filter(s =>
-    !_allRows.some(r => r.symbol === s && (r.sector === 'ETF' || r.category === 'ETF' || r.portfolio === 'ETF'))
-  );
-  if (!stockSyms.length) return;
-
-  const now = Date.now();
-  const localCache = _readStockReturnsCache();
-  for (const s of stockSyms) {
-    if (!_stockReturnsCache[s] && localCache[s] && now - localCache[s].fetchedAt < STOCK_RETURNS_TTL) {
-      _stockReturnsCache[s] = localCache[s];
-    }
-  }
-
-  const needed = stockSyms.filter(s => {
-    const cached = _stockReturnsCache[s];
-    return !cached || now - cached.fetchedAt > STOCK_RETURNS_TTL;
-  });
-
-  if (needed.length) {
-    try {
-      const resp = await recordFetch({ action: 'fetchStockReturns', symbols: needed.join(',') }, true);
-      if (resp?.ok && resp.returns) {
-        const ts = Date.now();
-        for (const [sym, data] of Object.entries(resp.returns)) {
-          if (data) _stockReturnsCache[sym] = { ...data, fetchedAt: ts };
-        }
-        const updated = { ..._readStockReturnsCache() };
-        for (const [sym, data] of Object.entries(_stockReturnsCache)) updated[sym] = data;
-        for (const key of Object.keys(updated)) {
-          if (ts - updated[key].fetchedAt > STOCK_RETURNS_TTL) delete updated[key];
-        }
-        _writeStockReturnsCache(updated);
-      }
-    } catch {}
-  }
-
+async function fetchStockReturns() {
+  if (!RETURNS_URL) return;
+  try {
+    const res = await fetch(RETURNS_URL);
+    if (!res.ok) return;
+    const text = await res.text();
+    const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
+    const table = json?.table;
+    if (!table?.rows?.length) return;
+    const cols = table.cols.map(c => c.label?.trim() || '');
+    const iSym = cols.indexOf('Symbol'), i1M = cols.indexOf('1M'), i3M = cols.indexOf('3M');
+    const iYTD = cols.indexOf('YTD'), i1Y = cols.indexOf('1Y'), i3Y = cols.indexOf('3Y');
+    const i5Y = cols.indexOf('5Y');
+    if (iSym < 0) return;
+    table.rows.forEach(row => {
+      const c = row.c;
+      const sym = c[iSym]?.v; if (!sym) return;
+      const pct = i => i >= 0 && c[i]?.v != null ? c[i].v / 100 : null;
+      _stockReturnsCache[sym] = {
+        '1M': pct(i1M), '3M': pct(i3M), 'YTD': pct(iYTD),
+        '1Y': pct(i1Y), '3Y': pct(i3Y), '5Y': pct(i5Y),
+      };
+    });
+  } catch {}
   if (_posTab === 'performance' && currentModel) renderTable(currentModel);
 }
 
@@ -5902,6 +6029,7 @@ function renderTopHoldings(model) {
         }
         for (const s of needed) { if (!_topHoldingSectors[s]) _topHoldingSectors[s] = '—'; }
         _renderTopHoldingsTable(body, sorted);
+        if (activePortfolio === 'ETF' && currentModel) renderSectorDonut(currentModel);
       })
       .catch(() => {})
       .finally(() => { _sectorFetchInFlight = false; });
@@ -6237,9 +6365,10 @@ function renderTable(model) {
 
 function renderPerformanceTable(model) {
   const titleEl = document.getElementById('posTitle');
+  const showWatchlist = categoryFilter === t('Watchlist');
   if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
   const drEl = document.getElementById('posDayReturn');
-  if (drEl) {
+  if (drEl && !showWatchlist) {
     const allP = [...model.positions, ...(model.sgovPos ? [model.sgovPos] : [])];
     const withData = allP.filter(p => p.dayChange != null);
     if (withData.length) {
@@ -6252,22 +6381,29 @@ function renderPerformanceTable(model) {
     } else {
       drEl.textContent = '';
     }
+  } else if (drEl) {
+    drEl.textContent = '';
   }
 
   const q = searchTerm.trim().toUpperCase();
-  let filtered = model.positions;
-  if (categoryFilter !== 'All' && categoryFilter !== t('Watchlist')) filtered = filtered.filter(p => (p.category || 'Other') === categoryFilter);
-  if (sectorFilter !== 'All') filtered = filtered.filter(p => (p.sector || 'Other') === sectorFilter);
+  let filtered = showWatchlist ? model.watchlist : model.positions;
+  if (!showWatchlist) {
+    if (categoryFilter !== 'All') filtered = filtered.filter(p => (p.category || 'Other') === categoryFilter);
+    if (sectorFilter !== 'All') filtered = filtered.filter(p => (p.sector || 'Other') === sectorFilter);
+  }
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
   const sorted = [...filtered].sort((a, b) => {
     if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
     return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
   });
-  renderWeightBar(sorted);
+  if (showWatchlist && titleEl) titleEl.textContent = `${sorted.length} ${t('Watchlist')}`;
+  renderWeightBar(showWatchlist ? [] : sorted);
 
   const hasEtf = activePortfolio === 'ETF'
     || sorted.some(p => p.expenseRatio != null || p.netAssets != null || p.holdingsCount != null)
+    || sorted.some(p => _etfDataCache[p.symbol]?.netAssets != null)
     || (activePortfolio === 'ALL' && _allRows.some(r => r.portfolio === 'ETF'));
+  const isEtfView = activePortfolio === 'ETF';
 
   const retCell = (val) => {
     if (val == null) return `<span class="perf-muted">—</span>`;
@@ -6278,6 +6414,9 @@ function renderPerformanceTable(model) {
   const headers = [
     { key: 'symbol', label: t('th_symbol'), align: 'left' },
     { key: 'price', label: t('th_last_price'), align: 'right' },
+  ];
+  if (!isEtfView) headers.push({ key: 'marketCap', label: 'Market Cap', align: 'right' });
+  headers.push(
     { key: 'volume', label: 'Volume', align: 'right' },
     { key: 'ytdRet', label: 'YTD', align: 'right' },
     { key: '1M', label: '1-Mo', align: 'right' },
@@ -6285,17 +6424,15 @@ function renderPerformanceTable(model) {
     { key: '1Y', label: '1-Yr', align: 'right' },
     { key: '3Y', label: '3-Yr', align: 'right' },
     { key: '5Y', label: '5-Yr', align: 'right' },
-    { key: 'dividendYield', label: 'Yield', align: 'right' },
-  ];
+  );
   if (hasEtf) {
     headers.push({ key: 'expenseRatio', label: 'Net ER', align: 'right' });
     headers.push({ key: 'netAssets', label: 'Net Assets', align: 'right' });
     headers.push({ key: 'holdingsCount', label: 'Holdings', align: 'right' });
   }
   headers.push(
-    { key: 'fiftyDayAvg', label: '50D Avg', align: 'right' },
-    { key: 'twoHundredDayAvg', label: '200D Avg', align: 'right' },
     { key: null, label: 'Sector', align: 'left' },
+    { key: null, label: 'Industry', align: 'left' },
     { key: null, label: '1Y', align: 'center' },
   );
 
@@ -6306,7 +6443,8 @@ function renderPerformanceTable(model) {
 
   function perfRow(p) {
     const color = colorFor(p.symbol);
-    const tr = _etfDataCache[p.symbol]?.trailingReturns;
+    const etf = _etfDataCache[p.symbol];
+    const tr = etf?.trailingReturns;
     const sr = _stockReturnsCache[p.symbol];
     const computed = computePeriodReturns(p.symbol, p.price);
     const source = tr || sr;
@@ -6317,14 +6455,21 @@ function renderPerformanceTable(model) {
       '3Y': source['3Y'] != null ? source['3Y'] * 100 : computed['3Y'],
       '5Y': source['5Y'] != null ? source['5Y'] * 100 : computed['5Y'],
     } : computed;
-    const ytdVal = p.ytdReturnQ != null ? p.ytdReturnQ * 100
+    // Read ETF quote fields from _etfDataCache (module-level, persisted) so they survive
+    // portfolio-toggle model rebuilds + attachQuotes nulling — same pattern as trailingReturns
+    // above. Fall back to any value applied onto the position object.
+    const eYtd = etf?.ytdReturn    ?? p.ytdReturnQ;
+    const eExp = etf?.expenseRatio ?? p.expenseRatio;
+    const eNA  = etf?.netAssets    ?? p.netAssets;
+    const eHC  = etf?.holdingsCount ?? p.holdingsCount;
+    const ytdVal = eYtd != null ? eYtd * 100
       : (source?.YTD != null ? source.YTD * 100 : computed.YTD);
 
     let etfCols = '';
     if (hasEtf) {
-      etfCols = `<td>${p.expenseRatio != null ? `<span class="perf-num">${(p.expenseRatio * 100).toFixed(2)}%</span>` : '<span class="perf-muted">—</span>'}</td>`
-              + `<td>${p.netAssets != null ? `<span class="perf-num">${fmtCompact(p.netAssets)}</span>` : '<span class="perf-muted">—</span>'}</td>`
-              + `<td>${p.holdingsCount != null ? `<span class="perf-num">${Number(p.holdingsCount).toLocaleString()}</span>` : '<span class="perf-muted">—</span>'}</td>`;
+      etfCols = `<td>${eExp != null ? `<span class="perf-num">${(eExp * 100).toFixed(2)}%</span>` : '<span class="perf-muted">—</span>'}</td>`
+              + `<td>${eNA != null ? `<span class="perf-num">${fmtCompact(eNA)}</span>` : '<span class="perf-muted">—</span>'}</td>`
+              + `<td>${eHC != null ? `<span class="perf-num">${Number(eHC).toLocaleString()}</span>` : '<span class="perf-muted">—</span>'}</td>`;
     }
 
     return `<tr onclick="openActionModal('${p.symbol}')" style="cursor:pointer">
@@ -6332,6 +6477,7 @@ function renderPerformanceTable(model) {
         <div><div class="asset-sym">${p.symbol}</div><div class="asset-name">${p.name}</div></div>
       </div></td>
       <td><span class="perf-num">${fmtCurr(p.price)}</span></td>
+      ${isEtfView ? '' : `<td>${p.marketCap != null ? `<span class="perf-num">${fmtCompact(p.marketCap)}</span>` : '<span class="perf-muted">—</span>'}</td>`}
       <td><span class="perf-muted">${fmtVol(p.volume)}</span></td>
       <td>${retCell(ytdVal)}</td>
       <td>${retCell(pr['1M'])}</td>
@@ -6339,11 +6485,9 @@ function renderPerformanceTable(model) {
       <td>${retCell(pr['1Y'])}</td>
       <td>${retCell(pr['3Y'])}</td>
       <td>${retCell(pr['5Y'])}</td>
-      <td>${p.dividendYield != null ? `<span class="perf-num">${(p.dividendYield * 100).toFixed(2)}%</span>` : '<span class="perf-muted">—</span>'}</td>
       ${etfCols}
-      <td>${p.fiftyDayAvg != null ? `<span class="perf-num">${fmtCurr(p.fiftyDayAvg)}</span>` : '<span class="perf-muted">—</span>'}</td>
-      <td>${p.twoHundredDayAvg != null ? `<span class="perf-num">${fmtCurr(p.twoHundredDayAvg)}</span>` : '<span class="perf-muted">—</span>'}</td>
-      <td><span style="font-size:11px;color:var(--muted)">${p.sector || '—'}</span></td>
+      <td><span style="font-size:11px;color:var(--muted)">${etf?.topSector || p.sector || '—'}</span></td>
+      <td><span style="font-size:11px;color:var(--muted)">${p.industry || '—'}</span></td>
       <td>${priceSpark(p.symbol)}</td>
     </tr>`;
   }
@@ -6369,6 +6513,7 @@ function renderPerformanceTable(model) {
         <div><div class="asset-sym">SGOV <span class="tag treasury">Treasury</span></div><div class="asset-name">${s.name||''}</div></div>
       </div></td>
       <td><span class="perf-num">${fmtCurr(s.price)}</span></td>
+      ${isEtfView ? '' : '<td><span class="perf-muted">—</span></td>'}
       <td><span class="perf-muted">${fmtVol(s.volume)}</span></td>
       <td>${retCell(ytdVal)}</td>
       <td>${retCell(pr['1M'])}</td>
@@ -6376,11 +6521,8 @@ function renderPerformanceTable(model) {
       <td>${retCell(pr['1Y'])}</td>
       <td>${retCell(pr['3Y'])}</td>
       <td>${retCell(pr['5Y'])}</td>
-      <td>${s.dividendYield != null ? `<span class="perf-num">${(s.dividendYield * 100).toFixed(2)}%</span>` : '<span class="perf-muted">—</span>'}</td>
       ${etfCols}
-      <td>${s.fiftyDayAvg != null ? `<span class="perf-num">${fmtCurr(s.fiftyDayAvg)}</span>` : '<span class="perf-muted">—</span>'}</td>
-      <td>${s.twoHundredDayAvg != null ? `<span class="perf-num">${fmtCurr(s.twoHundredDayAvg)}</span>` : '<span class="perf-muted">—</span>'}</td>
-      <td></td><td>${priceSpark('SGOV')}</td>
+      <td></td><td></td><td>${priceSpark('SGOV')}</td>
     </tr>`;
   }
 
@@ -6396,7 +6538,7 @@ function renderPerformanceTable(model) {
   </tr>`;
 
   document.getElementById('posTable').innerHTML =
-    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map(p => perfRow(p)).join('')}${sgovRow}${cashRow}</tbody></table>`;
+    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : sgovRow + cashRow}</tbody></table>`;
 }
 
 window.sortTable = function(key) {
@@ -6788,6 +6930,7 @@ function positionTip(el, e, dx, dy) {
 
 // ── Render: sector donut ─────────────────────────────────────────────────────
 let sectorDonutInst = null, sectorDrilldown = null;
+let etfSectorDonutInst = null, etfHoldingDonutInst = null;
 // One config-driven renderer backs three near-identical donuts (sector,
 // industry, category). Each config supplies the grouping field, element id,
 // drilldown-state accessors, and the post-drill side effects. The drilldown/
@@ -6888,7 +7031,11 @@ const SECTOR_DONUT = {
     _syncDonutFilters();
   }
 };
-function renderSectorDonut(model) { renderGroupedDonut(SECTOR_DONUT, model); }
+function renderSectorDonut(model) {
+  if (activePortfolio === 'ETF') { renderEtfSectorDonut(model); return; }
+  _setDonutNote('sectorDonutNote', '');
+  renderGroupedDonut(SECTOR_DONUT, model);
+}
 
 // ── Render: industry donut ───────────────────────────────────────────────────
 let industryDonutInst = null, industryDrilldown = null;
@@ -6899,7 +7046,102 @@ const INDUSTRY_DONUT = {
   getDrill: () => industryDrilldown, setDrill: v => { industryDrilldown = v; },
   afterChange() { renderIndustryDonut(currentModel); }
 };
-function renderIndustryDonut(model) { renderGroupedDonut(INDUSTRY_DONUT, model); }
+function renderIndustryDonut(model) {
+  const titleEl = document.getElementById('industryBreakdownTitle');
+  if (titleEl) titleEl.textContent = activePortfolio === 'ETF' ? t('top_holding_breakdown_title') : t('industry_breakdown_title');
+  if (activePortfolio === 'ETF') { renderEtfTopHoldingDonut(model); return; }
+  _setDonutNote('industryDonutNote', '');
+  renderGroupedDonut(INDUSTRY_DONUT, model);
+}
+
+// ── ETF portfolio: blended top-holdings donuts (Sector Breakdown + Top Holding Breakdown) ────
+// Both are static (no click/drill-down) since an ETF fractionally belongs to multiple
+// sectors/symbols here, unlike the single-value-per-position model the generic donut assumes.
+function _blendedEtfHoldings(model) {
+  const allPos = [...(model.positions || []), ...(model.sgovPos ? [model.sgovPos] : [])];
+  const totalVal = allPos.reduce((s, p) => s + (p.currentValue || 0), 0);
+  const agg = {};
+  if (totalVal > 0) {
+    for (const p of allPos) {
+      const d = _etfDataCache[p.symbol];
+      if (!d?.topHoldings?.length) continue;
+      const etfWeight = (p.currentValue || 0) / totalVal;
+      for (const h of d.topHoldings) {
+        if (!h.symbol || !h.weight) continue;
+        if (!agg[h.symbol]) agg[h.symbol] = { symbol: h.symbol, name: h.name || h.symbol, blended: 0 };
+        agg[h.symbol].blended += h.weight * etfWeight;
+        if (h.name && h.name !== h.symbol) agg[h.symbol].name = h.name;
+      }
+    }
+  }
+  return { agg, totalVal };
+}
+
+function _setDonutNote(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, noun) {
+  if (getInst()) { getInst().destroy(); setInst(null); }
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const grandTotal = data.reduce((s, v) => s + v, 0);
+  const centerPlugin = {
+    id: elId + 'Center',
+    afterDatasetsDraw(chart) {
+      const meta = chart.getDatasetMeta(0);
+      if (!meta?.data?.length) return;
+      const arc = meta.data[0];
+      const { ctx } = chart;
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `600 14px ${css('--font-display')||'serif'}`;
+      ctx.fillStyle = css('--ink');
+      ctx.fillText(fmtCurr(grandTotal), arc.x, arc.y);
+      ctx.restore();
+    }
+  };
+  const tooltipFn = c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}% of ${noun})`;
+  el.style.cursor = 'default';
+  setInst(new Chart(el.getContext('2d'), {
+    type: 'doughnut',
+    data: { labels, datasets: donutDataset(data, colors) },
+    options: { ...donutBaseOptions(tooltipFn), layout: { padding: 65 } },
+    plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
+  }));
+}
+
+function renderEtfSectorDonut(model) {
+  const { agg, totalVal } = _blendedEtfHoldings(model);
+  const map = {};
+  let covered = 0;
+  for (const h of Object.values(agg)) {
+    const dollar = h.blended * totalVal;
+    const sector = _topHoldingSectors[h.symbol];
+    if (!sector || sector === '—') { covered += dollar; continue; }
+    map[sector] = (map[sector] || 0) + dollar;
+    covered += dollar;
+  }
+  const residual = totalVal - covered;
+  const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
+  _renderEtfStaticDonut('sectorDonutChart', () => etfSectorDonutInst, v => { etfSectorDonutInst = v; },
+    keys, keys.map(k => map[k]), keys.map(colorFor), 'sector');
+  _setDonutNote('sectorDonutNote', residual > 0.5
+    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/totalVal*100).toFixed(1)}%)` : '');
+}
+
+function renderEtfTopHoldingDonut(model) {
+  const { agg, totalVal } = _blendedEtfHoldings(model);
+  const entries = Object.values(agg).map(h => ({ label: h.symbol, value: h.blended * totalVal }));
+  const covered = entries.reduce((s, e) => s + e.value, 0);
+  const residual = totalVal - covered;
+  entries.sort((a, b) => b.value - a.value);
+  _renderEtfStaticDonut('industryDonutChart', () => etfHoldingDonutInst, v => { etfHoldingDonutInst = v; },
+    entries.map(e => e.label), entries.map(e => e.value), entries.map(e => colorFor(e.label)), 'holding');
+  _setDonutNote('industryDonutNote', residual > 0.5
+    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/totalVal*100).toFixed(1)}%)` : '');
+}
 
 // ── Render: holdings performance ─────────────────────────────────────────────
 let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = false;
@@ -7826,21 +8068,25 @@ async function readCalendarSheet() {
         const pts = raw.slice(5,-1).split(',').map(Number);
         return new Date(Date.UTC(pts[0],pts[1],pts[2])).toISOString().slice(0,10);
       }
+      if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
       const m = typeof raw === 'string' && raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
       return null;
     };
+    // Columns written by Apps Script's refreshCalendarAction: Symbol, EarningsDate,
+    // EarningsDateEnd, Time, ExDivDate, UpdatedAt.
     const events = [];
     for (const row of table.rows) {
       const c = row.c || [];
       const symbol  = c[0]?.v || null;
       if (!symbol || symbol === 'Symbol') continue;  // skip header row
-      const timeStr = c[4]?.v || null;
-      const earningsDate = parseD(c[3]?.v);
-      const exDivDate    = parseD(c[5]?.v);
+      const earningsDate    = parseD(c[1]?.v);
+      const earningsDateEnd = parseD(c[2]?.v);
+      const timeStr         = c[3]?.v || null;
+      const exDivDate       = parseD(c[4]?.v);
       if (earningsDate) {
         const time = timeStr?.toLowerCase().includes('before') ? t('before_market_open') : t('after_market_close');
-        events.push({ symbol, type: 'Earnings', date: earningsDate, time });
+        events.push({ symbol, type: 'Earnings', date: earningsDate, dateEnd: earningsDateEnd, time });
       }
       if (exDivDate) {
         events.push({ symbol, type: 'ExDiv', date: exDivDate });
@@ -7879,10 +8125,15 @@ function renderCalendarFromEvents(events) {
     const isE  = e.type === 'Earnings';
     const badge = isE
       ? `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(138,90,126,.15);color:var(--plum);white-space:nowrap">${t('earnings_badge')}</span>`
-      : `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(107,142,90,.15);color:#6b8e5a;white-space:nowrap">${t('exdiv_badge')}</span>`;
-    const subLabel = isE && e.time
-      ? `${dateLabel(e.bkk)} · ${e.time}`
+      : `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(107,142,90,.15);color:var(--sage);white-space:nowrap">${t('exdiv_badge')}</span>`;
+    // Most earnings dates are exact (dateEnd === date); only show a range when Yahoo's estimate
+    // spans multiple days.
+    const dateText = (isE && e.dateEnd && e.dateEnd !== e.date)
+      ? `${dateLabel(e.bkk)}–${fmtDate(e.dateEnd)}`
       : dateLabel(e.bkk);
+    const subLabel = isE && e.time
+      ? `${dateText} · ${e.time}`
+      : dateText;
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">
       <div style="display:flex;align-items:center;gap:7px;min-width:0">
         ${logoCell(e.symbol, colorFor(e.symbol))}
@@ -7900,10 +8151,10 @@ function renderCalendar(model) {} // stub — actual load via loadCalendar()
 async function loadCalendar(model) {
   const el = document.getElementById('calendarPanel');
   if (!el) return;
-  el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px">Loading calendar…</div>';
+  el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_calendar_msg')}</div>`;
   const events = await readCalendarSheet();
   if (events?.length) renderCalendarFromEvents(events);
-  else el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">No calendar data</div>';
+  else el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('no_calendar_data')}</div>`;
 }
 
 // ── Render: watchlist ─────────────────────────────────────────────────────────
@@ -9228,11 +9479,13 @@ function buildShell() {
       <div class="card" data-mob-tab="allocation">
         <div class="card-title">${t('sector_breakdown_title')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
+        <div id="sectorDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
       </div>
       <!-- Industry Breakdown -->
       <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('industry_breakdown_title')}</div>
+        <div class="card-title" id="industryBreakdownTitle">${t('industry_breakdown_title')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
+        <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
       </div>
       <!-- P&L by Sector -->
       <div class="card" data-mob-tab="overview">
@@ -10457,7 +10710,8 @@ async function init() {
   const isFirstLoad = !shellBuilt;
 
   if (isFirstLoad) {
-    document.getElementById('root').innerHTML = `<div class="loading">${t('loading_portfolio_msg')}</div>`;
+    document.getElementById('root')?.setAttribute('aria-busy', 'true');
+    showLoadingSkeleton();
   } else {
     setRefreshing(true);
   }
@@ -10493,7 +10747,12 @@ async function init() {
         const m = currentModel;
         attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderPnLBySector(m);
         fetchEtfData(_quoteSyms);
-        fetchStockReturns(_quoteSyms);
+        fetchStockReturns();
+        recordFetch({ action: 'backfillMetadata' });
+        recordFetch({ action: 'backfillReturns' });
+        recordFetch({ action: 'refreshReturns' });
+        recordFetch({ action: 'backfillCalendar' });
+        recordFetch({ action: 'refreshCalendar' });
         const fEl = document.getElementById('quotesFreshness');
         if (fEl) {
           if (_lastQuoteSource?.type === 'sheet') {
@@ -10506,6 +10765,7 @@ async function init() {
     if (isFirstLoad) {
       buildShell();
       shellBuilt = true;
+      document.getElementById('root')?.setAttribute('aria-busy', 'false'); // loading done — signals SRs
       initCollapsibleCards();
       applyCurrencyBtn();
       initMarketClock();
@@ -10599,6 +10859,7 @@ async function init() {
     if (isFirstLoad) {
       document.getElementById('root').innerHTML =
         `<div style="padding:20px"><div class="error-banner">Failed to load: ${e.message}<br><small>Check the sheet is public.</small></div></div>`;
+      document.getElementById('root')?.setAttribute('aria-busy', 'false'); // terminal state — no longer loading
     } else {
       const el = document.getElementById('lastUpdated');
       if (el) { el.textContent = t('refresh_failed'); el.style.color = 'var(--loss)'; }

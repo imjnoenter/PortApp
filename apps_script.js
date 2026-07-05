@@ -36,7 +36,11 @@ function doGet(e) {
       case 'transferShares': return transferSharesAction(ss, p);
       case 'fetchHoldings':  return fetchHoldingsAction(p);
       case 'fetchStockSectors': return fetchStockSectorsAction(p);
-      case 'fetchStockReturns': return fetchStockReturnsAction(p);
+      case 'backfillMetadata': return backfillMetadataAction(ss, p);
+      case 'backfillReturns':  return backfillReturnsAction(ss, p);
+      case 'refreshReturns':   return refreshReturnsAction(ss, p);
+      case 'backfillCalendar': return backfillCalendarAction(ss, p);
+      case 'refreshCalendar':  return refreshCalendarAction(ss, p);
       case 'delete':         return deleteTxnAction(ss, p);
       case 'update':         return updateTxnAction(ss, p);
       case '':
@@ -216,6 +220,280 @@ function refreshQuotes() {
     if (prevLast > allRows.length) qs.deleteRows(allRows.length + 1, prevLast - allRows.length);
 }
 
+// Sole source for stock trailing returns (FMP removed — its free tier walls off symbols like
+// CLPT behind a premium paywall). Computes each period as one reference-price-vs-current
+// comparison from a single Yahoo chart price series: (current - priceAt(target date)) / priceAt(...).
+// priceAt() walks the series back to the most recent trading day at or before the target date, so
+// weekends/holidays just resolve to the prior trading day's close.
+function _computeReturnsFromChart_(result) {
+  const ts     = result?.timestamp;
+  const closes = result?.indicators?.quote?.[0]?.close;
+  if (!ts?.length || !closes?.length) return null;
+
+  const series = [];
+  for (let i = 0; i < ts.length; i++) if (closes[i] != null) series.push({ t: ts[i] * 1000, c: closes[i] });
+  if (!series.length) return null;
+
+  const current = result.meta?.regularMarketPrice ?? series[series.length - 1].c;
+  const priceAt = targetMs => {
+    let best = null;
+    for (const pt of series) { if (pt.t <= targetMs) best = pt.c; else break; }
+    return best;
+  };
+  const pctFrom = targetMs => {
+    const p = priceAt(targetMs);
+    return (p != null && p > 0) ? ((current - p) / p) * 100 : '';
+  };
+
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const startOfYear = new Date(new Date().getUTCFullYear(), 0, 1).getTime();
+  return {
+    '1M': pctFrom(now - 30 * day),
+    '3M': pctFrom(now - 91 * day),
+    ytd:  pctFrom(startOfYear),
+    '1Y': pctFrom(now - 365 * day),
+    '3Y': pctFrom(now - 3 * 365 * day),
+    '5Y': pctFrom(now - 5 * 365 * day),
+  };
+}
+
+function _yahooChartUrl_(sym) {
+  return 'https://query1.finance.yahoo.com/v8/finance/chart/'
+    + encodeURIComponent(sym.replace(/\./g, '-')) + '?range=5y&interval=1d';
+}
+
+function _fetchYahooChartReturns_(sym) {
+  try {
+    const resp = UrlFetchApp.fetch(_yahooChartUrl_(sym), { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (resp.getResponseCode() !== 200) return null;
+    const result = JSON.parse(resp.getContentText())?.chart?.result?.[0];
+    return _computeReturnsFromChart_(result);
+  } catch (err) { return null; }
+}
+
+const RETURNS_REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+// Webapp pings this every init() (see index.html), but a single global Script Properties timestamp
+// gates the actual work to once per day — most pings just do one cheap property read and return.
+// When the cooldown has elapsed, every non-ETF Claude symbol gets its returns recomputed and the
+// whole Returns sheet is overwritten fresh (not just missing rows — see backfillReturnsAction for that).
+function refreshReturnsAction(ss, p) {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('lastFullReturnsRefresh'));
+  if (last && (Date.now() - last) < RETURNS_REFRESH_COOLDOWN_MS) {
+    return jsonResp({ ok: true, skipped: true });
+  }
+
+  const claudeData = ss.getSheetByName('Claude').getDataRange().getValues();
+  const headers = claudeData[0].map(h => String(h).trim());
+  const sectorCol = headers.indexOf('Sector');
+  const syms = [...new Set(claudeData.slice(1)
+    .filter(r => {
+      const sym = String(r[0]).trim();
+      const sector = sectorCol >= 0 ? String(r[sectorCol]).trim() : '';
+      return sym && sym !== 'Symbol' && sector !== 'ETF';
+    })
+    .map(r => String(r[0]).trim()))];
+  if (!syms.length) return jsonResp({ ok: true, updated: 0 });
+
+  const reqs = syms.map(sym => ({ url: _yahooChartUrl_(sym), muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }));
+
+  let resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); }
+  catch (e) { return jsonResp({ ok: false, error: 'fetchAll failed: ' + e }); }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rows = [];
+  for (let i = 0; i < syms.length; i++) {
+    if (resps[i].getResponseCode() !== 200) continue;
+    let result;
+    try { result = JSON.parse(resps[i].getContentText())?.chart?.result?.[0]; } catch { continue; }
+    const d = _computeReturnsFromChart_(result);
+    if (!d) continue;
+    rows.push([
+      syms[i],
+      d['1M'] ?? '', d['3M'] ?? '', d.ytd ?? '',
+      d['1Y'] ?? '', d['3Y'] ?? '', d['5Y'] ?? '',
+      nowSec
+    ]);
+  }
+
+  if (!rows.length) return jsonResp({ ok: true, updated: 0 });
+
+  let sh = ss.getSheetByName('Returns');
+  if (!sh) sh = ss.insertSheet('Returns');
+  const allRows = [['Symbol', '1M', '3M', 'YTD', '1Y', '3Y', '5Y', 'UpdatedAt'], ...rows];
+  sh.getRange(1, 1, allRows.length, 8).setValues(allRows);
+  const prevLast = sh.getLastRow();
+  if (prevLast > allRows.length) sh.deleteRows(allRows.length + 1, prevLast - allRows.length);
+
+  props.setProperty('lastFullReturnsRefresh', String(Date.now()));
+  return jsonResp({ ok: true, updated: rows.length, checked: syms.length });
+}
+
+// Fetch trailing returns for ONE symbol and upsert into the Returns sheet — bridges the gap
+// between adding a holding and the next daily refreshReturnsAction() run.
+function refreshReturnsForSymbol_(sym) {
+  const d = _fetchYahooChartReturns_(sym);
+  if (!d) return;
+  const row = [sym, d['1M'] ?? '', d['3M'] ?? '', d.ytd ?? '', d['1Y'] ?? '', d['3Y'] ?? '', d['5Y'] ?? '', Math.floor(Date.now() / 1000)];
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('Returns');
+  if (!sh) { sh = ss.insertSheet('Returns'); sh.appendRow(['Symbol', '1M', '3M', 'YTD', '1Y', '3Y', '5Y', 'UpdatedAt']); }
+
+  const symCol = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), 1).getValues().flat();
+  const rowIdx = symCol.findIndex(v => String(v).trim() === sym);
+  if (rowIdx > 0) sh.getRange(rowIdx + 1, 1, 1, row.length).setValues([row]);
+  else sh.appendRow(row);
+}
+
+/* ── Calendar (earnings date + ex-div date) ───────────────────────────────── */
+
+// Batched Yahoo v7/quote fetch (crumb required, server-side only) — mirrors the index-quote
+// fetch in refreshQuotes(). Chunked at 50 symbols/request to stay safely under URL length limits.
+function _fetchYahooCalendarFields_(symbols) {
+  if (!symbols.length) return {};
+  const yc = getCachedCrumb_();
+  const CHUNK = 50;
+  const chunks = [];
+  for (let i = 0; i < symbols.length; i += CHUNK) chunks.push(symbols.slice(i, i + CHUNK));
+  const yahooToOrig = {};
+  const reqs = chunks.map(chunk => {
+    const ySyms = chunk.map(s => { const y = s.replace(/\./g, '-'); yahooToOrig[y] = s; return y; });
+    return {
+      url: 'https://query1.finance.yahoo.com/v7/finance/quote?symbols='
+        + ySyms.map(encodeURIComponent).join(',') + '&crumb=' + encodeURIComponent(yc.crumb),
+      muteHttpExceptions: true,
+      headers: { Cookie: yc.cookieStr, Accept: 'application/json' }
+    };
+  });
+
+  let resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { Logger.log('Calendar quote fetchAll error: ' + e); return {}; }
+
+  const out = {};
+  resps.forEach(r => {
+    try {
+      const results = JSON.parse(r.getContentText())?.quoteResponse?.result || [];
+      results.forEach(q => {
+        const origSym = yahooToOrig[q.symbol] || q.symbol;
+        out[origSym] = {
+          earningsTimestamp:    q.earningsTimestamp    ?? null,
+          earningsTimestampEnd: q.earningsTimestampEnd ?? null,
+          exDividendDate:       q.exDividendDate        ?? null,
+        };
+      });
+    } catch (e) {}
+  });
+  return out;
+}
+
+function _calFmtDate_(ts) {
+  return ts ? Utilities.formatDate(new Date(ts * 1000), 'America/New_York', 'yyyy-MM-dd') : '';
+}
+
+// Yahoo doesn't label BMO/AMC directly — earnings calls run ~7-9am ET (before open) or ~4-5pm ET
+// (after close), so the timestamp's ET hour reliably distinguishes the two.
+function _calEarningsTime_(ts) {
+  if (!ts) return '';
+  const hour = parseInt(Utilities.formatDate(new Date(ts * 1000), 'America/New_York', 'H'), 10);
+  return hour < 12 ? 'before market open' : 'after market close';
+}
+
+function _calRow_(sym, d) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (!d) return [sym, '', '', '', '', nowSec];
+  return [sym, _calFmtDate_(d.earningsTimestamp), _calFmtDate_(d.earningsTimestampEnd),
+          _calEarningsTime_(d.earningsTimestamp), _calFmtDate_(d.exDividendDate), nowSec];
+}
+
+function _claudeSymbols_(ss) {
+  const claudeData = ss.getSheetByName('Claude').getDataRange().getValues();
+  return [...new Set(claudeData.slice(1)
+    .map(r => String(r[0]).trim())
+    .filter(s => s && s !== 'Symbol'))];
+}
+
+const CALENDAR_REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const CALENDAR_SHEET_HEADER = ['Symbol', 'EarningsDate', 'EarningsDateEnd', 'Time', 'ExDivDate', 'UpdatedAt'];
+
+// Pinged every init(); global cooldown gates the actual work to once/day (mirrors refreshReturnsAction).
+// Overwrites every row (all Claude-sheet symbols, incl. ETFs and watchlist entries) — ETFs simply get
+// a blank EarningsDate since Yahoo has none for them, but still get ExDivDate.
+function refreshCalendarAction(ss, p) {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('lastFullCalendarRefresh'));
+  if (last && (Date.now() - last) < CALENDAR_REFRESH_COOLDOWN_MS) return jsonResp({ ok: true, skipped: true });
+
+  const syms = _claudeSymbols_(ss);
+  if (!syms.length) return jsonResp({ ok: true, updated: 0 });
+
+  const data = _fetchYahooCalendarFields_(syms);
+  const rows = syms.map(sym => _calRow_(sym, data[sym]));
+
+  let sh = ss.getSheetByName('Calendar');
+  if (!sh) sh = ss.insertSheet('Calendar');
+  const allRows = [CALENDAR_SHEET_HEADER, ...rows];
+  sh.getRange(1, 1, allRows.length, CALENDAR_SHEET_HEADER.length).setValues(allRows);
+  const prevLast = sh.getLastRow();
+  if (prevLast > allRows.length) sh.deleteRows(allRows.length + 1, prevLast - allRows.length);
+
+  props.setProperty('lastFullCalendarRefresh', String(Date.now()));
+  return jsonResp({ ok: true, updated: rows.length });
+}
+
+// Finds Claude-sheet symbols with NO row at all in Calendar and fetches just those — bridges
+// gaps left when refreshCalendarForSymbol_() failed at add-time. Mirrors backfillReturnsAction.
+function backfillCalendarAction(ss, p) {
+  const claudeSyms = _claudeSymbols_(ss);
+  if (!claudeSyms.length) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
+
+  let sh = ss.getSheetByName('Calendar');
+  if (!sh) { sh = ss.insertSheet('Calendar'); sh.appendRow(CALENDAR_SHEET_HEADER); }
+  const existing = new Set(
+    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 0), 1).getValues().flat().map(v => String(v).trim())
+  );
+
+  const allMissing = claudeSyms.filter(s => !existing.has(s));
+  if (!allMissing.length) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
+
+  const missing = allMissing.filter(sym => !_backfillCooldownActive_('lastAttempt:CAL:' + sym));
+  const skipped = allMissing.length - missing.length;
+  if (!missing.length) return jsonResp({ ok: true, checked: allMissing.length, updated: 0, skipped });
+
+  const data = _fetchYahooCalendarFields_(missing);
+  if (!Object.keys(data).length) {
+    missing.forEach(sym => _setBackfillCooldown_('lastAttempt:CAL:' + sym));
+    return jsonResp({ ok: false, error: 'fetch failed', checked: allMissing.length, updated: 0, skipped });
+  }
+
+  const rows = missing.map(sym => {
+    if (!data[sym]) _setBackfillCooldown_('lastAttempt:CAL:' + sym);
+    return _calRow_(sym, data[sym]);
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, CALENDAR_SHEET_HEADER.length).setValues(rows);
+
+  return jsonResp({ ok: true, checked: allMissing.length, updated: rows.length, skipped });
+}
+
+// Fetch calendar data for ONE symbol and upsert into the Calendar sheet — bridges the gap
+// between adding a holding and the next daily refreshCalendarAction() run.
+function refreshCalendarForSymbol_(sym) {
+  const data = _fetchYahooCalendarFields_([sym]);
+  const row  = _calRow_(sym, data[sym]);
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('Calendar');
+  if (!sh) { sh = ss.insertSheet('Calendar'); sh.appendRow(CALENDAR_SHEET_HEADER); }
+
+  const symCol  = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), 1).getValues().flat();
+  const rowIdx  = symCol.findIndex(v => String(v).trim() === sym);
+  if (rowIdx > 0) sh.getRange(rowIdx + 1, 1, 1, row.length).setValues([row]);
+  else sh.appendRow(row);
+}
+
 function isMarketOpenET_() {
   const now  = new Date();
   const day  = parseInt(Utilities.formatDate(now, 'America/New_York', 'u'));
@@ -266,10 +544,11 @@ function updateCashAction(ss, p) {
   const sh = ss.getSheetByName('Portfolios');
   if (!sh) return jsonResp({ ok: false, error: 'Portfolios sheet not found — run migratePortfolios()' });
   const headers = readHeaders(sh);
-  const nameCol = findColIdx(headers, 'Name');
-  const fcdCol  = findColIdx(headers, 'FCD');
-  const usdCol  = findColIdx(headers, 'USD');
-  const cashCol = findColIdx(headers, 'Cash');
+  const nameCol    = findColIdx(headers, 'Name');
+  const fcdCol     = findColIdx(headers, 'FCD');
+  const usdCol     = findColIdx(headers, 'USD');
+  const cashCol    = findColIdx(headers, 'Cash');
+  const cashResCol = findColIdx(headers, 'CashReserves');
   const port    = normSym(p.portfolio) || DEFAULT_PORT;
   const lastRow = sh.getLastRow();
   const names   = sh.getRange(2, nameCol, lastRow - 1, 1).getValues().flat().map(normSym);
@@ -280,6 +559,8 @@ function updateCashAction(ss, p) {
   if (fcdCol  > 0) sh.getRange(row, fcdCol).setValue(fcd);
   if (usdCol  > 0) sh.getRange(row, usdCol).setValue(usd);
   if (cashCol > 0) sh.getRange(row, cashCol).setValue(fcd + usd); // keep Cash = FCD + USD
+  if (cashResCol > 0 && p.cashRes !== undefined && p.cashRes !== '')
+    sh.getRange(row, cashResCol).setValue(Number(p.cashRes) || 0);
   return jsonResp({ ok: true });
 }
 
@@ -330,6 +611,12 @@ function addSymbolAction(ss, p) {
       if (src.getFormula()) src.copyTo(sh.getRange(newRowIdx, colIdx), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
     });
   }
+
+  if (String(p.sector || '').trim() !== 'ETF') {
+    try { refreshReturnsForSymbol_(sym); } catch (e) { Logger.log('refreshReturnsForSymbol_ failed: ' + e); }
+  }
+  try { refreshCalendarForSymbol_(sym); } catch (e) { Logger.log('refreshCalendarForSymbol_ failed: ' + e); }
+
   return jsonResp({ status: 'ok', symbol: sym });
 }
 
@@ -761,6 +1048,20 @@ function fetchYahooMetadata(sym) {
   }
 }
 
+const ETF_SECTOR_NAMES = {
+  realestate: 'Real Estate',
+  consumer_cyclical: 'Consumer Cyclical',
+  basic_materials: 'Basic Materials',
+  consumer_defensive: 'Consumer Defensive',
+  technology: 'Technology',
+  communication_services: 'Communication Services',
+  financial_services: 'Financial Services',
+  utilities: 'Utilities',
+  industrials: 'Industrials',
+  energy: 'Energy',
+  healthcare: 'Healthcare',
+};
+
 function fetchHoldingsAction(p) {
   const num = (x) => x == null ? null : typeof x === 'number' ? x : typeof x === 'object' && typeof x.raw === 'number' ? x.raw : null;
   const raw = (p.symbols || '').toString();
@@ -821,8 +1122,16 @@ function fetchHoldingsAction(p) {
         name:   h.holdingName || '',
         weight: num(h.holdingPercent) || 0
       })).filter(h => h.symbol && h.weight > 0);
+      let topSector = null, topSectorW = 0;
+      for (const sw of (r.topHoldings?.sectorWeightings || [])) {
+        for (const k in sw) {
+          const w = num(sw[k]) || 0;
+          if (w > topSectorW) { topSectorW = w; topSector = ETF_SECTOR_NAMES[k] || null; }
+        }
+      }
       results[sym] = {
         holdingsCount:        null,
+        topSector,
         netAssets:            num(detail.totalAssets) ?? num(stats.totalAssets),
         ytdReturn:            (v7Data[sym]?.ytdReturn) ?? num(stats.ytdReturn),
         expenseRatio:         num(fees.netExpenseRatio) ?? num(stats.annualReportExpenseRatio) ?? (v7Data[sym]?.expenseRatio ?? null),
@@ -918,80 +1227,22 @@ function fetchStockSectorsAction(p) {
   return jsonResp({ ok: true, sectors });
 }
 
-function fetchStockReturnsAction(p) {
-  const raw = (p.symbols || '').toString();
-  const syms = raw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 30);
-  if (!syms.length) return jsonResp({ ok: false, error: 'symbols required' });
+// Webapp pings these two actions on every init() (see index.html). Each rescans the sheet for
+// gaps itself and self-gates via a per-symbol Script Properties cooldown, so repeated pings from
+// auto-refresh don't hammer Yahoo/FMP for a symbol that just failed.
+const BACKFILL_COOLDOWN_MS = 10 * 60 * 1000;
 
-  const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } };
-  const reqs = syms.map(sym => ({
-    ...fetchOpts,
-    url: 'https://query1.finance.yahoo.com/v8/finance/chart/'
-      + encodeURIComponent(sym.replace(/\./g, '-'))
-      + '?range=5y&interval=1wk'
-  }));
-
-  let resps;
-  try { resps = UrlFetchApp.fetchAll(reqs); }
-  catch (err) { return jsonResp({ ok: false, error: 'fetchAll failed: ' + err }); }
-
-  const results = {};
-  for (let i = 0; i < syms.length; i++) {
-    const sym = syms[i];
-    if (resps[i].getResponseCode() !== 200) { results[sym] = null; continue; }
-    try {
-      const chart = JSON.parse(resps[i].getContentText())?.chart?.result?.[0];
-      if (!chart) { results[sym] = null; continue; }
-
-      const timestamps = chart.timestamp || [];
-      const closes = chart.indicators?.quote?.[0]?.close || [];
-      const currentPrice = chart.meta?.regularMarketPrice;
-      if (!currentPrice || !timestamps.length) { results[sym] = null; continue; }
-
-      const bars = [];
-      for (let j = 0; j < timestamps.length; j++) {
-        if (closes[j] != null) bars.push({ ts: timestamps[j] * 1000, close: closes[j] });
-      }
-
-      const now = Date.now();
-      const findClose = (monthsAgo) => {
-        const target = new Date(now);
-        target.setMonth(target.getMonth() - monthsAgo);
-        const targetMs = target.getTime();
-        let closest = null, minDiff = Infinity;
-        for (const b of bars) {
-          const diff = Math.abs(b.ts - targetMs);
-          if (diff < minDiff) { minDiff = diff; closest = b.close; }
-        }
-        return minDiff < 10 * 86400000 ? closest : null;
-      };
-
-      const ytdTarget = new Date(new Date().getFullYear(), 0, 1).getTime();
-      let ytdClose = null, ytdMinDiff = Infinity;
-      for (const b of bars) {
-        const diff = Math.abs(b.ts - ytdTarget);
-        if (diff < ytdMinDiff) { ytdMinDiff = diff; ytdClose = b.close; }
-      }
-      if (ytdMinDiff > 10 * 86400000) ytdClose = null;
-
-      const ret = (ref) => ref != null && ref > 0 ? (currentPrice - ref) / ref : null;
-
-      results[sym] = {
-        '1M': ret(findClose(1)),
-        '3M': ret(findClose(3)),
-        'YTD': ret(ytdClose),
-        '1Y': ret(findClose(12)),
-        '3Y': ret(findClose(36)),
-        '5Y': ret(findClose(60)),
-      };
-    } catch { results[sym] = null; }
-  }
-
-  return jsonResp({ ok: true, returns: results });
+function _backfillCooldownActive_(key) {
+  const last = Number(PropertiesService.getScriptProperties().getProperty(key));
+  return last && (Date.now() - last) < BACKFILL_COOLDOWN_MS;
+}
+function _setBackfillCooldown_(key) {
+  PropertiesService.getScriptProperties().setProperty(key, String(Date.now()));
 }
 
-function backfillMetadata() {
-  const ss      = SpreadsheetApp.openById(SHEET_ID);
+// Finds Claude-sheet rows with a blank Name (Sector/Industry are best-effort — some symbols
+// legitimately never return an industry, so only Name blank counts as "needs a re-fetch").
+function backfillMetadataAction(ss, p) {
   const sh      = ss.getSheetByName('Claude');
   const headers = readHeaders(sh);
 
@@ -999,16 +1250,34 @@ function backfillMetadata() {
   const nameCol     = findColIdx(headers, 'Name');
   const sectorCol   = findColIdx(headers, 'Sector');
   const industryCol = findColIdx(headers, 'Industry');
-  if (!symCol) { Logger.log('Symbol column not found'); return; }
+  if (!symCol || !nameCol) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
 
   const lastRow = sh.getLastRow();
-  if (lastRow < 2) { Logger.log('No data rows'); return; }
+  if (lastRow < 2) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
 
-  const symbols = sh.getRange(2, symCol, lastRow - 1, 1).getValues().flat().map(normSym).filter(Boolean);
+  const symCol_  = sh.getRange(2, symCol,  lastRow - 1, 1).getValues().flat();
+  const nameCol_ = sh.getRange(2, nameCol, lastRow - 1, 1).getValues().flat();
+
+  const rowsBySymbol = {}; // symbol -> [1-based sheet rows] where Name is blank
+  symCol_.forEach((raw, i) => {
+    const sym = normSym(raw);
+    if (!sym || String(nameCol_[i] || '').trim()) return;
+    (rowsBySymbol[sym] || (rowsBySymbol[sym] = [])).push(i + 2);
+  });
+
+  const allBlank = Object.keys(rowsBySymbol);
+  if (!allBlank.length) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
+
+  const symbols = allBlank.filter(sym => !_backfillCooldownActive_('lastAttempt:NAME:' + sym));
+  const skipped = allBlank.length - symbols.length;
+  if (!symbols.length) return jsonResp({ ok: true, checked: allBlank.length, updated: 0, skipped });
 
   let crumb, cookieStr;
-  try { ({ crumb, cookieStr } = getYahooCrumb()); Logger.log('crumb: ' + crumb); }
-  catch (err) { Logger.log('Failed to get crumb: ' + err); return; }
+  try { ({ crumb, cookieStr } = getYahooCrumb()); }
+  catch (err) {
+    symbols.forEach(sym => _setBackfillCooldown_('lastAttempt:NAME:' + sym));
+    return jsonResp({ ok: false, error: 'crumb failed: ' + err, checked: allBlank.length, updated: 0, skipped });
+  }
 
   const fetchOpts = { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Cookie': cookieStr } };
   const requests = symbols.map(sym => ({
@@ -1019,31 +1288,94 @@ function backfillMetadata() {
 
   let responses;
   try { responses = UrlFetchApp.fetchAll(requests); }
-  catch (err) { Logger.log('fetchAll failed: ' + err); return; }
+  catch (err) {
+    symbols.forEach(sym => _setBackfillCooldown_('lastAttempt:NAME:' + sym));
+    return jsonResp({ ok: false, error: 'fetchAll failed: ' + err, checked: allBlank.length, updated: 0, skipped });
+  }
 
   let updated = 0;
   for (let i = 0; i < symbols.length; i++) {
     const sym  = symbols[i];
-    const row  = i + 2;
+    const rows = rowsBySymbol[sym];
     const code = responses[i].getResponseCode();
-    if (code !== 200) { Logger.log(sym + ' HTTP ' + code); continue; }
+    if (code !== 200) { _setBackfillCooldown_('lastAttempt:NAME:' + sym); continue; }
     try {
       const result = JSON.parse(responses[i].getContentText())?.quoteSummary?.result?.[0];
-      if (!result) { Logger.log(sym + ' => no result'); continue; }
-      const profile  = result.assetProfile || {};
-      const qt       = result.quoteType    || {};
+      const profile  = result?.assetProfile || {};
+      const qt       = result?.quoteType    || {};
       const isEquity = qt.quoteType === 'EQUITY';
       const nameVal   = qt.longName || qt.shortName || '';
       const sectorVal = isEquity ? (profile.sector   || '') : 'ETF';
       const indVal    = isEquity ? (profile.industry || '') : '';
-      if (nameCol     > 0 && nameVal)   sh.getRange(row, nameCol).setValue(nameVal);
-      if (sectorCol   > 0 && sectorVal) sh.getRange(row, sectorCol).setValue(sectorVal);
-      if (industryCol > 0 && indVal)    sh.getRange(row, industryCol).setValue(indVal);
+      if (!nameVal) { _setBackfillCooldown_('lastAttempt:NAME:' + sym); continue; }
+      rows.forEach(row => {
+        sh.getRange(row, nameCol).setValue(nameVal);
+        if (sectorCol   > 0 && sectorVal) sh.getRange(row, sectorCol).setValue(sectorVal);
+        if (industryCol > 0 && indVal)    sh.getRange(row, industryCol).setValue(indVal);
+      });
       updated++;
-      Logger.log(sym + ' → ' + (sectorVal || '—') + ' / ' + (indVal || '—'));
-    } catch (err) { Logger.log(sym + ' parse error: ' + err); }
+    } catch (err) { _setBackfillCooldown_('lastAttempt:NAME:' + sym); }
   }
-  Logger.log('Done. Updated ' + updated + ' of ' + symbols.length + ' symbols.');
+  return jsonResp({ ok: true, checked: allBlank.length, updated, skipped });
+}
+
+// Finds Claude-sheet symbols (non-ETF) missing from the Returns sheet and fetches just those —
+// bridges gaps left when refreshReturnsForSymbol_() failed at add-time.
+function backfillReturnsAction(ss, p) {
+  const claudeData = ss.getSheetByName('Claude').getDataRange().getValues();
+  const headers = claudeData[0].map(h => String(h).trim());
+  const sectorCol = headers.indexOf('Sector');
+  const claudeSyms = [...new Set(claudeData.slice(1)
+    .filter(r => {
+      const sym = String(r[0]).trim();
+      const sector = sectorCol >= 0 ? String(r[sectorCol]).trim() : '';
+      return sym && sym !== 'Symbol' && sector !== 'ETF';
+    })
+    .map(r => String(r[0]).trim()))];
+  if (!claudeSyms.length) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
+
+  let sh = ss.getSheetByName('Returns');
+  if (!sh) { sh = ss.insertSheet('Returns'); sh.appendRow(['Symbol', '1M', '3M', 'YTD', '1Y', '3Y', '5Y', 'UpdatedAt']); }
+  const existing = new Set(
+    sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 0), 1).getValues().flat().map(v => String(v).trim())
+  );
+
+  const allMissing = claudeSyms.filter(s => !existing.has(s));
+  if (!allMissing.length) return jsonResp({ ok: true, checked: 0, updated: 0, skipped: 0 });
+
+  const missing = allMissing.filter(sym => !_backfillCooldownActive_('lastAttempt:RET:' + sym));
+  const skipped = allMissing.length - missing.length;
+  if (!missing.length) return jsonResp({ ok: true, checked: allMissing.length, updated: 0, skipped });
+
+  const reqs = missing.map(sym => ({ url: _yahooChartUrl_(sym), muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } }));
+
+  let resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); }
+  catch (e) {
+    missing.forEach(sym => _setBackfillCooldown_('lastAttempt:RET:' + sym));
+    return jsonResp({ ok: false, error: 'fetchAll failed: ' + e, checked: allMissing.length, updated: 0, skipped });
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rows = [];
+  for (let i = 0; i < missing.length; i++) {
+    const sym = missing[i];
+    let d = null;
+    if (resps[i].getResponseCode() === 200) {
+      let result;
+      try { result = JSON.parse(resps[i].getContentText())?.chart?.result?.[0]; } catch {}
+      if (result) d = _computeReturnsFromChart_(result);
+    }
+    if (!d) { _setBackfillCooldown_('lastAttempt:RET:' + sym); continue; }
+    rows.push([
+      sym,
+      d['1M'] ?? '', d['3M'] ?? '', d.ytd ?? '',
+      d['1Y'] ?? '', d['3Y'] ?? '', d['5Y'] ?? '',
+      nowSec
+    ]);
+  }
+  rows.forEach(row => sh.appendRow(row));
+  return jsonResp({ ok: true, checked: allMissing.length, updated: rows.length, skipped });
 }
 
 function authorize() {
