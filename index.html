@@ -432,6 +432,32 @@ body {
 .settings-row .theme-btn { width: 28px; height: 28px; }
 .settings-row .theme-btn svg { width: 14px; height: 14px; }
 
+/* ── IRR info popover ── */
+.irr-info-wrap { position: relative; display: inline-flex; }
+.irr-info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; background: none; border: none; cursor: pointer;
+  color: var(--muted); line-height: 0; transition: color .15s;
+}
+.irr-info-btn:hover { color: var(--terracotta); }
+.irr-breakdown {
+  display: none; position: fixed;
+  z-index: var(--z-tooltip); min-width: 240px; max-width: calc(100vw - var(--sp-4));
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: var(--shadow-lg); padding: var(--sp-3);
+  font-size: 12px; text-align: left; white-space: normal;
+}
+.irr-breakdown.open { display: block; animation: dropdownIn .18s var(--ease-out-quint); }
+.bd-title { font-weight: 700; margin-bottom: var(--sp-2); }
+.bd-row { display: flex; justify-content: space-between; gap: var(--sp-3); padding: 2px 0; }
+.bd-label { color: var(--muted); }
+.bd-val { font-variant-numeric: tabular-nums; }
+.bd-total { font-weight: 700; color: var(--ink); }
+.bd-mwr { color: var(--terracotta); font-weight: 600; }
+.bd-sub { color: var(--muted); font-size: 11px; }
+.bd-explain { color: var(--muted); font-size: 11px; margin-top: var(--sp-2); line-height: 1.4; }
+.bd-divider { height: 1px; background: var(--line); margin: var(--sp-2) 0; }
+
 /* ── Portfolio toggle ── */
 .port-toggle {
   display: flex; border: 1px solid var(--line); border-radius: var(--radius-pill);
@@ -1253,6 +1279,19 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .tranche-remove:disabled { opacity: .25; cursor: not-allowed; }
 .plan-add-btn { width: 100%; padding: 10px; margin-top: 4px; background: transparent; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: var(--muted); font-family: var(--font-ui); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
 .plan-add-btn:hover { border-color: var(--terracotta); color: var(--terracotta); }
+.tranche-row.rebalfund-active { background: rgba(196,106,74,.08); border-radius: var(--radius-sm); box-shadow: inset 3px 0 0 var(--terracotta); }
+.rebalfund-panel { margin: 0 0 14px; padding: var(--sp-3); background: var(--track); border-radius: var(--radius-sm); border-left: 3px solid var(--terracotta); }
+.rebalfund-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.rebalfund-title { font-weight: 700; color: var(--ink); text-transform: uppercase; letter-spacing: .5px; font-size: 10px; }
+.rebalfund-target { font-size: 11px; color: var(--muted); }
+.rebalfund-bar-track { position: relative; height: 10px; background: var(--card); border-radius: var(--radius-pill); overflow: hidden; margin-bottom: 6px; }
+.rebalfund-bar-fill { height: 100%; width: 0%; background: var(--sage); border-radius: var(--radius-pill); transition: width .2s var(--ease-out-quint); }
+.rebalfund-remaining { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+.rebalfund-surplus { color: var(--honey); font-weight: 600; }
+.rebalfund-cash-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rebalfund-cash-row .tx-label { margin: 0; white-space: nowrap; }
+.rebalfund-cash-row input { max-width: 120px; }
+.rebalfund-warn { font-size: 11px; color: var(--honey); margin-bottom: 8px; }
 .plan-actions { display: flex; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .pa-save { flex: 1; padding: 11px 16px; background: var(--terracotta); color: var(--btn-fg); border: none; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(196,106,74,.3); transition: transform .15s; }
 .pa-save:hover { transform: translateY(-1px); }
@@ -1916,7 +1955,14 @@ const I18N = {
     "Value": "Value", "Total": "Total",
     "No transactions recorded": "No transactions recorded",
     today_change: "Today's change", since_first_buy: "Since first buy",
-    cagr_approx: "CAGR approximation", target: "target", reserved: "reserved",
+    cagr_approx: "Money-weighted (XIRR)", target: "target", reserved: "reserved",
+    irr_breakdown_title: "How this IRR is calculated",
+    bd_invested: "Invested (buys)", bd_proceeds: "Sold (proceeds)",
+    bd_holdings: "Holdings today", bd_transfers: "Transfers (net)",
+    bd_total_gain: "Total gain", bd_over: "Over {y} yrs since {date}",
+    bd_mwr: "Money-weighted return",
+    bd_explain: "XIRR solves for the annual rate that makes these dated flows net to zero, weighting each dollar by how long it was invested — it can't be split into '% from dividends'.",
+    irr_breakdown_aria: "Show IRR breakdown",
     open_positions: "Open positions", from_closed_trades: "From closed trades",
     withholding_tax: "After 15% withholding tax", gross: "Gross", edit: "Edit",
     edit_tx_title: "Edit Transaction", add_tx_title: "Add Transaction",
@@ -1946,7 +1992,7 @@ const I18N = {
     alerts_header: "Alerts", all_plans_header: "All Plans",
     tp_hit_badge: "TP HIT", sl_hit_badge: "SL HIT",
     entry_col_label: "Entry", est_pnl_label: "Est. P&L",
-    cash_equiv_label: "Cash-equiv.", raw_cash_label: "Raw cash",
+    raw_cash_label: "Raw cash",
     treasury_label: "Treasury", watch_tag: "Watch", watching_tag: "Watching",
     holdings_performance_title: "Holdings Performance",
     gainers_tab: "Gainers", losers_tab: "Losers",
@@ -2026,6 +2072,13 @@ const I18N = {
     manage_label: "Manage",
     language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", portfolios_label: "Portfolios",
     overview_label: "Overview", performance_label: "Performance",
+    // Rebalance funding aid (plan tab)
+    rebalfund_title: "Fund", rebalfund_target_label: "Target",
+    rebalfund_cash_label: "Cash to add", rebalfund_cash_warn: "Amount exceeds available cash",
+    rebalfund_remaining_label: "Remaining", rebalfund_over_label: "over target",
+    rebalfund_overweight_col: "Overweight %", rebalfund_sell_col: "Sell",
+    rebalfund_dollar_col: "$ to Sell", rebalfund_shares_col: "Shares",
+    rebalfund_cash_after_label: "Cash after trim", rebalfund_alloc_after_col: "Alloc after",
   },
   TH: {
     refresh: "รีเฟรช", portfolio: "Portfolio", updated: "อัปเดตเมื่อ", port_all: "ทั้งหมด",
@@ -2084,8 +2137,15 @@ const I18N = {
     "Value": "มูลค่า", "Total": "รวม",
     "No transactions recorded": "ไม่มีรายการซื้อขาย",
     today_change: "การเปลี่ยนแปลงวันนี้", since_first_buy: "ตั้งแต่เริ่มลงทุน",
-    cagr_approx: "ค่าประมาณเติบโตทบต้นต่อปี", target: "เป้าหมาย",
+    cagr_approx: "ผลตอบแทนถ่วงน้ำหนักเงิน (XIRR)", target: "เป้าหมาย",
     reserved: "สำรอง", open_positions: "หุ้นในพอร์ตปัจจุบัน",
+    irr_breakdown_title: "วิธีคำนวณ IRR นี้",
+    bd_invested: "เงินลงทุน (ซื้อ)", bd_proceeds: "ขายได้ (รับเงิน)",
+    bd_holdings: "มูลค่าปัจจุบัน", bd_transfers: "โอนสุทธิ",
+    bd_total_gain: "กำไรรวม", bd_over: "ในเวลา {y} ปี ตั้งแต่ {date}",
+    bd_mwr: "ผลตอบแทนถ่วงน้ำหนักเงิน",
+    bd_explain: "XIRR หาค่าอัตราผลตอบแทนต่อปีที่ทำให้กระแสเงินสดตามวันที่เหล่านี้มีมูลค่าปัจจุบันสุทธิเป็นศูนย์ โดยถ่วงน้ำหนักแต่ละบาทตามระยะเวลาที่ลงทุน จึงไม่สามารถแยกเป็น '% จากเงินปันผล' ได้",
+    irr_breakdown_aria: "แสดงรายละเอียด IRR",
     from_closed_trades: "จากการขายหุ้น",
     withholding_tax: "หักภาษี ณ ที่จ่าย 15% แล้ว",
     gross: "ยอดก่อนภาษี", edit: "แก้ไข",
@@ -2128,7 +2188,7 @@ const I18N = {
     tp_hit_badge: "ถึงเป้า TP", sl_hit_badge: "ถึงจุด SL",
     entry_col_label: "ราคาเข้า", est_pnl_label: "คาดการณ์ กำไร",
     // Positions Table
-    cash_equiv_label: "สินทรัพย์เทียบเท่าเงินสด", raw_cash_label: "เงินสดคงเหลือ",
+    raw_cash_label: "เงินสดคงเหลือ",
     treasury_label: "พันธบัตรรัฐบาล", watch_tag: "สนใจ", watching_tag: "กำลังสนใจ",
     // Holdings Performance
     holdings_performance_title: "ผลการดำเนินงานของสินทรัพย์",
@@ -2227,6 +2287,13 @@ const I18N = {
     manage_label: "จัดการ",
     language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", portfolios_label: "พอร์ตโฟลิโอ",
     overview_label: "ภาพรวม", performance_label: "ผลงาน",
+    // Rebalance funding aid (plan tab)
+    rebalfund_title: "เติมเงิน", rebalfund_target_label: "เป้าหมาย",
+    rebalfund_cash_label: "เงินสดที่เพิ่ม", rebalfund_cash_warn: "จำนวนเงินเกินเงินสดที่มีอยู่",
+    rebalfund_remaining_label: "ยังขาดอีก", rebalfund_over_label: "เกินเป้าหมาย",
+    rebalfund_overweight_col: "เกินเป้าหมาย %", rebalfund_sell_col: "ขาย",
+    rebalfund_dollar_col: "$ ที่จะขาย", rebalfund_shares_col: "จำนวนหุ้น",
+    rebalfund_cash_after_label: "เงินสดหลังตัดขาย", rebalfund_alloc_after_col: "สัดส่วนหลังขาย",
   }
 };
 let currentLang = localStorage.getItem('lang') || 'EN';
@@ -2248,6 +2315,7 @@ let activePortfolio    = localStorage.getItem('portfolioView.v1') || 'ALL'; // '
 let _posTab = 'overview';
 let _allRows           = [];   // full parseRows() output — every portfolio×symbol row
 let _portfolioRegistry = [];   // parsed Portfolios sheet — [{id,name,color,cash,cashRes,fcd,usd}]
+let _irrDetail = null;         // last computeIRR() cash-flow breakdown, for the IRR info popover
 let _allTxCache        = null; // full minimal tx list incl Portfolio tag + Transfer rows
 let _lastQuotes        = null; // cached quote map, re-attached on toggle (no refetch)
 let actionModalPort    = 'Long-Term'; // portfolio governing the action modal tabs
@@ -3047,7 +3115,7 @@ window.openSymbolDetail = function(sym) {
         if (lastPx) {
           areaSeries.createPriceLine({
             price: lastPx, color: symColor,
-            lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+            lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
             axisLabelVisible: false, title: '',
           });
         }
@@ -3522,7 +3590,7 @@ function updateActionTvLines() {
   if (_lastPx) {
     actionTvLines.push(actionTvSeries.createPriceLine({
       price: _lastPx, color: colorFor(planState.symbol),
-      lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+      lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
       axisLabelVisible: false, title: '',
     }));
   }
@@ -3757,6 +3825,7 @@ window.openActionModal = function(sym, port) {
   actionModalTab = 'plan';
   actionModalPort = port || defaultPortFor(sym);
   tabDraft = {};
+  resetRebalFund();
   // Clear standalone txModal to avoid duplicate ID conflicts (txAllocBars, txTicker, etc.)
   const txOverlay = document.getElementById('txModal');
   if (txOverlay) txOverlay.innerHTML = '';
@@ -3915,7 +3984,7 @@ function renderActionTabContent() {
       const dis    = planState.tranches.length <= 1 ? 'disabled' : '';
       const entry  = t.price != null ? t.price : '';
       const qtyVal = (entry !== '' && dollar > 0) ? +(dollar / parseFloat(entry)).toFixed(4) : '';
-      return `<div class="tranche-row" data-idx="${i}">
+      return `<div class="tranche-row${i===rebalFundActiveIdx?' rebalfund-active':''}" data-idx="${i}">
         <div class="tranche-label" style="color:${c2}"><span class="tl-dot" style="background:${c2}"></span>T${i+1}</div>
         <div class="tranche-input-wrap has-prefix"><span class="ti-prefix">$</span>
           <input class="tranche-input" type="number" step="any" min="0" placeholder="${pos.price?Number(pos.price).toFixed(2):''}" value="${entry}" oninput="onTranchePrice(${i},this.value)" onblur="onTranchePriceBlur()" data-role="entry" aria-label="Entry price for T${i+1}">
@@ -3925,7 +3994,7 @@ function renderActionTabContent() {
           <span class="ti-suffix">%</span>
         </div>
         <div class="tranche-input-wrap has-prefix"><span class="ti-prefix">$</span>
-          <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${dollar>0?dollar.toFixed(2):'0'}" oninput="onTrancheDollar(${i},this.value)" data-role="dollar" aria-label="Dollar amount for T${i+1}">
+          <input class="tranche-input${warn?' warn':''}" type="number" step="any" min="0" value="${dollar>0?dollar.toFixed(2):'0'}" oninput="onTrancheDollar(${i},this.value)" onfocus="setRebalFundActive(${i})" data-role="dollar" aria-label="Dollar amount for T${i+1}">
         </div>
         <div class="tranche-input-wrap">
           <input class="tranche-input" id="trancheQty_${i}" type="number" step="any" min="0" placeholder="shares" value="${qtyVal}" oninput="onTrancheQty(${i},this.value)" data-role="qty" aria-label="Share quantity for T${i+1}">
@@ -3965,6 +4034,7 @@ function renderActionTabContent() {
       </div>
       <div id="planTranches">${tranchesHtml}</div>
       <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>
+      <div id="rebalFundPanel" class="rebalfund-panel" style="display:none"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px">
         <div>
           <label style="font-size:10px;font-weight:600;color:var(--loss);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('stop_loss_label')}</label>
@@ -3998,7 +4068,7 @@ function renderActionTabContent() {
         <div id="planTrimRows"></div>
         <div id="planTrimSummary" style="font-size:10px;color:var(--muted);margin-top:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm)"></div>
       </div>`;
-    renderPlanBar(); updateNewAvgs(); renderTrimSection();
+    renderPlanBar(); updateNewAvgs(); renderTrimSection(); renderRebalFundPanel();
     setTimeout(() => buildActionTvChart(sym), 0);
 
   } else if (actionModalTab === 'transaction') {
@@ -4128,7 +4198,7 @@ function _trimCalcData() {
     const net = gross - fees;
     const hasData = P > 0 && trimPct > 0;
     if (hasData) { totalSharesSold += shares; totalNetPnL += net; anyValid = true; }
-    return { net, hasData, pctAtP, afterPct, sellPct, shares };
+    return { net, tv, hasData, pctAtP, afterPct, sellPct, shares };
   });
   const remQty = Math.max(0, qty - totalSharesSold);
   const remVal = remQty * curPx;
@@ -4180,6 +4250,7 @@ function updateTrimCalcs() {
     if (el) el.innerHTML = r.hasData
       ? `<div style="text-align:center">
            <span style="font-size:11px;font-weight:700;color:${r.net>=0?'var(--gain)':'var(--loss)'}">${r.net>=0?'+':''}${fmtUSD(r.net)}</span>
+           <span style="font-size:11px;color:var(--muted)"> ($${Math.round(r.tv).toLocaleString()})</span>
            <div style="font-size:9px;color:var(--muted)">${r.pctAtP.toFixed(2)}% → ${r.afterPct.toFixed(2)}%</div>
          </div>`
       : '<span style="color:var(--muted)">—</span>';
@@ -4716,6 +4787,184 @@ function renderPlanBar() {
   updateNewAvgs();
 }
 
+// ── Rebalance funding aid (plan-only, no writes) ─────────────────────────────
+// Shared panel, embedded in the plan tab, that helps fund ONE active tranche by
+// trimming other held positions. rebalFundActiveIdx === null means hidden.
+let rebalFundActiveIdx = null;
+let rebalFundSells = {}; // { sym: { checked, dollar } }
+let rebalFundCashAdd = 0;
+let rebalFundSortKey = 'overweight', rebalFundSortDir = -1;
+
+function resetRebalFund() {
+  rebalFundActiveIdx = null;
+  rebalFundSells = {};
+  rebalFundCashAdd = 0;
+  rebalFundSortKey = 'overweight';
+  rebalFundSortDir = -1;
+}
+
+window.setRebalFundActive = function(idx) {
+  rebalFundActiveIdx = idx;
+  document.querySelectorAll('#planTranches .tranche-row').forEach(row =>
+    row.classList.toggle('rebalfund-active', +row.dataset.idx === idx));
+  renderRebalFundPanel();
+};
+
+function rebalFundTarget() {
+  const { symbol, tranches, model } = planState;
+  if (rebalFundActiveIdx == null || !model) return null;
+  const pos = findPosIn(model, symbol) || findPos(symbol);
+  if (!pos) return null;
+  const td = getTargetDollar(pos, model);
+  const currPct = getCurrentPct(pos, model);
+  return getTrancheDollar(rebalFundActiveIdx, tranches, currPct, td);
+}
+
+function renderRebalFundPanel() {
+  const panel = document.getElementById('rebalFundPanel');
+  if (!panel) return;
+  const target = rebalFundTarget();
+  if (target == null) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  panel.style.display = '';
+  panel.innerHTML = `
+    <div class="rebalfund-head">
+      <span class="rebalfund-title">${t('rebalfund_title')} T${rebalFundActiveIdx+1}</span>
+      <span class="rebalfund-target">${t('rebalfund_target_label')}: <strong>${fmtUSD(target)}</strong></span>
+    </div>
+    <div class="rebalfund-bar-track"><div class="rebalfund-bar-fill" id="rebalFundBarFill"></div></div>
+    <div class="rebalfund-remaining" id="rebalFundRemaining"></div>
+    <div class="rebalfund-remaining" id="rebalFundCashProj"></div>
+    <div class="rebalfund-cash-row">
+      <label class="tx-label">${t('rebalfund_cash_label')}</label>
+      <input class="tranche-input" id="rebalFundCash" type="number" step="any" min="0" value="${rebalFundCashAdd || ''}" placeholder="0" oninput="onRebalFundCash(this.value)">
+    </div>
+    <div id="rebalFundCashWarn" class="rebalfund-warn" style="display:none">${t('rebalfund_cash_warn')}</div>
+    <div id="rebalFundSellWrap" style="overflow-x:auto"></div>`;
+  renderRebalFundSellTable();
+  updateRebalFundBar();
+}
+
+function renderRebalFundSellTable() {
+  const wrap = document.getElementById('rebalFundSellWrap');
+  if (!wrap) return;
+  const { symbol, model } = planState;
+  const rows = (model?.positions || []).filter(p => p.symbol !== symbol);
+  const enriched = rows.map(p => {
+    const td = getTargetDollar(p, model);
+    const overweight = td > 0 ? getCurrentPct(p, model) - 100 : null;
+    return { p, overweight };
+  });
+  enriched.sort((a, b) => {
+    const aChecked = rebalFundSells[a.p.symbol]?.checked ? 1 : 0;
+    const bChecked = rebalFundSells[b.p.symbol]?.checked ? 1 : 0;
+    if (aChecked !== bChecked) return bChecked - aChecked;
+    if (rebalFundSortKey === 'overweight') {
+      if (a.overweight == null && b.overweight == null) return 0;
+      if (a.overweight == null) return 1;
+      if (b.overweight == null) return -1;
+      return rebalFundSortDir * (a.overweight - b.overweight);
+    }
+    return rebalFundSortDir * ((a.p.pnlPct || 0) - (b.p.pnlPct || 0));
+  });
+  const arrow = key => rebalFundSortKey === key ? (rebalFundSortDir > 0 ? ' ↑' : ' ↓') : '';
+  wrap.innerHTML = `<table class="pos-table">
+    <thead><tr>
+      <th style="cursor:default">${t('th_symbol')}</th>
+      <th onclick="sortRebalFundTable('overweight')">${t('rebalfund_overweight_col')}${arrow('overweight')}</th>
+      <th onclick="sortRebalFundTable('pnlPct')">${t('total_ret')}${arrow('pnlPct')}</th>
+      <th style="cursor:default">${t('rebalfund_sell_col')}</th>
+      <th style="cursor:default">${t('rebalfund_dollar_col')}</th>
+      <th style="cursor:default">${t('rebalfund_shares_col')}</th>
+      <th style="cursor:default">${t('rebalfund_alloc_after_col')}</th>
+    </tr></thead>
+    <tbody>${enriched.map(({ p, overweight }) => rebalFundSellRow(p, overweight)).join('')}</tbody>
+  </table>`;
+}
+
+function rebalFundSellRow(p, overweight) {
+  const st = rebalFundSells[p.symbol] || (rebalFundSells[p.symbol] = { checked: false, dollar: null });
+  const retCls = p.pnlPct >= 0 ? 'cell-up' : 'cell-dn';
+  const shares = (st.checked && st.dollar && p.price > 0) ? st.dollar / p.price : 0;
+  const model = planState.model;
+  const owDollar = overweight == null ? null : p.currentValue - getTargetDollar(p, model);
+  const owStr = overweight == null ? '—' : `${fmtPct(overweight)} (${fmtCurr(owDollar)})`;
+  const sellDollar = st.checked ? (st.dollar || 0) : 0;
+  const allocAfter = model?.totalCurrent > 0 ? (p.currentValue - sellDollar) / model.totalCurrent * 100 : 0;
+  return `<tr>
+    <td><div class="asset-cell">${logoCell(p.symbol, colorFor(p.symbol))}<div class="asset-sym">${p.symbol}</div></div></td>
+    <td class="${overweight == null ? 'cell-mut' : ''}">${owStr}</td>
+    <td class="${retCls}">${fmtPct(p.pnlPct)}</td>
+    <td><input type="checkbox" ${st.checked ? 'checked' : ''} onchange="onRebalFundSellToggle('${p.symbol}', this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--terracotta)"></td>
+    <td><input class="tranche-input" id="rebalFundDollar_${p.symbol}" type="number" step="any" min="0" style="width:100px;text-align:right" value="${st.dollar != null ? st.dollar.toFixed(2) : ''}" ${st.checked ? '' : 'disabled'} oninput="onRebalFundSellDollar('${p.symbol}', this.value)"></td>
+    <td id="rebalFundShares_${p.symbol}" style="color:var(--muted)">${shares.toFixed(4)}</td>
+    <td id="rebalFundAlloc_${p.symbol}" style="color:var(--muted)">${allocAfter.toFixed(1)}%</td>
+  </tr>`;
+}
+
+window.onRebalFundSellToggle = function(sym, checked) {
+  const model = planState.model;
+  const p = model?.positions.find(x => x.symbol === sym);
+  const st = rebalFundSells[sym] || (rebalFundSells[sym] = { checked: false, dollar: null });
+  st.checked = checked;
+  if (checked && p) {
+    const target = rebalFundTarget() || 0;
+    const fillExcl = (rebalFundCashAdd || 0) + Object.entries(rebalFundSells).reduce((s, [k, v]) =>
+      (v.checked && k !== sym) ? s + (v.dollar || 0) : s, 0);
+    st.dollar = Math.max(0, Math.min(p.currentValue, target - fillExcl));
+  }
+  renderRebalFundSellTable();
+  updateRebalFundBar();
+};
+
+window.onRebalFundSellDollar = function(sym, value) {
+  const model = planState.model;
+  const p = model?.positions.find(x => x.symbol === sym);
+  if (!p) return;
+  const st = rebalFundSells[sym] || (rebalFundSells[sym] = { checked: true, dollar: 0 });
+  const val = Math.max(0, Math.min(parseFloat(value) || 0, p.currentValue));
+  st.dollar = val;
+  const inp = document.getElementById('rebalFundDollar_' + sym);
+  if (inp && parseFloat(inp.value) !== val) inp.value = val.toFixed(2);
+  const sharesEl = document.getElementById('rebalFundShares_' + sym);
+  if (sharesEl) sharesEl.textContent = (p.price > 0 ? val / p.price : 0).toFixed(4);
+  const allocEl = document.getElementById('rebalFundAlloc_' + sym);
+  if (allocEl) allocEl.textContent = (model?.totalCurrent > 0 ? (p.currentValue - val) / model.totalCurrent * 100 : 0).toFixed(1) + '%';
+  updateRebalFundBar();
+};
+
+window.onRebalFundCash = function(value) {
+  rebalFundCashAdd = Math.max(0, parseFloat(value) || 0);
+  updateRebalFundBar();
+};
+
+window.sortRebalFundTable = function(key) {
+  if (rebalFundSortKey === key) rebalFundSortDir *= -1; else { rebalFundSortKey = key; rebalFundSortDir = -1; }
+  renderRebalFundSellTable();
+};
+
+function updateRebalFundBar() {
+  const target = rebalFundTarget();
+  if (target == null) return;
+  const sellTotal = Object.entries(rebalFundSells).reduce((s, [, st]) => st.checked ? s + (st.dollar || 0) : s, 0);
+  const filled = (rebalFundCashAdd || 0) + sellTotal;
+  const pct = target > 0 ? Math.min(100, filled / target * 100) : 0;
+  const remaining = Math.max(0, target - filled);
+  const surplus = Math.max(0, filled - target);
+  const fillEl = document.getElementById('rebalFundBarFill');
+  if (fillEl) fillEl.style.width = pct.toFixed(2) + '%';
+  const remEl = document.getElementById('rebalFundRemaining');
+  if (remEl) remEl.innerHTML = surplus > 0
+    ? `<span class="rebalfund-surplus">+${fmtUSD(surplus)} ${t('rebalfund_over_label')}</span>`
+    : `<span>${t('rebalfund_remaining_label')}: <strong>${fmtUSD(remaining)}</strong></span>`;
+  const warnEl = document.getElementById('rebalFundCashWarn');
+  if (warnEl) warnEl.style.display = (rebalFundCashAdd || 0) > (planState.model?.totalCash || 0) ? 'block' : 'none';
+  const model = planState.model;
+  const projCash = (model?.totalCash || 0) + sellTotal - (rebalFundCashAdd || 0);
+  const projCashPct = model?.totalCurrent > 0 ? projCash / model.totalCurrent * 100 : 0;
+  const cashProjEl = document.getElementById('rebalFundCashProj');
+  if (cashProjEl) cashProjEl.innerHTML = `<span>${t('rebalfund_cash_after_label')}: <strong>${fmtCurr(projCash)}</strong> (${projCashPct.toFixed(1)}%)</span>`;
+}
+
 function sortTranchesByPrice() {
   planState.tranches.sort((a, b) => {
     if (a.price == null && b.price == null) return 0;
@@ -4771,6 +5020,7 @@ window.onTrancheDollar = function(idx, val) {
   planState.tranches[idx].cumPct = td > 0 ? prev + (dollar / td * 100) : prev;
   syncTrancheRow(idx);
   renderPlanBar();
+  if (idx === rebalFundActiveIdx) updateRebalFundBar();
 };
 
 window.onTrancheQty = function(idx, val) {
@@ -5093,15 +5343,8 @@ function buildModel(rows, cashCtx) {
   const rawFcd     = cashCtx?.fcd     ?? rows[0]?.fcd     ?? 0;
   const rawUsd     = cashCtx?.usd     ?? rows[0]?.usd     ?? 0;
   const positions = [], watchlist = [];
-  let sgovValue = 0, sgovCostBasis = 0, sgovRaw = null;
 
   for (const r of rows) {
-    if (r.symbol === 'SGOV') {
-      if (r.qty && r.price)    sgovValue     = r.qty * r.price;
-      if (r.qty && r.avgPrice) sgovCostBasis = r.qty * r.avgPrice;
-      sgovRaw = r;
-      continue;
-    }
     const held = r.qty != null && r.qty > 0 && r.avgPrice != null && r.avgPrice > 0 && r.price != null;
     if (!held) { if (r.price != null || (!(r.qty > 0) && !(r.avgPrice > 0))) watchlist.push(r); continue; }
     const currentValue = r.qty * r.price;
@@ -5111,9 +5354,9 @@ function buildModel(rows, cashCtx) {
     positions.push({ ...r, currentValue, costBasis, pnl, pnlPct });
   }
 
-  const totalCash     = rawCash + sgovValue;
+  const totalCash     = rawCash;
   const totalCurrent  = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
-  const totalInvested  = positions.reduce((s, p) => s + p.costBasis,    0) + rawCash + sgovCostBasis;
+  const totalInvested  = positions.reduce((s, p) => s + p.costBasis,    0) + rawCash;
   const investable    = totalCurrent * (1 - cashResPct);
   const stockTotal = positions.reduce((s,p) => s + p.currentValue, 0);
   positions.forEach(p => {
@@ -5123,18 +5366,8 @@ function buildModel(rows, cashCtx) {
   positions.sort((a, b) => b.currentValue - a.currentValue);
   positions.forEach((p, i) => p.rowNum = i + 1);
 
-  // SGOV row for table display (weight vs total, no target)
-  const sgovPos = sgovRaw ? {
-    ...sgovRaw,
-    currentValue: sgovValue,
-    costBasis: sgovCostBasis,
-    pnl: sgovValue - sgovCostBasis,
-    pnlPct: sgovCostBasis ? (sgovValue - sgovCostBasis) / sgovCostBasis * 100 : 0,
-    weightPct: totalCurrent > 0 ? sgovValue / totalCurrent * 100 : 0,
-  } : null;
-
   return {
-    positions, watchlist, sgovPos, rawCash, rawFcd, rawUsd, sgovValue, cashResPct,
+    positions, watchlist, sgovPos: null, rawCash, rawFcd, rawUsd, cashResPct,
     totalCash, totalCurrent, investable, totalInvested,
     totalPnl:    totalCurrent - totalInvested,
     totalPnlPct: totalInvested ? (totalCurrent - totalInvested) / totalInvested * 100 : 0,
@@ -5176,15 +5409,68 @@ function computeDividends(txs) {
   return { gross, net, byTicker };
 }
 
-function computeIRR(txs, totalCurrent, totalInvested) {
-  if (!txs?.length || !totalInvested || totalInvested <= 0) return null;
-  const firstBuy = [...txs].sort((a,b) => a.dateStr.localeCompare(b.dateStr)).find(t => t.type === 'Buy');
-  if (!firstBuy) return null;
-  const years = (Date.now() - new Date(firstBuy.dateStr).getTime()) / (365.25 * 24 * 3600 * 1000);
-  if (years <= 0) return null;
-  const r = totalCurrent / totalInvested - 1;
-  if (1 + r <= 0) return null;
-  return (Math.pow(1 + r, 1 / years) - 1) * 100;
+// Money-weighted annualized return (XIRR) on invested capital.
+// Folds in realized P&L, dividends, and unrealized gains by construction.
+// Flows (dated): Buy = -outflow, Sell = +inflow, Transfer-Out = +inflow,
+//   Transfer-In = -outflow, net Dividend = +inflow (per historyCache event,
+//   withholding-adjusted, matching computeDividends), terminal = holdingsValue today.
+function computeIRR(txs, holdingsValue) {
+  _irrDetail = null;
+  if (!txs?.length) return null;
+  const YEAR = 365 * 24 * 3600 * 1000;
+  const flows = [];
+  let invested = 0, proceeds = 0, transfersNet = 0;
+  for (const tx of txs) {
+    if (!tx.ticker || !tx.dateStr) continue;
+    const d  = new Date(tx.dateStr).getTime();
+    if (!Number.isFinite(d)) continue;
+    const sh = tx.shares || 0, px = tx.price || 0;
+    const tv = tx.tradeValue != null ? tx.tradeValue : sh * px;
+    if      (tx.type === 'Buy')          { flows.push({ d, amt: -tv }); invested += tv; }
+    else if (tx.type === 'Sell')         { flows.push({ d, amt:  tv }); proceeds += tv; }
+    else if (tx.type === 'Transfer-Out') { flows.push({ d, amt:  tv }); transfersNet += tv; }
+    else if (tx.type === 'Transfer-In')  { flows.push({ d, amt: -tv }); transfersNet -= tv; }
+    // 'Dividend' tx type intentionally ignored — dividends sourced below.
+  }
+  // Dated net dividends — same source/withholding as computeDividends().
+  const divData = historyCache?.dividends || {};
+  let divTotal = 0;
+  for (const [ticker, events] of Object.entries(divData)) {
+    for (const [dateStr, amount] of Object.entries(events)) {
+      const held = sharesHeldAt(txs, ticker, dateStr);
+      if (held <= 0) continue;
+      const d = new Date(dateStr).getTime();
+      if (!Number.isFinite(d)) continue;
+      const amt = held * amount * (1 - withholdingRate(ticker));
+      flows.push({ d, amt });
+      divTotal += amt;
+    }
+  }
+  if (!flows.length) return null;
+  flows.push({ d: Date.now(), amt: holdingsValue || 0 });
+
+  const t0   = Math.min(...flows.map(f => f.d));
+  const tEnd = Math.max(...flows.map(f => f.d));
+  if (tEnd <= t0) return null;
+  if (!flows.some(f => f.amt < 0) || !flows.some(f => f.amt > 0)) return null;
+
+  const npv = r => flows.reduce((s, f) => s + f.amt / Math.pow(1 + r, (f.d - t0) / YEAR), 0);
+
+  const done = r => {
+    _irrDetail = { invested, proceeds, dividends: divTotal, transfersNet, terminal: holdingsValue || 0, firstDateMs: t0, years: (Date.now() - t0) / YEAR, rate: r };
+    return r;
+  };
+
+  let lo = -0.9999, hi = 100, fLo = npv(lo), fHi = npv(hi);
+  if (fLo === 0) return done(lo * 100);
+  if (fHi === 0) return done(hi * 100);
+  if (fLo * fHi > 0) return null; // no sign change → no root in range
+  for (let i = 0; i < 200; i++) {
+    const mid = (lo + hi) / 2, fMid = npv(mid);
+    if (Math.abs(fMid) < 1e-7 || (hi - lo) < 1e-12) return done(mid * 100);
+    if (fLo * fMid < 0) { hi = mid; fHi = fMid; } else { lo = mid; fLo = fMid; }
+  }
+  return done(((lo + hi) / 2) * 100);
 }
 
 function computeRealizedPnlTotal(txs) {
@@ -5193,6 +5479,7 @@ function computeRealizedPnlTotal(txs) {
 
 // ── Render: stat cards (replaces hero) ────────────────────────────────────────
 function renderStatCards(model, txData) {
+  document.getElementById('irrBreakdown')?.classList.remove('open');
   if (!model) return;
   if (txData) lastTxData = txData;
   const td = txData || lastTxData || {};
@@ -5234,7 +5521,7 @@ function renderStatCards(model, txData) {
     <div class="sc-sub ${cl(dayPct)}">${dayHasData ? p(dayPct) : '—'}</div>
     <div class="sc-detail">${t('today_change')}</div>`);
 
-  set('sc-irr', `<div class="sc-label">${t('irr')}</div>
+  set('sc-irr', `<div class="sc-label" style="display:flex;align-items:center;gap:4px">${t('irr')}${irr == null ? '' : `<span class="irr-info-wrap"><button class="irr-info-btn" aria-label="${t('irr_breakdown_aria')}" onclick="toggleIrrBreakdown(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></span>`}</div>
     <div class="sc-value ${cl(irr)}">${irr == null ? '—' : p(irr)}</div>
     <div class="sc-sub mut">${t('since_first_buy')}</div>
     <div class="sc-detail">${irr == null ? t('loading_msg') : t('cagr_approx')}</div>`);
@@ -5247,7 +5534,7 @@ function renderStatCards(model, txData) {
     </div>
     <div class="sc-value">${fmtCurr(model.totalCash)}</div>
     <div class="sc-sub mut"><span style="display:inline-block">${cashPct.toFixed(1)}% ·&nbsp;</span><span style="display:inline-block">${t('target')} ${((model.cashResPct||0)*100).toFixed(0)}%</span></div>
-    <div class="sc-detail">${fmtCurr(model.rawCash)} + ${fmtCurr(model.sgovValue||0)} SGOV</div>`);
+    <div class="sc-detail">${t('fcd_label')}: ${fmtCurr(model.rawFcd||0)} · ${t('usd_label')}: ${fmtCurr(model.rawUsd||0)}</div>`);
 
   set('sc-unreal', `<div class="sc-label">${t('unrealized')}</div>
     <div class="sc-value ${cl(model.totalPnl)}">${m(model.totalPnl)}</div>
@@ -6318,32 +6605,6 @@ function renderTable(model) {
     </tr>`;
   }
 
-  // SGOV row
-  let sgovRow = '';
-  if (model.sgovPos && (model.sgovPos.qty || 0) > 0) {
-    const s = model.sgovPos;
-    const sup = s.pnl >= 0;
-    const sdc$ = s.dayChange, sdcPct = s.dayChangePct;
-    const sdayUp = sdc$ != null && sdc$ >= 0;
-    const sdayCls = sdc$ == null ? 'cell-mut' : sdayUp ? 'cell-up' : 'cell-dn';
-    sgovRow = `<tr>
-      <td><div class="asset-cell">${logoCell('SGOV','#8a7458')}
-        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('SGOV')">SGOV</span>${slWarningBadge('SGOV',s.price)}${trancheBadge('SGOV',s.price)}${tpBadge('SGOV',s.price)} <span class="tag treasury">Treasury</span><button class="plan-btn${hasSavedPlan('SGOV')?' saved':''}" onclick="openActionModal('SGOV')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${s.name||''}</div></div>
-      </div></td>
-      <td>${dc(fmtCurr(s.price), null)}</td>
-      <td class="${sdayCls}">${dc(sdc$!=null?(sdayUp?'+':'')+fmtCurr(sdc$):'—', sdcPct!=null?(sdayUp?'+':'')+sdcPct.toFixed(2)+'%':null, sdayCls)}</td>
-      <td class="${sdayCls}">${dc(sdc$!=null?(sdayUp?'+':'')+fmtCurr(sdc$*s.qty):'—', null, sdayCls)}</td>
-      <td class="${sup?'cell-up':'cell-dn'}">${dc((sup?'+':'')+fmtCurr(s.pnl), fmtPct(s.pnlPct), sup?'cell-up':'cell-dn')}</td>
-      <td>${dc(s.qty?.toFixed(4)||'—', null)}</td>
-      <td>${dc(fmtCurr(s.avgPrice), null)}</td>
-      <td>${dc(fmtCurr(s.costBasis), null)}</td>
-      <td>${dc(fmtCurr(s.currentValue), s.weightPct.toFixed(1)+'%', 'cell-mut')}</td>
-      <td>${dc(t('cash_equiv_label'), null, 'cell-mut')}</td>
-      <td>${weekRange52Bar(s)}</td>
-      <td></td>
-    </tr>`;
-  }
-
   // Cash row
   const cashPct = model.totalCurrent > 0 ? model.rawCash / model.totalCurrent * 100 : 0;
   const cashRow = `<tr style="background:var(--hover)">
@@ -6360,7 +6621,7 @@ function renderTable(model) {
   </tr>`;
 
   document.getElementById('posTable').innerHTML =
-    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map((p,i) => stockRow(p,i+1)).join('')}${sgovRow}${cashRow}</tbody></table>`;
+    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map((p,i) => stockRow(p,i+1)).join('')}${cashRow}</tbody></table>`;
 }
 
 function renderPerformanceTable(model) {
@@ -6492,40 +6753,6 @@ function renderPerformanceTable(model) {
     </tr>`;
   }
 
-  let sgovRow = '';
-  if (model.sgovPos && (model.sgovPos.qty || 0) > 0) {
-    const s = model.sgovPos;
-    const sgovTr = _etfDataCache['SGOV']?.trailingReturns || _stockReturnsCache['SGOV'];
-    const sgovComputed = computePeriodReturns('SGOV', s.price);
-    const pr = sgovTr ? {
-      '1M': sgovTr['1M'] != null ? sgovTr['1M'] * 100 : sgovComputed['1M'],
-      '3M': sgovTr['3M'] != null ? sgovTr['3M'] * 100 : sgovComputed['3M'],
-      '1Y': sgovTr['1Y'] != null ? sgovTr['1Y'] * 100 : sgovComputed['1Y'],
-      '3Y': sgovTr['3Y'] != null ? sgovTr['3Y'] * 100 : sgovComputed['3Y'],
-      '5Y': sgovTr['5Y'] != null ? sgovTr['5Y'] * 100 : sgovComputed['5Y'],
-    } : sgovComputed;
-    const ytdVal = s.ytdReturnQ != null ? s.ytdReturnQ * 100
-      : (sgovTr?.YTD != null ? sgovTr.YTD * 100 : sgovComputed.YTD);
-    let etfCols = '';
-    if (hasEtf) etfCols = '<td><span class="perf-muted">—</span></td><td><span class="perf-muted">—</span></td><td><span class="perf-muted">—</span></td>';
-    sgovRow = `<tr onclick="openActionModal('SGOV')" style="cursor:pointer">
-      <td><div class="asset-cell">${logoCell('SGOV','#8a7458')}
-        <div><div class="asset-sym">SGOV <span class="tag treasury">Treasury</span></div><div class="asset-name">${s.name||''}</div></div>
-      </div></td>
-      <td><span class="perf-num">${fmtCurr(s.price)}</span></td>
-      ${isEtfView ? '' : '<td><span class="perf-muted">—</span></td>'}
-      <td><span class="perf-muted">${fmtVol(s.volume)}</span></td>
-      <td>${retCell(ytdVal)}</td>
-      <td>${retCell(pr['1M'])}</td>
-      <td>${retCell(pr['3M'])}</td>
-      <td>${retCell(pr['1Y'])}</td>
-      <td>${retCell(pr['3Y'])}</td>
-      <td>${retCell(pr['5Y'])}</td>
-      ${etfCols}
-      <td></td><td></td><td>${priceSpark('SGOV')}</td>
-    </tr>`;
-  }
-
   const colCount = headers.length;
   const cashRow = `<tr style="background:var(--hover)">
     <td><div class="asset-cell">
@@ -6538,7 +6765,7 @@ function renderPerformanceTable(model) {
   </tr>`;
 
   document.getElementById('posTable').innerHTML =
-    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : sgovRow + cashRow}</tbody></table>`;
+    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : cashRow}</tbody></table>`;
 }
 
 window.sortTable = function(key) {
@@ -8410,7 +8637,55 @@ window.toggleSettingsDropdown = function(e) {
 document.addEventListener('click', function(e) {
   const dd = document.getElementById('settingsDropdown');
   if (dd?.classList.contains('open') && !e.target.closest('.settings-gear-wrap')) dd.classList.remove('open');
+  const bd = document.getElementById('irrBreakdown');
+  if (bd?.classList.contains('open') && !e.target.closest('.irr-info-wrap') && !e.target.closest('#irrBreakdown')) bd.classList.remove('open');
 });
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') document.getElementById('irrBreakdown')?.classList.remove('open');
+});
+
+// ── IRR breakdown popover ─────────────────────────────────────────────────────
+window.toggleIrrBreakdown = function(e) {
+  e.stopPropagation();
+  let pop = document.getElementById('irrBreakdown');
+  if (!pop) { pop = document.createElement('div'); pop.id = 'irrBreakdown'; pop.className = 'irr-breakdown'; document.body.appendChild(pop); }
+  if (pop.classList.contains('open')) { pop.classList.remove('open'); return; }
+  const d = _irrDetail;
+  if (!d) return;
+  const btn = e.currentTarget; const anchor = btn.getBoundingClientRect();
+
+  const unreal = currentModel?.totalPnl ?? 0;
+  const real = lastTxData?.realizedPnl ?? 0;
+  const totalGain = d.terminal + d.proceeds + d.dividends + d.transfersNet - d.invested;
+  const signed = v => (v >= 0 ? '+' : '') + fmtCurr(v);
+  const dateStr = new Date(d.firstDateMs).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  const rateStr = (d.rate >= 0 ? '+' : '') + d.rate.toFixed(2) + '%/yr';
+
+  pop.innerHTML = `
+    <div class="bd-title">${t('irr_breakdown_title')}</div>
+    <div class="bd-row"><span class="bd-label">${t('bd_invested')}</span><span class="bd-val">−${fmtCurr(d.invested)}</span></div>
+    ${d.proceeds ? `<div class="bd-row"><span class="bd-label">${t('bd_proceeds')}</span><span class="bd-val">${signed(d.proceeds)}</span></div>` : ''}
+    <div class="bd-row"><span class="bd-label">${t('dividends')}</span><span class="bd-val">${signed(d.dividends)}</span></div>
+    <div class="bd-row"><span class="bd-label">${t('bd_holdings')}</span><span class="bd-val">${signed(d.terminal)}</span></div>
+    ${d.transfersNet ? `<div class="bd-row"><span class="bd-label">${t('bd_transfers')}</span><span class="bd-val">${signed(d.transfersNet)}</span></div>` : ''}
+    <div class="bd-divider"></div>
+    <div class="bd-row"><span class="bd-label bd-total">${t('bd_total_gain')}</span><span class="bd-val bd-total">${signed(totalGain)}</span></div>
+    <div class="bd-sub">= ${t('unrealized')} ${signed(unreal)} · ${t('realized')} ${signed(real)} · ${t('dividends')} ${signed(d.dividends)}</div>
+    <div class="bd-row"><span class="bd-label">${t('bd_over').replace('{y}', d.years.toFixed(1)).replace('{date}', dateStr)}</span></div>
+    <div class="bd-row"><span class="bd-label">${t('bd_mwr')}</span><span class="bd-val bd-mwr">${rateStr}</span></div>
+    <div class="bd-explain">${t('bd_explain')}</div>`;
+  pop.classList.add('open');
+  window.addEventListener('scroll', () => pop.classList.remove('open'), { once: true, capture: true });
+  requestAnimationFrame(() => {
+    const r = pop.getBoundingClientRect();
+    let left = anchor.left;
+    let top  = anchor.bottom + 6;
+    if (left + r.width  > window.innerWidth  - 8) left = window.innerWidth  - r.width  - 8;
+    if (top  + r.height > window.innerHeight - 8) top  = anchor.top - r.height - 6; // flip above
+    pop.style.left = Math.max(8, left) + 'px';
+    pop.style.top  = Math.max(8, top)  + 'px';
+  });
+};
 
 function rerenderAllCharts() {
   if (!currentModel) return;
@@ -8758,7 +9033,6 @@ function computePnLTimeline(txs) {
   });
   for (const tx of sorted) {
     if (!tx.ticker) continue;
-    if (tx.ticker === 'SGOV') continue;
     if (tx.type === 'Dividend') continue;
     if (!holdings[tx.ticker]) holdings[tx.ticker] = { shares: 0, avgCost: 0 };
     const h = holdings[tx.ticker];
@@ -8783,7 +9057,7 @@ function computeClosedTrades(txs) {
   const closed = [];
   const sorted = [...txs].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
   for (const tx of sorted) {
-    if (!tx.ticker || tx.ticker === 'SGOV' || tx.type === 'Dividend') continue;
+    if (!tx.ticker || tx.type === 'Dividend') continue;
     const sh = tx.shares || 0, px = tx.price || 0;
     const tv = tx.tradeValue != null ? tx.tradeValue : sh * px;
     if (!open[tx.ticker]) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
@@ -10653,7 +10927,7 @@ function renderTxAnalytics(model, txs) {
   renderStatCards(model, {
     realizedPnl: computeRealizedPnlTotal(txs),
     dividends,
-    irr: computeIRR(txs, model.totalCurrent, model.totalInvested),
+    irr: computeIRR(txs, model.totalCurrent - model.totalCash),
   });
   renderDividendBreakdown(txs);
   const card = document.getElementById('divBreakdownCard');

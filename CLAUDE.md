@@ -90,8 +90,8 @@ Stock **and** ETF Volume (Positions → Performance tab) is sourced from **CNBC'
 ```
 parseRows(table)       → raw rows from gviz JSON — reads: symbol, name, sector, industry, category, qty, avgPrice, target, price, cash, cashRes, fcd, usd
 buildModel(rows,cashCtx) → cash from cashCtx (registry), rows pre-sliced by rowsForView; see Multi-Portfolio.
-                         { positions[], watchlist[], sgovPos, rawCash, rawFcd, rawUsd,
-                           sgovValue, cashResPct, totalCash, totalCurrent, investable,
+                         { positions[], watchlist[], sgovPos (always null — legacy field, see SGOV note),
+                           rawCash, rawFcd, rawUsd, cashResPct, totalCash, totalCurrent, investable,
                            totalInvested, totalPnl, totalPnlPct }
 fetchQuotes(symbols)   → thin wrapper (merges in CNBC volume, see Volume Fetching) around
                            _fetchQuotesBase(symbols): during market hours reads Quotes sheet via
@@ -122,7 +122,7 @@ _planAlertSigs         → Set of alert keys already fired — prevents duplicat
 - `fmtCurr(n)` — formats number to display currency (USD or THB based on `currency` global)
 - `fmtUSD(n)` — always formats as USD regardless of currency toggle; use for per-share stock prices and plan tab values
 - `colorFor(sym)` — stable color from PALETTE for a given symbol
-- `findPos(sym)` — finds a position in `currentModel` (positions + sgovPos)
+- `findPos(sym)` — finds a position in `currentModel` (positions + sgovPos, the latter always null)
 - `recordFetch(params, needsResponse)` — authenticated Apps Script write call
 - `nearestPrice(priceMap, dateStr)` — finds closest available price on or before a date
 - `css(v)` — resolves a CSS custom property to its trimmed value (`getComputedStyle` on `<html>`). Use this instead of inlining `getComputedStyle(...).getPropertyValue(...).trim()`.
@@ -181,7 +181,7 @@ function doGet(e) {
 - **Industry** — free-form string from Yahoo Finance `assetProfile.industry`; ETFs use `"ETF"`; falls back to `'Other'` in charts
 - **Market Cap** — a sheet formula column on `Claude` (computed sheet-side); `parseRows()` reads it directly via `cell(r, "Market Cap")` — no client or Apps Script fetch needed. Hidden entirely in the Performance table for the ETF portfolio view.
 - **Cash/Cash Reserves** — per-portfolio, stored in the `Portfolios` registry sheet. Pre-migration fallback reads from `Claude` row 1.
-- **SGOV** = Treasury ETF, treated as cash-equivalent (separate rendering path in `buildModel`; excluded from `computeClosedTrades` and `computePnLTimeline`)
+- **SGOV / bond ETFs** = treated as **normal holdings**, not cash. There is no SGOV special-case: `buildModel` runs SGOV through the regular positions loop (so `totalCash = rawCash` only, `sgovPos` is always `null`), and its trades count in `computeClosedTrades` / `computePnLTimeline` like any position. Any bond ETF (BIL, TLT, BND, …) behaves identically with no extra code. Only cosmetic residue: `colorFor('SGOV')` still returns a fixed brown, and the quote-fetch list still re-appends SGOV last (both harmless). Portfolio value/invested totals are unchanged vs. the old cash-equivalent treatment — the SGOV amount just moved from the cash bucket to the invested bucket.
 - Rows with no Qty and no AvgPrice → watchlist entries
 
 ## Returns Pipeline (Positions → Performance tab, 1M/3M/YTD/1Y/3Y/5Y)
@@ -268,7 +268,8 @@ All functions below operate on `txCache` (minimal fields). They are called insid
 - `computeRealizedPnlTotal(txs)` → sum of all realized P&L
 - `computeNetWorth(txs)` → `{ labels, netWorthLine, netInvestedLine }` — daily portfolio value vs net capital deployed; requires `historyCache.prices`
 - `computeClosedTrades(txs)` → closed-trade records `{ ticker, openDate, closeDate, holdDays, avgEntry, avgExit, shares, grossPnl, fees, netPnl, netPnlPct }`. `shares` = total cycle quantity (all partial sells summed). `netPnlPct` = `netPnl / (avgEntry × totalSoldQty)`. Handles re-opens (resets tracking after each full close).
-- `computeIRR(txs, totalCurrent, totalInvested)` → annualized CAGR since first buy
+- `computeIRR(txs, holdingsValue)` → **money-weighted XIRR** (annualized), NOT a simple CAGR. Solved by bisection (Actual/365) over dated cash flows: Buy = −outflow, Sell = +inflow, net Dividend = +inflow, Transfer-Out = +inflow / Transfer-In = −outflow (both at carried cost, so they cancel in the ALL view), terminal = `holdingsValue` (today's holdings market value — the caller passes `model.totalCurrent - model.totalCash`). Folds realized P&L + dividends + unrealized gains in by construction; returns `null` on no flows / no sign change / zero time span. **Side effect:** stashes the breakdown ingredients in the module global `_irrDetail = { invested, proceeds, dividends, transfersNet, terminal, firstDateMs, years, rate }` (left `null` on the guard returns). Dividends use the same `historyCache.dividends` + `sharesHeldAt` + `withholdingRate` source/math as `computeDividends`, so the two always reconcile.
+  - **IRR breakdown popover:** the "Annualised IRR" stat card has an inline ⓘ button (`toggleIrrBreakdown`) that renders a component summary of `_irrDetail`. The popover (`#irrBreakdown`) is created **lazily at `document.body` with `position: fixed`** and positioned via `getBoundingClientRect` — it must NOT live inside the card, because `.stat-card` has `container-type: inline-size` which traps descendant `z-index` in its own stacking context (an in-card popover renders *behind* sibling cards). Content reconciles to the "Total Return" card: `Total gain = terminal + proceeds + dividends + transfersNet − invested = unrealized + realized + dividends`. Closes on second-click / click-outside / Escape / scroll / any `renderStatCards` re-render.
 - `computeDividends(txs)` → gross/net dividend totals
 
 ## TV Chart (Lightweight Charts)
