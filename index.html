@@ -649,6 +649,11 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   color: var(--muted-2); letter-spacing: .3px;
 }
 
+.alloc-note {
+  font-size: 10px; color: var(--muted-2); letter-spacing: .2px;
+  margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line-soft);
+}
+
 /* Position list */
 .pos-list { display: flex; flex-direction: column; gap: 2px; max-height: 380px; overflow-y: auto; padding-right: 4px; }
 .pos-list::-webkit-scrollbar { width: 6px; }
@@ -801,6 +806,82 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .donut-wrap { position: relative; }
 .chart-wrap { position: relative; }
 .chart-wrap.donut-h { height: 260px; width: 100%; }
+
+/* ── Full-screen donut modal ── */
+.card-expand-btn {
+  margin-left: auto; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 2px; cursor: pointer;
+  color: var(--ink); opacity: .35; border-radius: 6px;
+  transition: opacity .15s, color .15s;
+}
+.card-expand-btn:hover { opacity: 1; color: var(--terracotta); }
+.card-expand-btn:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; opacity: 1; }
+.card-expand-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; }
+.card-expand-btn + .card-chevron { margin-left: 0; }
+
+.donut-overlay {
+  position: fixed; inset: 0; z-index: var(--z-overlay);
+  background: rgba(58,42,28,.45); backdrop-filter: blur(4px);
+  display: none; align-items: center; justify-content: center;
+  padding: max(var(--sp-5), env(safe-area-inset-top, 0px)) var(--sp-4) max(var(--sp-4), env(safe-area-inset-bottom, 0px));
+}
+.donut-overlay.open { display: flex; animation: overlayIn .2s var(--ease-out-quint); }
+.donut-overlay.open > .donut-modal { animation: modalIn .25s var(--ease-out-quint); }
+.donut-modal {
+  background: var(--card); color: var(--ink);
+  border-radius: var(--radius); border: 1px solid var(--card-edge);
+  box-shadow: var(--shadow-lg);
+  width: min(92vw, 1000px); max-height: 88vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.donut-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--line-soft);
+}
+.donut-modal-title {
+  font-family: var(--font-display); font-size: 18px; font-weight: 600;
+  color: var(--ink); letter-spacing: -.2px; margin: 0;
+}
+.donut-modal-close {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 24px; line-height: 1; padding: 2px 8px; border-radius: 8px;
+  transition: color .15s, background .15s;
+}
+.donut-modal-close:hover { color: var(--ink); background: var(--hover); }
+.donut-modal-close:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+.donut-modal-body {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(240px, .85fr);
+  gap: var(--sp-5); padding: var(--sp-5); min-height: 0;
+}
+.donut-modal-chart { position: relative; height: clamp(300px, 52vh, 480px); min-width: 0; }
+.donut-modal-chart canvas { width: 100% !important; height: 100% !important; }
+.donut-modal-legend {
+  overflow-y: auto; min-height: 0; max-height: clamp(300px, 52vh, 480px);
+  display: flex; flex-direction: column; gap: 2px; padding-right: 4px;
+}
+.donut-modal-legend::-webkit-scrollbar { width: 6px; }
+.donut-modal-legend::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.dm-legend-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 9px; border-radius: 8px; cursor: pointer;
+  transition: background .12s;
+}
+.dm-legend-row:hover { background: var(--hover); }
+.dm-legend-row.active { background: var(--hover); box-shadow: inset 0 0 0 1px var(--card-edge); }
+.dm-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+.dm-label { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-val { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dm-pct { font-family: var(--font-mono); font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+.dm-legend-row.residual { cursor: default; opacity: .6; }
+.dm-legend-row.residual:hover { background: none; }
+@media (max-width: 640px) {
+  .donut-overlay { padding: 0; }
+  .donut-modal { width: 100vw; max-width: 100vw; height: 100%; max-height: none; border-radius: 0; border: none; }
+  .donut-modal-body { grid-template-columns: 1fr; gap: var(--sp-4); overflow-y: auto; }
+  .donut-modal-chart { height: clamp(260px, 42vh, 360px); }
+  .donut-modal-legend { max-height: none; overflow-y: visible; }
+}
 .chart-wrap.bar-h   { height: 200px; }
 .donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; }
 .donut-center .dc-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
@@ -2043,12 +2124,13 @@ const I18N = {
     benchmark_error_msg: "Benchmark error:",
     overview_tab: "Overview", holding_tab: "Holding",
     transaction_tab: "Transaction", allocation_tab: "Allocation",
-    by_position_label: "By position", total_net_worth_label: "Total Net Worth",
+    by_position_label: "By position", alloc_incl_cash_note: "Weights are % of total portfolio (cash included)", total_net_worth_label: "Total Net Worth",
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
     industry_breakdown_title: "Industry Breakdown",
     top_holding_breakdown_title: "Top Holding Breakdown",
     other_unclassified_label: "Other/Unclassified",
+    expand_chart: "Expand",
     pnl_by_sector_title: "P&L by Sector", total_unrealized: "Total Unrealized P&L", th_value: "Value",
     my_plans_title: "My Plans",
     transactions_title: "Transactions", dividend_breakdown_title: "Dividend Breakdown",
@@ -2247,13 +2329,14 @@ const I18N = {
     // Shell / Header
     overview_tab: "ภาพรวม", holding_tab: "สินทรัพย์ที่ถือครอง",
     transaction_tab: "ประวัติรายการ", allocation_tab: "สัดส่วนการลงทุน",
-    by_position_label: "ตามสถานะถือครอง",
+    by_position_label: "ตามสถานะถือครอง", alloc_incl_cash_note: "น้ำหนักคิดเป็น % ของพอร์ตทั้งหมด (รวมเงินสด)",
     total_net_worth_label: "มูลค่าสินทรัพย์สุทธิรวม",
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
     industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
     top_holding_breakdown_title: "สัดส่วนหุ้นที่ถือครองสูงสุด",
     other_unclassified_label: "อื่นๆ/ไม่จัดประเภท",
+    expand_chart: "ขยาย",
     pnl_by_sector_title: "กำไร/ขาดทุนตามกลุ่มอุตสาหกรรม", total_unrealized: "กำไร/ขาดทุนที่ยังไม่รับรู้รวม", th_value: "มูลค่า",
     my_plans_title: "แผนการลงทุนของฉัน",
     transactions_title: "รายการซื้อขายทั้งหมด",
@@ -4889,7 +4972,8 @@ function rebalFundSellRow(p, overweight) {
   const owDollar = overweight == null ? null : p.currentValue - getTargetDollar(p, model);
   const owStr = overweight == null ? '—' : `${fmtPct(overweight)} (${fmtCurr(owDollar)})`;
   const sellDollar = st.checked ? (st.dollar || 0) : 0;
-  const allocAfter = model?.totalCurrent > 0 ? (p.currentValue - sellDollar) / model.totalCurrent * 100 : 0;
+  const stockTotal = (model?.totalCurrent || 0) - (model?.totalCash || 0);
+  const allocAfter = stockTotal > 0 ? (p.currentValue - sellDollar) / stockTotal * 100 : 0;
   return `<tr>
     <td><div class="asset-cell">${logoCell(p.symbol, colorFor(p.symbol))}<div class="asset-sym">${p.symbol}</div></div></td>
     <td class="${overweight == null ? 'cell-mut' : ''}">${owStr}</td>
@@ -4928,7 +5012,8 @@ window.onRebalFundSellDollar = function(sym, value) {
   const sharesEl = document.getElementById('rebalFundShares_' + sym);
   if (sharesEl) sharesEl.textContent = (p.price > 0 ? val / p.price : 0).toFixed(4);
   const allocEl = document.getElementById('rebalFundAlloc_' + sym);
-  if (allocEl) allocEl.textContent = (model?.totalCurrent > 0 ? (p.currentValue - val) / model.totalCurrent * 100 : 0).toFixed(1) + '%';
+  const stockTotal = (model?.totalCurrent || 0) - (model?.totalCash || 0);
+  if (allocEl) allocEl.textContent = (stockTotal > 0 ? (p.currentValue - val) / stockTotal * 100 : 0).toFixed(1) + '%';
   updateRebalFundBar();
 };
 
@@ -5871,12 +5956,14 @@ function renderGauge(model) {
 
 // ── Render: left position list ────────────────────────────────────────────────
 function renderPosList(model) {
-  const stockTotal = model.positions.reduce((s,p) => s + p.currentValue, 0);
+  // Allocation panel weights include cash in the denominator (unlike the
+  // positions table / risk panel, which weight against equity only), so every
+  // row here — stocks and cash — is a slice of the whole portfolio and sums to 100%.
   const items = model.positions
     .map(p => ({
       symbol: p.symbol,
       currentValue: p.currentValue,
-      weightPct: stockTotal > 0 ? p.currentValue / stockTotal * 100 : 0,
+      weightPct: model.totalCurrent > 0 ? p.currentValue / model.totalCurrent * 100 : 0,
       isCash: false,
     }))
     .concat([{
@@ -6918,16 +7005,20 @@ const donutOuterLabels = {
   }
 };
 
-function renderDonut(model) {
-  if (donutChartInst) { donutChartInst.destroy(); donutChartInst = null; }
+function _netWorthDonutData(model) {
   let positions = model.positions;
   if (categoryFilter !== 'All') positions = positions.filter(p => (p.category || 'Other') === categoryFilter);
   if (sectorFilter   !== 'All') positions = positions.filter(p => (p.sector   || 'Other') === sectorFilter);
   const noFilter = categoryFilter === 'All' && sectorFilter === 'All';
   const items = noFilter ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
-  const total = items.reduce((s, p) => s + p.currentValue, 0);
+  const total  = items.reduce((s, p) => s + p.currentValue, 0);
   const labels = items.map(p => p.symbol);
   const data   = items.map(p => p.currentValue);
+  return { labels, data, colors: labels.map(colorFor), total };
+}
+function renderDonut(model) {
+  if (donutChartInst) { donutChartInst.destroy(); donutChartInst = null; }
+  const { labels, data, colors, total } = _netWorthDonutData(model);
   const labelEl = document.getElementById('donut-label');
   const valueEl = document.getElementById('donut-value');
   const filterLabel = [categoryFilter !== 'All' ? t(categoryFilter) : '', sectorFilter !== 'All' ? t(sectorFilter) : ''].filter(Boolean).join(' · ');
@@ -6935,7 +7026,7 @@ function renderDonut(model) {
   if (valueEl) valueEl.textContent = fmtCurr(total);
   donutChartInst = new Chart(document.getElementById('donutChart').getContext('2d'), {
     type: 'doughnut',
-    data: { labels, datasets: donutDataset(data, labels.map(colorFor)) },
+    data: { labels, datasets: donutDataset(data, colors) },
     options: donutBaseOptions(c => ` ${c.label}: ${fmtCurr(c.raw)} (${total > 0 ? (c.raw/total*100).toFixed(1) : 0}%)`),
     plugins: [donutInnerRing, donutShadow, donutOuterLabels]
   });
@@ -7239,6 +7330,7 @@ function renderGroupedDonut(cfg, model) {
     },
     plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
   }));
+  return { labels, data, colors, total: drilled ? drillTotal : grandTotal, drilled: !!drilled };
 }
 
 // Shared post-drill sync for the filter-coupled donuts (sector + category).
@@ -7274,8 +7366,9 @@ const INDUSTRY_DONUT = {
   afterChange() { renderIndustryDonut(currentModel); }
 };
 function renderIndustryDonut(model) {
-  const titleEl = document.getElementById('industryBreakdownTitle');
-  if (titleEl) titleEl.textContent = activePortfolio === 'ETF' ? t('top_holding_breakdown_title') : t('industry_breakdown_title');
+  // Update only the text span, not the whole title (siblings = expand button + collapse chevron).
+  const titleTextEl = document.getElementById('industryBreakdownTitleText');
+  if (titleTextEl) titleTextEl.textContent = activePortfolio === 'ETF' ? t('top_holding_breakdown_title') : t('industry_breakdown_title');
   if (activePortfolio === 'ETF') { renderEtfTopHoldingDonut(model); return; }
   _setDonutNote('industryDonutNote', '');
   renderGroupedDonut(INDUSTRY_DONUT, model);
@@ -7309,11 +7402,11 @@ function _setDonutNote(id, text) {
   if (el) el.textContent = text;
 }
 
-function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, noun) {
+function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, noun, totalOverride) {
   if (getInst()) { getInst().destroy(); setInst(null); }
   const el = document.getElementById(elId);
   if (!el) return;
-  const grandTotal = data.reduce((s, v) => s + v, 0);
+  const grandTotal = totalOverride != null ? totalOverride : data.reduce((s, v) => s + v, 0);
   const centerPlugin = {
     id: elId + 'Center',
     afterDatasetsDraw(chart) {
@@ -7339,36 +7432,159 @@ function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, nou
   }));
 }
 
-function renderEtfSectorDonut(model) {
+// Blended-holdings → sector map. `total` is the whole ETF-portfolio value; slice
+// values only cover classified holdings, so `total - sum(data)` is the residual.
+function _etfSectorDonutData(model) {
   const { agg, totalVal } = _blendedEtfHoldings(model);
   const map = {};
-  let covered = 0;
   for (const h of Object.values(agg)) {
-    const dollar = h.blended * totalVal;
     const sector = _topHoldingSectors[h.symbol];
-    if (!sector || sector === '—') { covered += dollar; continue; }
-    map[sector] = (map[sector] || 0) + dollar;
-    covered += dollar;
+    if (!sector || sector === '—') continue;
+    map[sector] = (map[sector] || 0) + h.blended * totalVal;
   }
-  const residual = totalVal - covered;
   const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
+  return { labels: keys, data: keys.map(k => map[k]), colors: keys.map(colorFor), total: totalVal };
+}
+
+function _etfHoldingDonutData(model) {
+  const { agg, totalVal } = _blendedEtfHoldings(model);
+  const entries = Object.values(agg).map(h => ({ label: h.symbol, value: h.blended * totalVal }));
+  entries.sort((a, b) => b.value - a.value);
+  return { labels: entries.map(e => e.label), data: entries.map(e => e.value), colors: entries.map(e => colorFor(e.label)), total: totalVal };
+}
+
+function renderEtfSectorDonut(model) {
+  const { labels, data, colors, total } = _etfSectorDonutData(model);
+  const residual = total - data.reduce((s, v) => s + v, 0);
   _renderEtfStaticDonut('sectorDonutChart', () => etfSectorDonutInst, v => { etfSectorDonutInst = v; },
-    keys, keys.map(k => map[k]), keys.map(colorFor), 'sector');
+    labels, data, colors, 'sector');
   _setDonutNote('sectorDonutNote', residual > 0.5
-    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/totalVal*100).toFixed(1)}%)` : '');
+    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/total*100).toFixed(1)}%)` : '');
 }
 
 function renderEtfTopHoldingDonut(model) {
-  const { agg, totalVal } = _blendedEtfHoldings(model);
-  const entries = Object.values(agg).map(h => ({ label: h.symbol, value: h.blended * totalVal }));
-  const covered = entries.reduce((s, e) => s + e.value, 0);
-  const residual = totalVal - covered;
-  entries.sort((a, b) => b.value - a.value);
+  const { labels, data, colors, total } = _etfHoldingDonutData(model);
+  const residual = total - data.reduce((s, v) => s + v, 0);
   _renderEtfStaticDonut('industryDonutChart', () => etfHoldingDonutInst, v => { etfHoldingDonutInst = v; },
-    entries.map(e => e.label), entries.map(e => e.value), entries.map(e => colorFor(e.label)), 'holding');
+    labels, data, colors, 'holding');
   _setDonutNote('industryDonutNote', residual > 0.5
-    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/totalVal*100).toFixed(1)}%)` : '');
+    ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/total*100).toFixed(1)}%)` : '');
 }
+
+// ── Full-screen donut modal (expand icon on each donut card) ─────────────────
+let _donutModalKind = null, _donutModalInst = null, _donutModalDrill = null;
+
+function donutExpandBtn(kind) {
+  return `<button class="card-expand-btn" onclick="event.stopPropagation();openDonutModal('${kind}')" aria-label="${t('expand_chart')}" title="${t('expand_chart')}"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>`;
+}
+
+function _donutModalTitleFor(kind) {
+  if (kind === 'networth') return t('total_net_worth_label');
+  if (kind === 'category') return t('category_breakdown_title');
+  if (kind === 'sector')   return t('sector_breakdown_title');
+  if (kind === 'industry') return activePortfolio === 'ETF' ? t('top_holding_breakdown_title') : t('industry_breakdown_title');
+  return '';
+}
+
+// Modal-scoped clone of a grouped-donut config: same field/colour, but its own
+// chart instance + drilldown state (independent of the page) and a modal re-render.
+function _donutModalCfg(kind) {
+  const base = kind === 'sector' ? SECTOR_DONUT : kind === 'industry' ? INDUSTRY_DONUT : CATEGORY_DONUT;
+  return {
+    ...base,
+    elId: 'donutModalCanvas',
+    beforeRender: null,
+    getInst: () => _donutModalInst, setInst: v => { _donutModalInst = v; },
+    getDrill: () => _donutModalDrill, setDrill: v => { _donutModalDrill = v; },
+    afterChange() { renderDonutModal(); }
+  };
+}
+
+window.openDonutModal = function(kind) {
+  if (!currentModel) return;
+  _donutModalKind = kind;
+  _donutModalDrill = null;
+  const titleEl = document.getElementById('donutModalTitle');
+  if (titleEl) titleEl.textContent = _donutModalTitleFor(kind);
+  const ov = document.getElementById('donutModal');
+  if (ov) ov.classList.add('open');
+  requestAnimationFrame(() => renderDonutModal());
+};
+
+window.closeDonutModal = function() {
+  const ov = document.getElementById('donutModal');
+  if (ov) ov.classList.remove('open');
+  if (_donutModalInst) { _donutModalInst.destroy(); _donutModalInst = null; }
+  _donutModalKind = null; _donutModalDrill = null;
+};
+
+function renderDonutModal() {
+  const kind = _donutModalKind, model = currentModel;
+  if (!kind || !model) return;
+  const isEtf = activePortfolio === 'ETF' && (kind === 'sector' || kind === 'industry');
+  let res, showResidual = false;
+  if (kind === 'networth') {
+    res = _netWorthDonutData(model);
+    _renderEtfStaticDonut('donutModalCanvas', () => _donutModalInst, v => { _donutModalInst = v; },
+      res.labels, res.data, res.colors, 'portfolio', res.total);
+  } else if (isEtf) {
+    res = kind === 'sector' ? _etfSectorDonutData(model) : _etfHoldingDonutData(model);
+    showResidual = true;
+    _renderEtfStaticDonut('donutModalCanvas', () => _donutModalInst, v => { _donutModalInst = v; },
+      res.labels, res.data, res.colors, kind === 'sector' ? 'sector' : 'holding', res.total);
+  } else {
+    res = renderGroupedDonut(_donutModalCfg(kind), model);
+  }
+  _buildDonutLegend(res.labels, res.data, res.colors, res.total, showResidual);
+}
+
+function _buildDonutLegend(labels, data, colors, total, showResidual) {
+  const el = document.getElementById('donutModalLegend');
+  if (!el) return;
+  const rows = labels.map((lab, i) => ({ label: lab, value: data[i] || 0, color: colors[i], idx: i }))
+    .sort((a, b) => b.value - a.value);
+  let html = rows.map(r => {
+    const pct = total > 0 ? r.value / total * 100 : 0;
+    return `<div class="dm-legend-row" onclick="_highlightDonutSlice(this, ${r.idx})">
+      <span class="dm-swatch" style="background:${r.color}"></span>
+      <span class="dm-label">${r.label}</span>
+      <span class="dm-val">${fmtCurr(r.value)}</span>
+      <span class="dm-pct">${pct.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+  if (showResidual) {
+    const residual = total - data.reduce((s, v) => s + (v || 0), 0);
+    if (residual > 0.5) {
+      const pct = total > 0 ? residual / total * 100 : 0;
+      html += `<div class="dm-legend-row residual">
+        <span class="dm-swatch" style="background:var(--muted-2)"></span>
+        <span class="dm-label">${t('other_unclassified_label')}</span>
+        <span class="dm-val">${fmtCurr(residual)}</span>
+        <span class="dm-pct">${pct.toFixed(1)}%</span>
+      </div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+window._highlightDonutSlice = function(rowEl, idx) {
+  const ch = _donutModalInst;
+  if (!ch) return;
+  const already = rowEl.classList.contains('active');
+  document.querySelectorAll('#donutModalLegend .dm-legend-row.active').forEach(r => r.classList.remove('active'));
+  if (already) {
+    ch.setActiveElements([]);
+    if (ch.tooltip) ch.tooltip.setActiveElements([], { x: 0, y: 0 });
+    ch.update();
+    return;
+  }
+  rowEl.classList.add('active');
+  const meta = ch.getDatasetMeta(0);
+  const arc = meta && meta.data ? meta.data[idx] : null;
+  ch.setActiveElements([{ datasetIndex: 0, index: idx }]);
+  if (ch.tooltip) ch.tooltip.setActiveElements([{ datasetIndex: 0, index: idx }], arc ? { x: arc.x, y: arc.y } : { x: 0, y: 0 });
+  ch.update();
+};
 
 // ── Render: holdings performance ─────────────────────────────────────────────
 let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = false;
@@ -9735,10 +9951,11 @@ function buildShell() {
           <span id="allocListCount"></span>
         </div>
         <div class="pos-list" id="posList"></div>
+        <div class="alloc-note">${t('alloc_incl_cash_note')}</div>
       </div>
       <!-- Total Net Worth -->
       <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('total_net_worth_label')}</div>
+        <div class="card-title">${t('total_net_worth_label')}${donutExpandBtn('networth')}</div>
         <div class="chart-wrap donut-h donut-wrap">
           <canvas id="donutChart"></canvas>
           <div class="donut-center"><div class="dc-label" id="donut-label">${t('total_net_worth_label')}</div><div class="dc-value" id="donut-value">—</div></div>
@@ -9746,18 +9963,18 @@ function buildShell() {
       </div>
       <!-- Category Breakdown -->
       <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('category_breakdown_title')}</div>
+        <div class="card-title">${t('category_breakdown_title')}${donutExpandBtn('category')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="catDonutChart"></canvas></div>
       </div>
       <!-- Sector Breakdown -->
       <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('sector_breakdown_title')}</div>
+        <div class="card-title">${t('sector_breakdown_title')}${donutExpandBtn('sector')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
         <div id="sectorDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
       </div>
       <!-- Industry Breakdown -->
       <div class="card" data-mob-tab="allocation">
-        <div class="card-title" id="industryBreakdownTitle">${t('industry_breakdown_title')}</div>
+        <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutExpandBtn('industry')}</div>
         <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
         <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
       </div>
@@ -9785,6 +10002,18 @@ function buildShell() {
       <div class="card" id="divBreakdownCard" data-mob-tab="overview" style="display:none">
         <div class="card-title">${t('dividend_breakdown_title')}</div>
         <div id="divBreakdown"></div>
+      </div>
+    </div>
+  </div>
+  <div id="donutModal" class="donut-overlay">
+    <div class="donut-modal" role="dialog" aria-modal="true" aria-labelledby="donutModalTitle">
+      <div class="donut-modal-head">
+        <h2 class="donut-modal-title" id="donutModalTitle"></h2>
+        <button class="donut-modal-close" onclick="closeDonutModal()" aria-label="Close">×</button>
+      </div>
+      <div class="donut-modal-body">
+        <div class="donut-modal-chart"><canvas id="donutModalCanvas"></canvas></div>
+        <div class="donut-modal-legend" id="donutModalLegend"></div>
       </div>
     </div>
   </div>
@@ -11098,6 +11327,8 @@ async function init() {
       setupOverlayDismiss('actionModal',        () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); });
       setupOverlayDismiss('addSymbolModal',     () => document.getElementById('addSymbolModal').classList.remove('open'));
       setupOverlayDismiss('symbolDetailModal',  () => closeSymbolDetail());
+      const _dov = document.getElementById('donutModal');
+      if (_dov) _dov.addEventListener('click', e => { if (e.target === _dov) closeDonutModal(); });
     }
 
     document.getElementById('lastUpdated').textContent =
@@ -11157,6 +11388,7 @@ document.addEventListener('keydown', e => {
     { id: 'editCashModal',    close: () => document.getElementById('editCashModal').classList.remove('open') },
     { id: 'addSymbolModal',   close: () => document.getElementById('addSymbolModal').classList.remove('open') },
     { id: 'planModal',        close: () => closePlan() },
+    { id: 'donutModal',       close: () => closeDonutModal() },
   ];
   for (const m of modals) {
     const el = document.getElementById(m.id);
@@ -11544,7 +11776,7 @@ window.sendGeminiMessage = async function() {
 let _lastExtRefresh = 0;
 setInterval(() => {
   if (!_cfg) return;
-  const anyOpen = document.querySelector('.tx-overlay.open, .plan-overlay.open');
+  const anyOpen = document.querySelector('.tx-overlay.open, .plan-overlay.open, .donut-overlay.open');
   if (anyOpen) return;
   if (isMarketOpen()) { init(); return; }
   if (isExtendedHours()) {
