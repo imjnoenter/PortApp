@@ -2015,6 +2015,7 @@ const I18N = {
     tab_plan: "PLAN", tab_transaction: "TRANSACTION", tab_edit: "EDIT",
     tab_allocation: "ALLOCATION",
     remove_btn: "Remove", save_plan_btn: "Save Plan", clear_btn: "Clear",
+    clear_tranches_btn: "Clear Tranches", remove_plan_btn: "Remove Plan",
     add_tranche_btn: "+ Add Tranche", stop_loss_label: "Stop Loss ($)",
     note_label: "Note", comm_free_label: "Commission-free",
     deduct_from_label: "Deduct from", save_sheet_btn: "Save to Google Sheet",
@@ -2197,6 +2198,7 @@ const I18N = {
     tab_plan: "แผนลงทุน", tab_transaction: "บันทึกเทรด",
     tab_edit: "แก้ไขหุ้น", tab_allocation: "ตั้งเป้าหมาย",
     remove_btn: "ลบออก", save_plan_btn: "บันทึกแผน", clear_btn: "ล้างค่า",
+    clear_tranches_btn: "ล้างไม้ซื้อ", remove_plan_btn: "ลบแผน",
     add_tranche_btn: "+ เพิ่มไม้", stop_loss_label: "จุดตัดขาดทุน (SL)",
     note_label: "บันทึกเพิ่มเติม", comm_free_label: "ฟรีค่าธรรมเนียม",
     deduct_from_label: "ตัดเงินจาก", save_sheet_btn: "บันทึกลง Google Sheet",
@@ -4056,7 +4058,12 @@ function renderActionTabContent() {
 
   if (actionModalTab === 'plan') {
     // Render plan content inline
-    if (!pos) { el.innerHTML = '<div style="color:var(--muted);padding:12px 0">No position data</div>'; return; }
+    if (!pos) {
+      const orphanBtn = hasSavedPlan(sym, actionModalPort)
+        ? `<button class="pa-clear" onclick="removeOrphanPlan('${sym}')">${t('remove_plan_btn')}</button>` : '';
+      el.innerHTML = `<div style="color:var(--muted);padding:12px 0">No position data</div>${orphanBtn}`;
+      return;
+    }
     const td = getTargetDollar(pos, actionModel);
     const currPct = getCurrentPct(pos, actionModel);
     const tranchesHtml = planState.tranches.map((t,i) => {
@@ -4133,7 +4140,7 @@ function renderActionTabContent() {
         </div>
       </div>
       <div class="plan-actions">
-        <button class="pa-clear" onclick="clearPlanInAction()">${t('clear_btn')}</button>
+        <button class="pa-clear" onclick="clearTranchesInAction()">${t('clear_tranches_btn')}</button>
         <button class="pa-save" onclick="savePlanInAction()">${t('save_plan_btn')}</button>
       </div>
       <!-- Take Profit / Trim -->
@@ -4442,22 +4449,26 @@ window.savePlanInAction = function() {
   document.getElementById('actionModal')?.classList.remove('open');
   if (currentModel) { renderTable(currentModel); renderPlansPanel(); renderPlanWatch(); }
 };
-window.clearPlanInAction = function() {
+window.clearTranchesInAction = function() {
   const { symbol } = planState;
   if (!symbol) return;
+  // Clears only the entry tranches locally — SL/Note/TP/Target are kept, nothing is
+  // written until Save. Sync unsaved Note/Target from the DOM so the re-render preserves them.
   planState.note = document.getElementById('planNote')?.value?.trim() || '';
-  const sl   = planState.sl;
-  const note = planState.note;
-  const port = actionModalPort || DEFAULT_PORT;
-  if (!sl && !note) {
-    clearPlanFromSheet(symbol, port);
-    deletePlan(symbol, port);
-  } else {
-    setPlan(symbol, port, { tranches: [], sl, note });
-    savePlanToSheet(symbol, [], sl, note, [], port);
-  }
-  planState.tranches = [{cumPct:0}];
+  const tgtEl = document.getElementById('planTargetPct');
+  if (tgtEl) { const tgt = parseFloat(tgtEl.value); if (!isNaN(tgt)) planState.pendingTarget = tgt / 100; }
+  planState.tranches = [{ cumPct: 0 }];
   renderActionTabContent();
+};
+
+// Delete a leftover plan row for a symbol that has no position/watchlist entry ("No position data")
+window.removeOrphanPlan = function(sym) {
+  const port = actionModalPort || DEFAULT_PORT;
+  if (!confirm(`Remove plan for ${sym}?`)) return;
+  clearPlanFromSheet(sym, port);
+  deletePlan(sym, port);
+  destroyActionCharts();
+  document.getElementById('actionModal')?.classList.remove('open');
   renderPlansPanel();
   renderPlanWatch();
 };

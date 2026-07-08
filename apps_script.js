@@ -679,6 +679,12 @@ function removeSymbolAction(ss, p) {
   const row = findClaudeRow(sh, headers, sym, port);
   if (row < 0) return jsonResp({ ok: false, error: 'Not found: ' + sym + ' in ' + port });
   sh.deleteRow(row);
+  // Also remove any Plan row for this symbol+portfolio so no orphan plan is left behind
+  const planSheet = ss.getSheetByName('Plan');
+  if (planSheet) {
+    const pr = findPlanRow(planSheet, sym, port);
+    if (pr >= 0) planSheet.deleteRow(pr + 2);
+  }
   return jsonResp({ status: 'ok' });
 }
 
