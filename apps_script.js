@@ -685,6 +685,21 @@ function removeSymbolAction(ss, p) {
     const pr = findPlanRow(planSheet, sym, port);
     if (pr >= 0) planSheet.deleteRow(pr + 2);
   }
+  // If the symbol has no remaining rows in Claude under any portfolio, it's fully closed —
+  // remove its Calendar row too so no stale earnings/ex-div data lingers.
+  const symCol  = findColIdx(headers, 'Symbol');
+  const lastRow = sh.getLastRow();
+  const remaining = (symCol && lastRow >= 2)
+    ? sh.getRange(2, symCol, lastRow - 1, 1).getValues().flat().map(normSym)
+    : [];
+  if (!remaining.includes(sym)) {
+    const calSheet = ss.getSheetByName('Calendar');
+    if (calSheet) {
+      const calSyms = calSheet.getRange(1, 1, Math.max(calSheet.getLastRow(), 1), 1).getValues().flat();
+      const calRow = calSyms.findIndex(v => normSym(v) === sym);
+      if (calRow > 0) calSheet.deleteRow(calRow + 1);
+    }
+  }
   return jsonResp({ status: 'ok' });
 }
 

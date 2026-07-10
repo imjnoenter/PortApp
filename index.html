@@ -8607,7 +8607,9 @@ async function loadCalendar(model) {
   if (!el) return;
   el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_calendar_msg')}</div>`;
   const events = await readCalendarSheet();
-  if (events?.length) renderCalendarFromEvents(events);
+  const held = new Set(_allRows.map(r => r.symbol));
+  const filtered = events?.filter(e => held.has(e.symbol));
+  if (filtered?.length) renderCalendarFromEvents(filtered);
   else el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('no_calendar_data')}</div>`;
 }
 
