@@ -2466,6 +2466,7 @@ window.setTxType = function(t) {
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
   updateActionNewAvgLine();
+  updateActionTxSummary();
 };
 function updateTxAllocationBars(shares, price) {
   const barsEl = document.getElementById('txAllocBars');
@@ -2603,6 +2604,7 @@ window.updateTxCalc = function() {
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
   updateActionNewAvgLine();
+  updateActionTxSummary();
 };
 
 window.selectTxCash = function(src) {
@@ -3851,18 +3853,17 @@ async function buildTradeTvChart(sym) {
   updateTradeAvgLine();
 }
 
-// Trade Value/Fee/Qty/Avg summary, recomputed on every input change.
-function updateTradeSummary() {
-  const el = document.getElementById('tradeSummary');
-  if (!el) return;
+// Trade Value/Fee/Qty/Avg/Cash summary rows — shared by the Trade modal and the action modal's
+// Transaction tab. Reads the common txPrice/txShares inputs and the given (symbol, portfolio).
+function tradeSummaryRowsHtml(sym, port) {
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
   const tv  = price * shares;
-  const { comm, tax } = calcFees(tv);
+  const { comm, tax, buyTotal, sellNet } = calcFees(tv);
   const fee = comm + tax;
 
-  const model  = modelForPort(tradeModalPort);
-  const pos    = findPosIn(model, tradeModalSym);
+  const model  = modelForPort(port);
+  const pos    = findPosIn(model, sym);
   const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
   const isSell = txType === 'Sell';
   let newQty, newAvgStr;
@@ -3874,12 +3875,33 @@ function updateTradeSummary() {
     newAvgStr = newQty > 0 ? fmtUSD((curQty * curAvg + shares * price) / newQty) : fmtUSD(price);
   }
 
+  // Cash impact + cash weight (cash / total portfolio value). Buy drains cash by the all-in
+  // Cost, Sell adds net proceeds; the total portfolio value only moves by −fee either way.
+  const cashOld  = model.totalCash || 0;
+  const cashNew  = isSell ? cashOld + sellNet : cashOld - buyTotal;
+  const totalOld = model.totalCurrent || 0;
+  const totalNew = totalOld - fee;
+  const pct = (c, tot) => tot > 0 ? ` (${(c / tot * 100).toFixed(1)}%)` : '';
+
   const row = (label, val, last) => `<div style="display:flex;justify-content:space-between${last?'':';margin-bottom:4px'}"><span style="color:var(--muted)">${label}</span><strong>${val}</strong></div>`;
-  el.innerHTML =
-    row(t('trade_value_label'), fmtCurr(tv)) +
+  return row(t('trade_value_label'), fmtCurr(tv)) +
     row(t('trade_fee_label'), fmtCurr(fee)) +
     row(t('qty_label'), `${curQty.toFixed(4)} → ${newQty.toFixed(4)}`) +
-    row(t('avg_label'), `${fmtUSD(curAvg)} → ${newAvgStr}`, true);
+    row(t('avg_label'), `${fmtUSD(curAvg)} → ${newAvgStr}`) +
+    row(t('cash'), `${fmtCurr(cashOld)}${pct(cashOld, totalOld)} → ${fmtCurr(cashNew)}${pct(cashNew, totalNew)}`, true);
+}
+
+function updateTradeSummary() {
+  const el = document.getElementById('tradeSummary');
+  if (!el) return;
+  el.innerHTML = tradeSummaryRowsHtml(tradeModalSym, tradeModalPort);
+}
+
+// Same summary block for the action modal's Transaction tab (no-op off that tab).
+function updateActionTxSummary() {
+  const el = document.getElementById('actionTxSummary');
+  if (!el || actionModalTab !== 'transaction') return;
+  el.innerHTML = tradeSummaryRowsHtml(actionModalSym, actionModalPort);
 }
 
 // Three-way calc: Price × Qty = tradeValue, Cost = tradeValue ± fee (all-in cash amount).
@@ -4596,7 +4618,7 @@ function renderActionTabContent() {
       </div>
       <div id="txAllocBars"></div>
       ${buildCashSelectorHtml()}
-      <div class="tx-calc"><span>${t('trade_value_label')}: <strong id="txTradeValue">$0.00</strong></span></div>
+      <div id="actionTxSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
       <button class="tx-submit" id="txSubmit" onclick="submitTxInAction('${sym}')">${t('record_tx_btn')}</button>
       <div class="tx-status" id="txStatus"></div>
       ${symTxHistoryHtml(sym, actionModalPort)}`;
