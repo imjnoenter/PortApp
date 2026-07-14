@@ -1464,6 +1464,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   background: var(--terracotta); border: 1.5px solid var(--card);
 }
 
+/* Trade button — shares .plan-btn's per-skin shape/color rules; only the icon size differs
+   (its viewBox isn't the flattened 14x4 ellipsis aspect the other skins' svg rules assume). */
+[data-plan-btn="compact"] .trade-btn svg { width: 13px; height: 13px; }
+[data-plan-btn="pill"]    .trade-btn svg { width: 12px; height: 12px; }
+[data-plan-btn="badge"]   .trade-btn svg { width: 13px; height: 13px; }
+
 @keyframes action-pulse { 0%,100% { opacity: 1; } 50% { opacity: .15; } }
 .action-pulse { animation: action-pulse 1.1s ease-in-out infinite; font-weight: 700; }
 .action-tab-btn { flex: 1; padding: 8px 4px; border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .15s; letter-spacing: .4px; text-transform: uppercase; }
@@ -2162,6 +2168,9 @@ const I18N = {
     rebalfund_overweight_col: "Overweight %", rebalfund_sell_col: "Sell",
     rebalfund_dollar_col: "$ to Sell", rebalfund_shares_col: "Shares",
     rebalfund_cash_after_label: "Cash after trim", rebalfund_alloc_after_col: "Alloc after",
+    // Trade modal (quick buy/sell)
+    trade_tooltip: "Trade", buy_now_label: "Buy now", sell_now_label: "Sell now",
+    trade_cost_label: "Cost", trade_fee_label: "Fee",
   },
   TH: {
     refresh: "รีเฟรช", portfolio: "Portfolio", updated: "อัปเดตเมื่อ", port_all: "ทั้งหมด",
@@ -2379,6 +2388,9 @@ const I18N = {
     rebalfund_overweight_col: "เกินเป้าหมาย %", rebalfund_sell_col: "ขาย",
     rebalfund_dollar_col: "$ ที่จะขาย", rebalfund_shares_col: "จำนวนหุ้น",
     rebalfund_cash_after_label: "เงินสดหลังตัดขาย", rebalfund_alloc_after_col: "สัดส่วนหลังขาย",
+    // Trade modal (ซื้อ/ขายด่วน)
+    trade_tooltip: "เทรด", buy_now_label: "ซื้อเลย", sell_now_label: "ขายเลย",
+    trade_cost_label: "จำนวนเงิน", trade_fee_label: "ค่าธรรมเนียม",
   }
 };
 let currentLang = localStorage.getItem('lang') || 'EN';
@@ -2433,6 +2445,9 @@ let txType = 'Buy';
 window.openAddTx = function(symbol) {
   editingRow = null;
   txType = 'Buy';
+  // Clear the trade modal to avoid duplicate ID conflicts (txShares/txPrice/txNoCommission/...)
+  const tradeOverlay = document.getElementById('tradeModal');
+  if (tradeOverlay) { destroyTradeTvChart(); tradeOverlay.classList.remove('open'); tradeOverlay.innerHTML = ''; }
   const overlay = document.getElementById('txModal');
   overlay.innerHTML = buildTxModal(symbol, null);
   overlay.classList.add('open');
@@ -2450,6 +2465,7 @@ window.setTxType = function(t) {
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
+  updateActionNewAvgLine();
 };
 function updateTxAllocationBars(shares, price) {
   const barsEl = document.getElementById('txAllocBars');
@@ -2496,7 +2512,7 @@ function updateTxAllocationBars(shares, price) {
     return `<div style="margin-top:8px">
       <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px">
         <span>vs Target (${target.toFixed(1)}% · ${fmtCurr(targetAmt)})</span>
-        ${tradeVal>0?`<span style="color:${isSell?'var(--loss)':color};font-weight:600">${(newValue/(targetAmt||1)*100).toFixed(0)}% of target</span>`:''}
+        <span style="font-weight:600"><span style="color:var(--muted)">${(currValue/(targetAmt||1)*100).toFixed(0)}%</span>${tradeVal>0?` → <span style="color:${isSell?'var(--loss)':color}">${(newValue/(targetAmt||1)*100).toFixed(0)}%</span>`:''} <span style="color:var(--muted);font-weight:500">of target</span></span>
       </div>
       <div style="position:relative;height:6px;background:var(--line);border-radius:4px;overflow:hidden">
         ${bar(currPT,'0.35')}${tradeVal>0?bar(newPT):''}
@@ -2586,6 +2602,7 @@ window.updateTxCalc = function() {
   if (el) el.textContent = fmtCurr(shares * price);
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
+  updateActionNewAvgLine();
 };
 
 window.selectTxCash = function(src) {
@@ -3556,7 +3573,9 @@ window.submitEditCash = async function() {
 
 // ── Action modal charts ───────────────────────────────────────────────────────
 let actionChart1 = null, actionChart2 = null;
-let actionTvChart = null, actionTvSeries = null, actionTvLines = [], actionTvRo = null;
+let actionTvChart = null, actionTvSeries = null, actionTvLines = [], actionTvRo = null, actionTvNewAvgLine = null;
+let tradeTvChart = null, tradeTvSeries = null, tradeTvLines = [], tradeTvRo = null, tradeTvNewAvgLine = null;
+let tradeModalSym = null, tradeModalPort = null;
 
 function findPos(sym) {
   return currentModel?.positions.find(p => p.symbol === sym)
@@ -3569,6 +3588,7 @@ function destroyActionTvChart() {
   if (actionTvRo) { try { actionTvRo.disconnect(); } catch(_) {} actionTvRo = null; }
   actionTvLines.forEach(l => { try { actionTvSeries?.removePriceLine(l); } catch(_) {} });
   actionTvLines = [];
+  if (actionTvNewAvgLine) { try { actionTvSeries?.removePriceLine(actionTvNewAvgLine); } catch(_) {} actionTvNewAvgLine = null; }
   if (actionTvChart) { try { actionTvChart.remove(); } catch(_) {} actionTvChart = null; actionTvSeries = null; }
 }
 
@@ -3665,6 +3685,7 @@ async function buildActionTvChart(sym) {
   actionTvRo = new ResizeObserver(() => { if (actionTvChart) actionTvChart.resize(el.clientWidth, 220); });
   actionTvRo.observe(el);
   updateActionTvLines();
+  updateActionNewAvgLine();
 }
 
 function updateActionTvLines() {
@@ -3704,6 +3725,391 @@ function updateActionTvLines() {
     }));
   }
 }
+
+// Live "new avg" line for the action modal's Transaction tab — recomputed as the shares/price
+// inputs change. Same terracotta color + math as the Trade modal's line. No-op off that tab.
+function updateActionNewAvgLine() {
+  if (!actionTvSeries) return;
+  if (actionTvNewAvgLine) { try { actionTvSeries.removePriceLine(actionTvNewAvgLine); } catch(_) {} actionTvNewAvgLine = null; }
+  if (actionModalTab !== 'transaction') return;
+  const pos    = findPosIn(planState.model || currentModel, actionModalSym) || findPos(actionModalSym);
+  const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
+  const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
+  const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
+  if (!shares || !price) return;
+  let newAvg;
+  if (txType === 'Sell') { newAvg = curAvg; }
+  else { const nq = curQty + shares; newAvg = nq > 0 ? (curQty * curAvg + shares * price) / nq : price; }
+  if (newAvg > 0) {
+    actionTvNewAvgLine = actionTvSeries.createPriceLine({
+      price: newAvg, color: '#2f7fd1',
+      lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'New avg',
+    });
+  }
+}
+
+// ── Trade modal (standalone quick buy/sell) ─────────────────────────────────
+function destroyTradeTvChart() {
+  if (tradeTvRo) { try { tradeTvRo.disconnect(); } catch(_) {} tradeTvRo = null; }
+  tradeTvLines.forEach(l => { try { tradeTvSeries?.removePriceLine(l); } catch(_) {} });
+  tradeTvLines = [];
+  if (tradeTvNewAvgLine) { try { tradeTvSeries?.removePriceLine(tradeTvNewAvgLine); } catch(_) {} tradeTvNewAvgLine = null; }
+  if (tradeTvChart) { try { tradeTvChart.remove(); } catch(_) {} tradeTvChart = null; tradeTvSeries = null; }
+}
+
+// Live "new avg" line — recomputed on every input change. Buy: weighted avg of held + new
+// shares (fees excluded, matches postTransactionUpdates). Sell: avg is unchanged.
+function updateTradeAvgLine() {
+  if (!tradeTvSeries) return;
+  if (tradeTvNewAvgLine) { try { tradeTvSeries.removePriceLine(tradeTvNewAvgLine); } catch(_) {} tradeTvNewAvgLine = null; }
+  const model = modelForPort(tradeModalPort);
+  const pos   = findPosIn(model, tradeModalSym);
+  const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
+  const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
+  const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
+  let newAvg;
+  if (txType === 'Sell') {
+    newAvg = curAvg;
+  } else {
+    const newQty = curQty + shares;
+    newAvg = newQty > 0 ? (curQty * curAvg + shares * price) / newQty : price;
+  }
+  if (newAvg > 0) {
+    tradeTvNewAvgLine = tradeTvSeries.createPriceLine({
+      price: newAvg, color: '#2f7fd1',
+      lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'New avg',
+    });
+  }
+}
+
+async function buildTradeTvChart(sym) {
+  const el = document.getElementById('tradeTvChartEl');
+  if (!el || typeof LightweightCharts === 'undefined') return;
+  destroyTradeTvChart();
+  el.innerHTML = '';
+
+  const clrInk = css('--ink'), clrTrack = css('--track'), clrMuted = css('--ink-soft');
+  const symColor = colorFor(sym);
+
+  el.style.position = 'relative';
+  el.style.touchAction = 'none';
+  ({ chart: tradeTvChart, series: tradeTvSeries } = createTvAreaChart(el, 220, symColor, clrTrack, clrMuted));
+
+  const legend = document.createElement('div');
+  legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
+  el.appendChild(legend);
+
+  let priceMap = historyCache?.prices?.[sym] ? { ...historyCache.prices[sym] } : null;
+  const p2 = Math.floor(Date.now() / 1000);
+  const p1 = p2 - 2 * 365 * 86400;
+  const yahoo = await fetchYahooPrices(sym, p1, p2);
+  if (yahoo) {
+    priceMap = Object.assign({}, yahoo, priceMap || {});
+    if (!historyCache) historyCache = { prices: {}, dividends: {} };
+    if (!historyCache.prices) historyCache.prices = {};
+    historyCache.prices[sym] = priceMap;
+  }
+  if (priceMap && Object.keys(priceMap).length) {
+    const seriesData = buildTvSeriesData(sym, priceMap);
+    tradeTvSeries.setData(seriesData);
+
+    const fromStr = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
+    const clipped = seriesData.filter(d => d.time >= fromStr);
+    if (clipped.length > 1) tradeTvChart.timeScale().setVisibleRange({ from: clipped[0].time, to: clipped[clipped.length-1].time });
+    else tradeTvChart.timeScale().fitContent();
+
+    const last = seriesData[seriesData.length - 1];
+    const setLegend = val => {
+      legend.innerHTML = `<span style="font-size:12px;font-weight:700;color:${symColor}">${sym}</span>`
+        + `<span style="font-size:11px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(val)}</span>`;
+    };
+    if (last) setLegend(last.value);
+    tradeTvChart.subscribeCrosshairMove(param => {
+      const d = param.seriesData?.get(tradeTvSeries);
+      setLegend(d ? d.value : last?.value);
+    });
+  } else {
+    legend.innerHTML = `<span style="font-size:12px;font-weight:700;color:${symColor}">${sym}</span>`
+      + `<span style="font-size:10px;color:var(--muted);margin-left:8px">${t('no_history_msg')}</span>`;
+  }
+
+  tradeTvRo = new ResizeObserver(() => { if (tradeTvChart) tradeTvChart.resize(el.clientWidth, 220); });
+  tradeTvRo.observe(el);
+
+  // Static "current avg" line (drawn once; unlike the live "new avg" line this never moves)
+  const model = modelForPort(tradeModalPort);
+  const pos   = findPosIn(model, sym);
+  if (pos?.avgPrice > 0) {
+    tradeTvLines.push(tradeTvSeries.createPriceLine({
+      price: pos.avgPrice, color: clrMuted,
+      lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'Avg',
+    }));
+  }
+  updateTradeAvgLine();
+}
+
+// Trade Value/Fee/Qty/Avg summary, recomputed on every input change.
+function updateTradeSummary() {
+  const el = document.getElementById('tradeSummary');
+  if (!el) return;
+  const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
+  const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
+  const tv  = price * shares;
+  const { comm, tax } = calcFees(tv);
+  const fee = comm + tax;
+
+  const model  = modelForPort(tradeModalPort);
+  const pos    = findPosIn(model, tradeModalSym);
+  const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
+  const isSell = txType === 'Sell';
+  let newQty, newAvgStr;
+  if (isSell) {
+    newQty = Math.max(0, curQty - shares);
+    newAvgStr = newQty < 0.0001 ? '—' : fmtUSD(curAvg);
+  } else {
+    newQty = curQty + shares;
+    newAvgStr = newQty > 0 ? fmtUSD((curQty * curAvg + shares * price) / newQty) : fmtUSD(price);
+  }
+
+  const row = (label, val, last) => `<div style="display:flex;justify-content:space-between${last?'':';margin-bottom:4px'}"><span style="color:var(--muted)">${label}</span><strong>${val}</strong></div>`;
+  el.innerHTML =
+    row(t('trade_value_label'), fmtCurr(tv)) +
+    row(t('trade_fee_label'), fmtCurr(fee)) +
+    row(t('qty_label'), `${curQty.toFixed(4)} → ${newQty.toFixed(4)}`) +
+    row(t('avg_label'), `${fmtUSD(curAvg)} → ${newAvgStr}`, true);
+}
+
+// Three-way calc: Price × Qty = tradeValue, Cost = tradeValue ± fee (all-in cash amount).
+// source: 'price'|'qty' → forward (hold qty, recompute cost); 'cost' → backward (back out qty);
+// 'comm' → commission toggle, same forward path as 'qty' but doesn't reset the sell-all flag.
+function recomputeTradeFrom(source) {
+  const priceEl = document.getElementById('txPrice');
+  const qtyEl   = document.getElementById('txShares');
+  const costEl  = document.getElementById('tradeCost');
+  if (!priceEl || !qtyEl || !costEl) return;
+  const price  = parseFloat(priceEl.value) || 0;
+  const isSell = txType === 'Sell';
+  const noComm = document.getElementById('txNoCommission')?.checked;
+  const rate   = noComm ? 0 : 0.001605; // 0.15% commission + 7% VAT on commission
+
+  if (source === 'cost') {
+    const cost = parseFloat(costEl.value) || 0;
+    let tv = 0;
+    if (cost > 0) tv = noComm ? cost : (isSell ? cost / (1 - rate) : cost / (1 + rate));
+    const qty = (price > 0 && tv > 0) ? tv / price : 0;
+    qtyEl.value = qty > 0 ? qty.toFixed(6) : '';
+  } else {
+    if (source === 'qty') txSellAll = false;
+    const qty = parseFloat(qtyEl.value) || 0;
+    const tv  = qty * price;
+    const { buyTotal, sellNet } = calcFees(tv);
+    costEl.value = tv > 0 ? (isSell ? sellNet : buyTotal).toFixed(2) : '';
+  }
+
+  const shares = parseFloat(qtyEl.value) || 0;
+  updateTxAllocationBars(shares, price);
+  updateTxCashPreview();
+  updateTradeSummary();
+  updateTradeAvgLine();
+}
+window.onTradePrice      = () => recomputeTradeFrom('price');
+window.onTradeQty        = () => recomputeTradeFrom('qty');
+window.onTradeCost       = () => recomputeTradeFrom('cost');
+window.onTradeCommToggle = () => recomputeTradeFrom('comm');
+
+// Sell "All": fill Qty with this port's holdings (port-scoped, unlike the shared setSellAll
+// which reads the ALL-merged currentModel), flag sell-all, then refresh Cost + summary + avg.
+window.onTradeSellAll = function() {
+  const pos = findPosIn(modelForPort(tradeModalPort), tradeModalSym);
+  if (!pos?.qty) return;
+  const qtyEl = document.getElementById('txShares'), costEl = document.getElementById('tradeCost');
+  const price = parseFloat(document.getElementById('txPrice')?.value) || 0;
+  if (qtyEl) qtyEl.value = pos.qty;
+  txSellAll = true;
+  const { sellNet } = calcFees(pos.qty * price);
+  if (costEl) costEl.value = pos.qty * price > 0 ? sellNet.toFixed(2) : '';
+  updateTxAllocationBars(pos.qty, price);
+  updateTxCashPreview();
+  updateTradeSummary();
+  updateTradeAvgLine();
+};
+
+// Buy/Sell tab switch: keeps Price, clears Qty and Cost. recomputeTradeFrom('qty') then
+// re-renders alloc bars/cash/summary/avg at qty=0 for the new side (and resets sell-all).
+window.onTradeTypeChange = function(type) {
+  setTxType(type);
+  const qtyEl = document.getElementById('txShares'), costEl = document.getElementById('tradeCost');
+  if (qtyEl) qtyEl.value = '';
+  if (costEl) costEl.value = '';
+  recomputeTradeFrom('qty');
+};
+
+window.setTradePort = function(port) {
+  if (!port || port === tradeModalPort) return;
+  openTradeModal(tradeModalSym, port);
+};
+
+window.closeTradeModal = function() {
+  destroyTradeTvChart();
+  document.getElementById('tradeModal')?.classList.remove('open');
+};
+
+// Read-only per-symbol, per-portfolio transaction history (newest first). Shared by the Trade
+// modal and the action modal's Transaction tab, rendered under their Record-Transaction button.
+function symTxHistoryHtml(sym, port) {
+  const txs = txList
+    .filter(x => x.ticker === sym && (x.portfolio || DEFAULT_PORT) === port)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const badgeCls = x => x.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy';
+  const rows = txs.map(x => `<tr>
+      <td style="padding:6px 8px;white-space:nowrap;color:var(--muted);font-size:11px">${fmtDate(x.date)}</td>
+      <td style="padding:6px 8px"><span class="${badgeCls(x)}">${x.type}</span></td>
+      <td style="padding:6px 8px;text-align:right">${x.shares}</td>
+      <td style="padding:6px 8px;text-align:right">${fmtCurr(x.price)}</td>
+      <td style="padding:6px 8px;text-align:right">${fmtCurr(x.tradeValue)}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:600">${fmtCurr(x.total||x.tradeValue)}</td>
+    </tr>`).join('');
+  return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${t('tx_panel_title')}</div>
+    ${txs.length ? `<div style="max-height:180px;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:var(--muted);font-weight:500;border-bottom:1px solid var(--line)">
+          <th style="text-align:left;padding:5px 8px">${t('Date')}</th>
+          <th style="text-align:left;padding:5px 8px">${t('Type')}</th>
+          <th style="text-align:right;padding:5px 8px">${t('Shares')}</th>
+          <th style="text-align:right;padding:5px 8px">${t('Price')}</th>
+          <th style="text-align:right;padding:5px 8px">${t('Value')}</th>
+          <th style="text-align:right;padding:5px 8px">${t('Total')}</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>` : `<div style="color:var(--muted);text-align:center;padding:16px;font-size:12px">${t('no_tx_msg')}</div>`}
+  </div>`;
+}
+
+window.openTradeModal = function(sym, port) {
+  if (!currentModel) return;
+  const p = port || defaultPortFor(sym);
+  tradeModalSym = sym; tradeModalPort = p;
+  txType = 'Buy'; txSellAll = false;
+
+  // One-modal-open invariant — clear the standalone tx modal and the action modal, which
+  // share element ids (txShares/txPrice/txNoCommission/txCashSource/txAllocBars/txTicker/...).
+  const txOverlay = document.getElementById('txModal');
+  if (txOverlay) txOverlay.innerHTML = '';
+  const actionOverlay = document.getElementById('actionModal');
+  if (actionOverlay) { destroyActionCharts(); actionOverlay.classList.remove('open'); actionOverlay.innerHTML = ''; }
+
+  const model = modelForPort(p);
+  const pos   = findPosIn(model, sym) || findPos(sym);
+  const color = colorFor(sym);
+  const overlay = document.getElementById('tradeModal');
+  if (!overlay) return;
+
+  const portSelector = _portfolioRegistry.length > 1
+    ? `<select id="txPortfolio" onchange="setTradePort(this.value)" title="Portfolio" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--track);color:var(--ink);cursor:pointer">
+        ${_portfolioRegistry.map(r=>`<option value="${r.name}"${r.name===p?' selected':''}>${r.name}</option>`).join('')}
+      </select>`
+    : `<input type="hidden" id="txPortfolio" value="${p}">`;
+
+  overlay.innerHTML = `<div class="tx-modal" style="max-width:800px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
+    <div class="tx-header">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${logoCell(sym, color)}
+        <div>
+          <div style="font-size:15px;font-weight:700">${sym}</div>
+          <div style="font-size:11px;color:var(--muted)">${pos?.name||''}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
+            <span>${t('last_label')}&nbsp;<strong style="color:var(--ink)">${pos?.price!=null?fmtUSD(pos.price):'—'}</strong></span>
+            <span>${t('qty_label')}&nbsp;<strong style="color:var(--ink)">${(pos?.qty||0).toFixed(4)}</strong></span>
+            <span>${t('avg_label')}&nbsp;<strong style="color:var(--ink)">${fmtUSD(pos?.avgPrice||0)}</strong></span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        ${portSelector}
+        <button class="tx-close" onclick="closeTradeModal()">×</button>
+      </div>
+    </div>
+    <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:14px">
+      <div id="tradeTvChartEl" style="height:220px"></div>
+    </div>
+    <div class="tx-type-toggle" style="margin-bottom:14px">
+      <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
+      <button id="txSellBtn" class="tx-type-btn" onclick="onTradeTypeChange('Sell')">${t('sell_now_label')}</button>
+    </div>
+    <input type="hidden" id="txTicker" value="${sym}">
+    <div class="tx-row2">
+      <div class="tx-field"><label class="tx-label">${t('price_label')}</label>
+        <input class="tx-input" id="txPrice" type="number" step="any" min="0" value="${pos?.price||''}" oninput="onTradePrice()">
+      </div>
+      <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">${t('qty_label')}
+        <button id="txSellAllBtn" onclick="onTradeSellAll()" style="display:none;font-size:10px;font-weight:700;color:var(--loss);background:transparent;border:none;cursor:pointer;padding:0">${t('sell_all_btn')}</button>
+      </label>
+        <input class="tx-input" id="txShares" type="number" step="any" min="0" placeholder="0" oninput="onTradeQty()">
+      </div>
+    </div>
+    <div class="tx-field"><label class="tx-label">${t('trade_cost_label')}</label>
+      <input class="tx-input" id="tradeCost" type="number" step="any" min="0" placeholder="0" oninput="onTradeCost()">
+    </div>
+    <div class="tx-field" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--track);border-radius:8px">
+      <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="onTradeCommToggle()">
+      <div>
+        <label for="txNoCommission" style="font-size:13px;font-weight:600;cursor:pointer">${t('comm_free_label')}</label>
+        <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
+      </div>
+    </div>
+    <div id="txAllocBars"></div>
+    ${buildCashSelectorHtml()}
+    <div id="tradeSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
+    <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
+    <div class="tx-status" id="txStatus"></div>
+    ${symTxHistoryHtml(sym, p)}
+  </div>`;
+  overlay.classList.add('open');
+  setTimeout(() => { buildTradeTvChart(sym); recomputeTradeFrom('qty'); }, 0);
+};
+
+window.submitTradeModal = async function() {
+  const sym    = tradeModalSym;
+  const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
+  const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
+  const s = document.getElementById('txStatus');
+  if (!shares || !price) { if (s) s.innerHTML = `<span style="color:var(--loss)">${t('enter_shares_price_error')}</span>`; return; }
+  const submitBtn = document.getElementById('txSubmit');
+  if (submitBtn) submitBtn.disabled = true;
+  if (s) s.innerHTML = `<span style="color:var(--muted)">${t('saving_msg')}</span>`;
+  try {
+    const portfolio = document.getElementById('txPortfolio')?.value || tradeModalPort || DEFAULT_PORT;
+    const model  = modelForPort(portfolio);
+    const curQty = findPosIn(model, sym)?.qty || 0;
+    // Sell qty >= holdings → sell-all (postTransactionUpdates deletes the row instead of
+    // leaving a near-zero dust quantity), matching the "All" button's own behavior.
+    if (txType === 'Sell' && shares >= curQty - 1e-6) txSellAll = true;
+    const now  = new Date();
+    const date = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const time = now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
+    const params = new URLSearchParams({
+      date, time, type: txType, ticker: sym,
+      shares, price, tradeValue: (shares*price).toFixed(4),
+      commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
+      portfolio,
+    });
+    await recordFetch(params);
+    postTransactionUpdates(sym, shares, price, txType, portfolio);
+    if (s) s.innerHTML = `<span style="color:var(--gain)">${t('saved_msg')}</span>`;
+    setTimeout(() => {
+      closeTradeModal();
+      setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500);
+    }, 1000);
+  } catch(e) {
+    if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+    if (submitBtn) submitBtn.disabled = false;
+  }
+};
 
 function actionChartsHtml(sym) {
   const cat      = currentModel?.positions.find(p=>p.symbol===sym)?.category || 'Category';
@@ -3888,6 +4294,7 @@ window.updateActionChartsPreview = function() {
 
 // ── Action modal (per-symbol hub) ────────────────────────────────────────────
 const ACTION_ICON = `<svg viewBox="0 0 14 4" width="14" height="4" fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/><circle cx="12" cy="2" r="1.8"/></svg><span class="pb-label">Actions</span>`;
+const TRADE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10 3 6l4-4"/><path d="M3 6h13a4 4 0 0 1 4 4v1"/><path d="M17 14l4 4-4 4"/><path d="M21 18H8a4 4 0 0 1-4-4v-1"/></svg><span class="pb-label">Trade</span>`;
 const GEMINI_ICON = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2c-.3 3.4-1.8 6.2-4 8.3C5.8 12.4 3 13.8 0 14c3 .2 5.8 1.6 8 3.7 2.2 2.1 3.7 4.9 4 8.3.3-3.4 1.8-6.2 4-8.3 2.2-2.1 5-3.5 8-3.7-3-.2-5.8-1.6-8-3.7C13.8 8.2 12.3 5.4 12 2z" fill="#4285f4"/></svg>`;
 
 // Build a model scoped to a single portfolio (for the action modal in ALL view).
@@ -3911,9 +4318,11 @@ window.openActionModal = function(sym, port) {
   actionModalPort = port || defaultPortFor(sym);
   tabDraft = {};
   resetRebalFund();
-  // Clear standalone txModal to avoid duplicate ID conflicts (txAllocBars, txTicker, etc.)
+  // Clear standalone txModal and the trade modal to avoid duplicate ID conflicts (txAllocBars, txTicker, etc.)
   const txOverlay = document.getElementById('txModal');
   if (txOverlay) txOverlay.innerHTML = '';
+  const tradeOverlay = document.getElementById('tradeModal');
+  if (tradeOverlay) { destroyTradeTvChart(); tradeOverlay.classList.remove('open'); tradeOverlay.innerHTML = ''; }
   const portModel = modelForPort(actionModalPort);
   const pos   = findPosIn(portModel, sym) || findPos(sym);
   const color = colorFor(sym);
@@ -4189,7 +4598,8 @@ function renderActionTabContent() {
       ${buildCashSelectorHtml()}
       <div class="tx-calc"><span>${t('trade_value_label')}: <strong id="txTradeValue">$0.00</strong></span></div>
       <button class="tx-submit" id="txSubmit" onclick="submitTxInAction('${sym}')">${t('record_tx_btn')}</button>
-      <div class="tx-status" id="txStatus"></div>`;
+      <div class="tx-status" id="txStatus"></div>
+      ${symTxHistoryHtml(sym, actionModalPort)}`;
     setTimeout(() => { updateTxCalc(); buildActionTvChart(sym); }, 0);
 
   } else if (actionModalTab === 'edit') {
@@ -6687,7 +7097,7 @@ function renderTable(model) {
 
     return `<tr>
       <td><div class="asset-cell">${logoCell(p.symbol, color)}
-        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
+        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button><button class="plan-btn trade-btn" onclick="openTradeModal('${p.symbol}')" title="${t('trade_tooltip')}">${TRADE_ICON}</button></div><div class="asset-name">${p.name}</div></div>
       </div></td>
       <td>${dc(fmtCurr(p.price), priceSub, priceSubCls)}</td>
       <td class="${dayCls}">${dc(dayChgStr, dayPctStr, dayCls)}</td>
@@ -10048,6 +10458,7 @@ function buildShell() {
   <div id="txHistoryModal" class="tx-overlay"></div>
   <div id="editCashModal" class="tx-overlay"></div>
   <div id="actionModal" class="tx-overlay"></div>
+  <div id="tradeModal" class="tx-overlay"></div>
   <div id="addSymbolModal" class="tx-overlay"></div>
   <div id="symbolDetailModal" class="tx-overlay"></div>`;
   // Re-apply theme & tone icons after shell rebuild
@@ -11296,6 +11707,7 @@ async function init() {
         const modals = [
           { id: 'allocMgmtModal',    close: () => closeAllocMgmt() },
           { id: 'actionModal',       close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
+          { id: 'tradeModal',        close: () => closeTradeModal() },
           { id: 'symbolDetailModal', close: () => closeSymbolDetail() },
           { id: 'txModal',           close: () => closeTx() },
           { id: 'txHistoryModal',    close: () => document.getElementById('txHistoryModal').classList.remove('open') },
@@ -11338,6 +11750,7 @@ async function init() {
       setupOverlayDismiss('txHistoryModal',     () => document.getElementById('txHistoryModal').classList.remove('open'));
       setupOverlayDismiss('editCashModal',      () => document.getElementById('editCashModal').classList.remove('open'));
       setupOverlayDismiss('actionModal',        () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); });
+      setupOverlayDismiss('tradeModal',         () => closeTradeModal());
       setupOverlayDismiss('addSymbolModal',     () => document.getElementById('addSymbolModal').classList.remove('open'));
       setupOverlayDismiss('symbolDetailModal',  () => closeSymbolDetail());
       const _dov = document.getElementById('donutModal');
@@ -11395,6 +11808,7 @@ document.addEventListener('keydown', e => {
   const modals = [
     { id: 'allocMgmtModal',   close: () => closeAllocMgmt() },
     { id: 'actionModal',      close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
+    { id: 'tradeModal',       close: () => closeTradeModal() },
     { id: 'symbolDetailModal',close: () => closeSymbolDetail() },
     { id: 'txModal',          close: () => closeTx() },
     { id: 'txHistoryModal',   close: () => document.getElementById('txHistoryModal').classList.remove('open') },
