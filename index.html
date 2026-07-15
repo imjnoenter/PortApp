@@ -2494,16 +2494,12 @@ function updateTxAllocationBars(shares, price) {
   const newW  = newTotal  > 0 ? newValue  / newTotal  * 100 : 0;
   const color = colorFor(sym);
 
-  // Bar 1: weight bar (current → projected)
-  const scaleW  = Math.max(newW, currW, target ?? 0, 1);
-  const bar = (val, opacity='1') => `<div style="position:absolute;left:0;top:0;height:100%;width:100%;transform:scaleX(${Math.min(val/scaleW,1).toFixed(4)});transform-origin:left;background:${color};opacity:${opacity};border-radius:4px;transition:transform .3s var(--ease-out-quint)"></div>`;
-  const tick = pct => pct != null ? `<div style="position:absolute;top:-3px;height:12px;width:2px;background:var(--ink);opacity:.7;left:${Math.min(pct/scaleW*100,100).toFixed(1)}%;border-radius:1px"></div>` : '';
-
   // Bar 2: vs target (0–100% of target)
   const tBar = target != null ? (() => {
     const currPT = target > 0 ? Math.min(currValue/(targetAmt||1)*100, 150) : 0;
     const newPT  = target > 0 ? Math.min(newValue /(targetAmt||1)*100, 150) : 0;
     const scaleT = Math.max(newPT, currPT, 100);
+    const tFill = (val, opacity='1') => `<div style="position:absolute;left:0;top:0;height:100%;width:100%;transform:scaleX(${Math.min(val/scaleT,1).toFixed(4)});transform-origin:left;background:${color};opacity:${opacity};border-radius:4px;transition:transform .3s var(--ease-out-quint)"></div>`;
     const needMore = addValue > 0 ? targetAmt - newValue : targetAmt - currValue;
     const msg = currValue >= (targetAmt??0)
       ? `<span style="color:#a8762a">Overweight ${fmtCurr(currValue-(targetAmt??0))}</span>`
@@ -2516,7 +2512,7 @@ function updateTxAllocationBars(shares, price) {
         <span style="font-weight:600"><span style="color:var(--muted)">${(currValue/(targetAmt||1)*100).toFixed(0)}%</span>${tradeVal>0?` → <span style="color:${isSell?'var(--loss)':color}">${(newValue/(targetAmt||1)*100).toFixed(0)}%</span>`:''} <span style="color:var(--muted);font-weight:500">of target</span></span>
       </div>
       <div style="position:relative;height:6px;background:var(--line);border-radius:4px;overflow:hidden">
-        ${bar(currPT,'0.35')}${tradeVal>0?bar(newPT):''}
+        ${tFill(currPT,'0.35')}${tradeVal>0?tFill(newPT):''}
         <div style="position:absolute;top:-3px;height:12px;width:2px;background:var(--ink);opacity:.7;left:${(100/scaleT*100).toFixed(1)}%;border-radius:1px"></div>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:3px">${msg}</div>
