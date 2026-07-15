@@ -1872,6 +1872,7 @@ function _buildUrls(c) {
   return { SHEET_URL: b+'Claude', TRANSACTION_URL: b+'transactions', TX_LIST_URL: b+'transactions',
            HISTORY_URL: b+'History', CALENDAR_URL: b+'Calendar', PLAN_URL: b+'Plan',
            QUOTES_URL: b+'Quotes', RETURNS_URL: b+'Returns', PORTFOLIOS_URL: b+'Portfolios',
+           CONTRIBUTIONS_URL: b+'Contributions',
            RECORD_URL: c.recordUrl, WRITE_KEY: c.writeKey };
 }
 function _applyActiveProfile() {
@@ -1881,6 +1882,7 @@ function _applyActiveProfile() {
   SHEET_URL = u.SHEET_URL; TRANSACTION_URL = u.TRANSACTION_URL; TX_LIST_URL = u.TX_LIST_URL;
   HISTORY_URL = u.HISTORY_URL; CALENDAR_URL = u.CALENDAR_URL; PLAN_URL = u.PLAN_URL;
   QUOTES_URL = u.QUOTES_URL; RETURNS_URL = u.RETURNS_URL; PORTFOLIOS_URL = u.PORTFOLIOS_URL;
+  CONTRIBUTIONS_URL = u.CONTRIBUTIONS_URL;
   RECORD_URL = u.RECORD_URL; _WRITE_KEY = u.WRITE_KEY;
   _staticQuoteCache = {};
 }
@@ -1930,10 +1932,12 @@ let _WRITE_KEY      = _u.WRITE_KEY       || '';
 let QUOTES_URL      = _u.QUOTES_URL      || '';
 let RETURNS_URL     = _u.RETURNS_URL     || '';
 let PORTFOLIOS_URL  = _u.PORTFOLIOS_URL  || '';
+let CONTRIBUTIONS_URL = _u.CONTRIBUTIONS_URL || '';
 let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, earningsTimestamp, ... } }
 let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo', updatedAt?: unixSec }
 let _etfDataCache = {};
 let _stockReturnsCache = {};
+let _contribCache = {}; // { [portfolio]: { depositTHB, withdrawUSD } }
 
 // ── Write helper — injects auth key on every mutating request ─────────────────
 function _showToast(msg, duration = 3500) {
@@ -2070,6 +2074,8 @@ const I18N = {
     stop_loss_upper_label: "STOP LOSS", note_upper_label: "NOTE",
     edit_cash_title: "Edit Cash", before_label: "BEFORE", after_label: "AFTER",
     fcd_label: "FCD", usd_label: "USD",
+    add_contribution: "Add Contribution", deposit: "Deposit", withdraw: "Withdraw",
+    contrib_note: "Note", contrib_amount: "Amount",
     target_alloc_label: "Target Allocation", set_pct_hint: "— set % to calculate",
     take_profit_trim_label: "Take Profit / Trim", exit_price_label: "Exit Price",
     no_position_data: "No position data", optional_placeholder: "optional",
@@ -2267,6 +2273,8 @@ const I18N = {
     edit_cash_title: "แก้ไขจำนวนเงินสด",
     before_label: "ก่อนหน้า", after_label: "หลังจากนี้",
     fcd_label: "FCD", usd_label: "USD",
+    add_contribution: "เพิ่มเงินเข้า/ออก", deposit: "ฝากเงิน", withdraw: "ถอนเงิน",
+    contrib_note: "หมายเหตุ", contrib_amount: "จำนวนเงิน",
     // Action Modal — Plan Tab
     target_alloc_label: "สัดส่วนเป้าหมาย", set_pct_hint: "— กำหนด % เพื่อคำนวณ",
     take_profit_trim_label: "ขายทำกำไร / แบ่งขาย", exit_price_label: "ราคาขายออก",
@@ -3562,6 +3570,75 @@ window.submitEditCash = async function() {
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
     setTimeout(() => {
       document.getElementById('editCashModal')?.classList.remove('open');
+      init();
+    }, 1000);
+  } catch(e) {
+    statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+  }
+};
+
+// ── Add Contribution modal ─────────────────────────────────────────────────────
+window.openAddContribution = function() {
+  const overlay = document.getElementById('contribModal');
+  if (!overlay) return;
+  const editPort = (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
+  const portSel = _portfolioRegistry.length > 1
+    ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
+        <select class="tx-input" id="contribPort">
+          ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
+        </select></div>` : `<input type="hidden" id="contribPort" value="${editPort}">`;
+  overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
+    <div class="tx-header">
+      <div class="tx-title">${t('add_contribution')}</div>
+      <button class="tx-close" onclick="document.getElementById('contribModal').classList.remove('open')">×</button>
+    </div>
+    ${portSel}
+    <div class="tx-field">
+      <label class="tx-label">${t('deposit')}/${t('withdraw')}</label>
+      <select class="tx-input" id="contribType" onchange="onContribTypeChange()">
+        <option value="Deposit">${t('deposit')}</option>
+        <option value="Withdraw">${t('withdraw')}</option>
+      </select>
+    </div>
+    <div class="tx-field">
+      <label class="tx-label">Date</label>
+      <input class="tx-input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+    </div>
+    <div class="tx-field">
+      <label class="tx-label">${t('contrib_amount')} (<span id="contribCurLabel">฿</span>)</label>
+      <input class="tx-input" id="contribAmount" type="number" step="any" min="0">
+    </div>
+    <div class="tx-field">
+      <label class="tx-label">${t('contrib_note')}</label>
+      <input class="tx-input" id="contribNote" type="text">
+    </div>
+    <button class="tx-submit" onclick="saveContribution()">Save to Google Sheet</button>
+    <div class="tx-status" id="contribStatus"></div>
+  </div>`;
+  overlay.classList.add('open');
+};
+
+window.onContribTypeChange = function(){
+  const ty = document.getElementById('contribType')?.value;
+  const l = document.getElementById('contribCurLabel');
+  if (l) l.textContent = ty === 'Withdraw' ? '$' : '฿';
+};
+
+window.saveContribution = async function() {
+  const rawPort = document.getElementById('contribPort')?.value || DEFAULT_PORT;
+  const type   = document.getElementById('contribType')?.value || 'Deposit';
+  const date   = document.getElementById('contribDate')?.value || '';
+  const amount = parseFloat(document.getElementById('contribAmount')?.value) || 0;
+  const note   = document.getElementById('contribNote')?.value || '';
+  const currency = type === 'Withdraw' ? 'USD' : 'THB';
+  const statusEl = document.getElementById('contribStatus');
+  statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
+  try {
+    const params = new URLSearchParams({ action: 'addContribution', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort, date, type, amount, currency, note });
+    await recordFetch(params);
+    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
+    setTimeout(() => {
+      document.getElementById('contribModal')?.classList.remove('open');
       init();
     }, 1000);
   } catch(e) {
@@ -5662,6 +5739,7 @@ function fmtUSD(n) {
   if (n == null) return '—';
   return n.toLocaleString('en-US', {style:'currency', currency:'USD', maximumFractionDigits:2});
 }
+function fmtBaht(n){ if(n==null) return '—'; return (n<0?'-':'')+'฿'+Math.round(Math.abs(n)).toLocaleString('en-US'); }
 function fmtCompact(n) {
   if (n == null) return '—';
   if (Math.abs(n) >= 1e12) return '$' + (n / 1e12).toFixed(1) + 'T';
@@ -6035,10 +6113,25 @@ function renderStatCards(model, txData) {
     <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(stocksVal)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
 
   const retLabel = [model.totalPnl !== 0 ? t('unrealized') : null, realized != null ? t('realized') : null, div?.net ? t('dividends') : null].filter(Boolean).join(' + ') || t('unrealized');
-  set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
-    <div class="sc-value ${cl(totalRet)}">${m(totalRet)}</div>
-    <div class="sc-sub ${cl(totalRetPct)}">${p(totalRetPct)}</div>
-    <div class="sc-detail">${retLabel}</div>`);
+  const nc = netContributedForView();
+  const netContribTHB = nc.depositTHB - nc.withdrawUSD * fxRate;
+  const sUSD = v => (v>=0?'+':'') + fmtUSD(v);
+  const sBaht = v => (v>=0?'+':'') + fmtBaht(v);
+  if (netContribTHB > 0) {
+    const valueNowTHB   = model.totalCurrent * fxRate;
+    const realProfitTHB = valueNowTHB - netContribTHB;          // ③
+    const realProfitPct = realProfitTHB / netContribTHB * 100;  // ④
+    const fxGainUSD     = realProfitTHB / fxRate - totalRet;    // ②
+    set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
+      <div class="sc-value ${cl(totalRet)}">${sUSD(totalRet)} <span class="sc-sub" style="font-weight:500;color:var(--ink)">(${sUSD(fxGainUSD)})</span></div>
+      <div class="sc-sub ${cl(realProfitTHB)}" style="font-weight:600">${sBaht(realProfitTHB)} <span class="${cl(realProfitPct)}" style="font-weight:500">(${p(realProfitPct)})</span></div>
+      <div class="sc-detail">${retLabel}</div>`);
+  } else {
+    set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
+      <div class="sc-value ${cl(totalRet)}">${m(totalRet)}</div>
+      <div class="sc-sub ${cl(totalRetPct)}">${p(totalRetPct)}</div>
+      <div class="sc-detail">${retLabel}</div>`);
+  }
 
   set('sc-dayRet', `<div class="sc-label">${t('day_ret')}</div>
     <div class="sc-value ${cl(dayChange$)}">${dayHasData ? m(dayChange$) : '—'}</div>
@@ -6054,7 +6147,10 @@ function renderStatCards(model, txData) {
   set('sc-cash', `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div class="sc-label" style="margin-bottom:0">${t('cash')}</div>
-      <button class="cash-edit-btn" onclick="openEditCash()" title="Edit cash balances"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>${t('edit')}</button>
+      <div style="display:flex;gap:6px">
+        <button class="cash-edit-btn" onclick="openAddContribution()" title="${t('add_contribution')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <button class="cash-edit-btn" onclick="openEditCash()" title="Edit cash balances"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>${t('edit')}</button>
+      </div>
     </div>
     <div class="sc-value">${fmtCurr(model.totalCash)}</div>
     <div class="sc-sub mut"><span style="display:inline-block">${cashPct.toFixed(1)}% ·&nbsp;</span><span style="display:inline-block">${t('target')} ${((model.cashResPct||0)*100).toFixed(0)}%</span></div>
@@ -8978,6 +9074,33 @@ async function readCalendarSheet() {
   } catch(e) { console.error('readCalendarSheet:', e); return null; }
 }
 
+// ── Contributions (real THB deposits / USD withdrawals, per portfolio) ────────
+async function fetchContributions(){
+  _contribCache = {};
+  try{
+    const res = await fetch(CONTRIBUTIONS_URL);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(text.indexOf('(')+1, text.lastIndexOf(')')));
+    const rows = json.table?.rows || [];
+    for(const row of rows){
+      const c = row.c || [];
+      const port = c[0]?.v; if(!port || port==='Portfolio') continue;
+      const type = (c[2]?.v||'').toString();
+      const amt  = Number(c[3]?.v)||0;
+      const cur  = (c[4]?.v||'').toString().toUpperCase();
+      const b = _contribCache[port] || (_contribCache[port]={depositTHB:0, withdrawUSD:0});
+      if(type.toLowerCase().startsWith('deposit') || cur==='THB') b.depositTHB += amt;
+      else b.withdrawUSD += amt;
+    }
+  }catch(e){ console.error('fetchContributions:', e); }
+}
+function netContributedForView(){
+  const ports = activePortfolio==='ALL' ? Object.keys(_contribCache) : [activePortfolio];
+  let depositTHB=0, withdrawUSD=0;
+  for(const p of ports){ const b=_contribCache[p]; if(b){ depositTHB+=b.depositTHB; withdrawUSD+=b.withdrawUSD; } }
+  return { depositTHB, withdrawUSD };
+}
+
 function renderCalendarFromEvents(events) {
   const el = document.getElementById('calendarPanel');
   if (!el) return;
@@ -10475,6 +10598,7 @@ function buildShell() {
   <div id="txModal" class="tx-overlay"></div>
   <div id="txHistoryModal" class="tx-overlay"></div>
   <div id="editCashModal" class="tx-overlay"></div>
+  <div id="contribModal" class="tx-overlay"></div>
   <div id="actionModal" class="tx-overlay"></div>
   <div id="tradeModal" class="tx-overlay"></div>
   <div id="addSymbolModal" class="tx-overlay"></div>
@@ -10601,7 +10725,7 @@ window.submitSetup = function() {
     if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData,
       theme:    localStorage.getItem('theme')    || 'light',
@@ -10616,7 +10740,7 @@ window.submitSetup = function() {
     closeSetupModal();
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData };
@@ -10624,7 +10748,7 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null;
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null;
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _contribCache = {};
   }
   init();
 };
@@ -11664,7 +11788,7 @@ async function init() {
   Chart.helpers.each(Chart.instances, c => c.destroy());
 
   try {
-    const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios()]);
+    const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios(), fetchContributions()]);
     fxRate = rate;
     _allRows = parseRows(table);
     _portfolioRegistry = portfolios;
@@ -11730,6 +11854,7 @@ async function init() {
           { id: 'txModal',           close: () => closeTx() },
           { id: 'txHistoryModal',    close: () => document.getElementById('txHistoryModal').classList.remove('open') },
           { id: 'editCashModal',     close: () => document.getElementById('editCashModal').classList.remove('open') },
+          { id: 'contribModal',      close: () => document.getElementById('contribModal').classList.remove('open') },
           { id: 'addSymbolModal',    close: () => document.getElementById('addSymbolModal').classList.remove('open') },
           { id: 'planModal',         close: () => closePlan() },
         ];
@@ -11767,6 +11892,7 @@ async function init() {
       setupOverlayDismiss('txModal',            () => closeTx());
       setupOverlayDismiss('txHistoryModal',     () => document.getElementById('txHistoryModal').classList.remove('open'));
       setupOverlayDismiss('editCashModal',      () => document.getElementById('editCashModal').classList.remove('open'));
+      setupOverlayDismiss('contribModal',       () => document.getElementById('contribModal').classList.remove('open'));
       setupOverlayDismiss('actionModal',        () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); });
       setupOverlayDismiss('tradeModal',         () => closeTradeModal());
       setupOverlayDismiss('addSymbolModal',     () => document.getElementById('addSymbolModal').classList.remove('open'));
@@ -11837,6 +11963,7 @@ document.addEventListener('keydown', e => {
     { id: 'txModal',          close: () => closeTx() },
     { id: 'txHistoryModal',   close: () => document.getElementById('txHistoryModal').classList.remove('open') },
     { id: 'editCashModal',    close: () => document.getElementById('editCashModal').classList.remove('open') },
+    { id: 'contribModal',     close: () => document.getElementById('contribModal').classList.remove('open') },
     { id: 'addSymbolModal',   close: () => document.getElementById('addSymbolModal').classList.remove('open') },
     { id: 'planModal',        close: () => closePlan() },
     { id: 'donutModal',       close: () => closeDonutModal() },

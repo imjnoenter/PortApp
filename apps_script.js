@@ -28,6 +28,7 @@ function doGet(e) {
     switch (p.action) {
       case 'fetchHistory':   return fetchHistoryAction(ss, p);
       case 'updateCash':     return updateCashAction(ss, p);
+      case 'addContribution': return addContributionAction(ss, p);
       case 'updateSymbol':   return updateSymbolAction(ss, p);
       case 'addSymbol':      return addSymbolAction(ss, p);
       case 'savePlan':       return savePlanAction(ss, p);
@@ -561,6 +562,16 @@ function updateCashAction(ss, p) {
   if (cashCol > 0) sh.getRange(row, cashCol).setValue(fcd + usd); // keep Cash = FCD + USD
   if (cashResCol > 0 && p.cashRes !== undefined && p.cashRes !== '')
     sh.getRange(row, cashResCol).setValue(Number(p.cashRes) || 0);
+  return jsonResp({ ok: true });
+}
+
+function addContributionAction(ss, p) {
+  let sh = ss.getSheetByName('Contributions');
+  if (!sh) {
+    sh = ss.insertSheet('Contributions');
+    sh.appendRow(['Portfolio', 'Date', 'Type', 'Amount', 'Currency', 'Note']);
+  }
+  sh.appendRow([p.portfolio || '', p.date || '', p.type || '', Number(p.amount) || 0, p.currency || '', p.note || '']);
   return jsonResp({ ok: true });
 }
 
