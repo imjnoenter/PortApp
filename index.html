@@ -11810,9 +11810,15 @@ async function init() {
     }
   } catch(e) {
     if (isFirstLoad) {
-      document.getElementById('root').innerHTML =
-        `<div style="padding:20px"><div class="error-banner">Failed to load: ${e.message}<br><small>Check the sheet is public.</small></div></div>`;
+      // Build the real shell so the header (account name → switch/edit/sign-out, refresh) stays
+      // reachable — otherwise a failed first fetch traps the user on a bare error screen with no
+      // way to fix their config. Leave shellBuilt false so Refresh re-runs the full first-load path.
+      buildShell();
       document.getElementById('root')?.setAttribute('aria-busy', 'false'); // terminal state — no longer loading
+      const banner = document.createElement('div');
+      banner.className = 'error-banner';
+      banner.innerHTML = `Failed to load: ${e.message}<br><small>Check the sheet is public. Tap your account name above to switch or edit your profile, or hit Refresh to retry.</small>`;
+      document.querySelector('.main-panel')?.prepend(banner);
     } else {
       const el = document.getElementById('lastUpdated');
       if (el) { el.textContent = t('refresh_failed'); el.style.color = 'var(--loss)'; }
