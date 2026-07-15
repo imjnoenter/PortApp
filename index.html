@@ -6108,7 +6108,7 @@ function renderStatCards(model, txData) {
   const stocksVal = model.totalCurrent - model.totalCash;
   const portValPct = stocksVal > 0 ? model.totalPnl / stocksVal * 100 : 0;
   set('sc-portVal', `<div class="sc-label">${t('port_val')}</div>
-    <div class="sc-value">${fmtCurr(model.totalCurrent)}</div>
+    <div class="sc-value">${fmtUSD(model.totalCurrent)} <span style="font-size:0.62em">(${fmtBaht(model.totalCurrent * fxRate)})</span></div>
     <div class="sc-sub ${cl(model.totalPnl)}">${m(model.totalPnl)}  ${p(portValPct)}</div>
     <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(stocksVal)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
 
@@ -6123,7 +6123,7 @@ function renderStatCards(model, txData) {
     const realProfitPct = realProfitTHB / netContribTHB * 100;  // ④
     const fxGainUSD     = realProfitTHB / fxRate - totalRet;    // ②
     set('sc-totalRet', `<div class="sc-label">${t('total_ret')}</div>
-      <div class="sc-value ${cl(totalRet)}">${sUSD(totalRet)} <span class="sc-sub" style="font-weight:500;color:var(--ink)">(${sUSD(fxGainUSD)})</span></div>
+      <div class="sc-value ${cl(totalRet)}">${sUSD(totalRet)} <span style="color:var(--ink);font-size:0.62em">(${sUSD(fxGainUSD)})</span></div>
       <div class="sc-sub ${cl(realProfitTHB)}" style="font-weight:600">${sBaht(realProfitTHB)} <span class="${cl(realProfitPct)}" style="font-weight:500">(${p(realProfitPct)})</span></div>
       <div class="sc-detail">${retLabel}</div>`);
   } else {
