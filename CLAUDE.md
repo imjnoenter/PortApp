@@ -44,7 +44,7 @@ All new CSS should use tokens, not raw values.
 ## Accessibility
 - `@media (prefers-reduced-motion: reduce)` blanket-kills all animation/transition durations
 - `:focus-visible` outlines on all interactive elements (terracotta, 2px, offset 2px)
-- Viewport allows pinch-to-zoom (no `maximum-scale` or `user-scalable=no`)
+- Viewport sets `maximum-scale=1,user-scalable=no` to suppress iOS Safari's zoom-on-focus (Safari auto-zooms any focused input with `font-size < 16px` and never zooms back out on blur; app inputs are 12–13px). iOS Safari 10+ ignores these directives for pinch gestures, so pinch-to-zoom still works on iPhone; Android/Chrome honors them and pinch is disabled there. If the focus-zoom ever returns, the version-independent fix is `font-size: 16px` on `.tx-input` / `.tranche-input` / `.gc-input`.
 - ARIA labels on tranche inputs in plan tab
 - Modal overlays use `animation: overlayIn` + `modalIn` for smooth reveal
 
