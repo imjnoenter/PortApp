@@ -4106,6 +4106,10 @@ window.openTradeModal = function(sym, port) {
   const overlay = document.getElementById('tradeModal');
   if (!overlay) return;
 
+  const now     = new Date();
+  const nowDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const nowTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
+
   const portSelector = _portfolioRegistry.length > 1
     ? `<select id="txPortfolio" onchange="setTradePort(this.value)" title="Portfolio" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--track);color:var(--ink);cursor:pointer">
         ${_portfolioRegistry.map(r=>`<option value="${r.name}"${r.name===p?' selected':''}>${r.name}</option>`).join('')}
@@ -4137,6 +4141,10 @@ window.openTradeModal = function(sym, port) {
     <div class="tx-type-toggle" style="margin-bottom:14px">
       <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
       <button id="txSellBtn" class="tx-type-btn" onclick="onTradeTypeChange('Sell')">${t('sell_now_label')}</button>
+    </div>
+    <div class="tx-row2">
+      <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${nowDate}"></div>
+      <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}"></div>
     </div>
     <input type="hidden" id="txTicker" value="${sym}">
     <div class="tx-row2">
@@ -4187,8 +4195,8 @@ window.submitTradeModal = async function() {
     // leaving a near-zero dust quantity), matching the "All" button's own behavior.
     if (txType === 'Sell' && shares >= curQty - 1e-6) txSellAll = true;
     const now  = new Date();
-    const date = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-    const time = now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
+    const date = document.getElementById('txDate')?.value || now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const time = document.getElementById('txTime')?.value || now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
     const params = new URLSearchParams({
       date, time, type: txType, ticker: sym,
       shares, price, tradeValue: (shares*price).toFixed(4),
