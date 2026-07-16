@@ -42,6 +42,7 @@
   --hover: #f5ebd2;
   --grid: #e6d8b8;
   --tooltip-bg: #3a2a1c;
+  --tooltip-fg: #faf3e0;
 
   /* Accents */
   --terracotta: #c46a4a;
@@ -106,6 +107,7 @@
   --hover: #e3ece8;
   --grid: #c8d4cf;
   --tooltip-bg: #25393a;
+  --tooltip-fg: #eef3ef;
 
   --terracotta: #5a8fa3;
   --sage: #7a9a82;
@@ -1640,7 +1642,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 /* Shared floating-tooltip base (weight bar + holdings perf); ids add the deltas. */
 .float-tip {
   position: fixed; z-index: var(--z-tooltip);
-  background: var(--tooltip-bg); color: var(--btn-fg);
+  background: var(--tooltip-bg); color: var(--tooltip-fg);
   border-radius: 10px; font-size: 11px;
   pointer-events: none; opacity: 0;
   transition: opacity .12s; white-space: nowrap;
@@ -4299,7 +4301,7 @@ function renderActionCharts(sym, previewValue, overrideCat) {
         options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
           plugins: { legend:{display:false},
             tooltip: { callbacks:{ label: c => ` ${c.label}: ${c.raw.toFixed(1)}% of portfolio` },
-              backgroundColor: css('--tooltip-bg'), bodyColor: css('--card'), padding:8, cornerRadius:8 }}}
+              backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding:8, cornerRadius:8 }}}
       });
     };
     actionChart1 = mkAllocChart('actionChart1', c1items);
@@ -4335,7 +4337,7 @@ function renderActionCharts(sym, previewValue, overrideCat) {
       options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
         plugins: { legend:{display:false},
           tooltip: { callbacks:{ label: c => ` ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%` },
-            backgroundColor: css('--tooltip-bg'), bodyColor: css('--card'), padding:8, cornerRadius:8 }}}
+            backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding:8, cornerRadius:8 }}}
     });
   };
   actionChart1 = mkChart('actionChart1', positions);
@@ -8343,7 +8345,7 @@ window.showHpTip = function(e, sym) {
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   }
   tip.innerHTML = `
-    <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:var(--btn-fg)">${item.name}</div>
+    <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:var(--tooltip-fg)">${item.name}</div>
     <div style="display:grid;grid-template-columns:auto auto;gap:4px 20px">${rows}</div>`;
   tip.style.opacity = '1';
   moveHpTip(e);
