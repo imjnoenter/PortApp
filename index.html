@@ -1021,7 +1021,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   display: flex; flex-direction: column;
   background: var(--card);
   border-right: 1px solid var(--line);
-  padding: var(--sp-4) var(--sp-3);
+  padding: calc(var(--sp-4) + env(safe-area-inset-top)) var(--sp-3) var(--sp-4);
   gap: var(--sp-2);
   z-index: var(--z-sticky);
 }
@@ -2105,7 +2105,7 @@ const I18N = {
     "Industrials": "Industrials", "Materials": "Materials",
     "Utilities": "Utilities", "Real Estate": "Real Estate",
     "Communication Services": "Communication Services",
-    tab_plan: "PLAN", tab_transaction: "TRANSACTION", tab_edit: "EDIT",
+    tab_plan: "PLAN", tab_transaction: "TRADE", tab_edit: "EDIT",
     tab_allocation: "ALLOCATION",
     remove_btn: "Remove", save_plan_btn: "Save Plan", clear_btn: "Clear",
     clear_tranches_btn: "Clear Tranches", remove_plan_btn: "Remove Plan",
@@ -2258,7 +2258,7 @@ const I18N = {
     rebalfund_dollar_col: "$ to Sell", rebalfund_shares_col: "Shares",
     rebalfund_cash_after_label: "Cash after trim", rebalfund_alloc_after_col: "Alloc after",
     // Trade modal (quick buy/sell)
-    trade_tooltip: "Trade", buy_now_label: "Buy now", sell_now_label: "Sell now",
+    trade_tooltip: "Trade", buy_now_label: "Buy", sell_now_label: "Sell",
     trade_cost_label: "Cost", trade_fee_label: "Fee",
   },
   TH: {
@@ -2293,7 +2293,7 @@ const I18N = {
     "Industrials": "กลุ่มอุตสาหกรรม", "Materials": "กลุ่มวัสดุ",
     "Utilities": "สาธารณูปโภค", "Real Estate": "อสังหาริมทรัพย์",
     "Communication Services": "บริการสื่อสาร",
-    tab_plan: "แผนลงทุน", tab_transaction: "บันทึกเทรด",
+    tab_plan: "แผนลงทุน", tab_transaction: "เทรด",
     tab_edit: "แก้ไขหุ้น", tab_allocation: "ตั้งเป้าหมาย",
     remove_btn: "ลบออก", save_plan_btn: "บันทึกแผน", clear_btn: "ล้างค่า",
     clear_tranches_btn: "ล้างไม้ซื้อ", remove_plan_btn: "ลบแผน",
@@ -2480,7 +2480,7 @@ const I18N = {
     rebalfund_dollar_col: "$ ที่จะขาย", rebalfund_shares_col: "จำนวนหุ้น",
     rebalfund_cash_after_label: "เงินสดหลังตัดขาย", rebalfund_alloc_after_col: "สัดส่วนหลังขาย",
     // Trade modal (ซื้อ/ขายด่วน)
-    trade_tooltip: "เทรด", buy_now_label: "ซื้อเลย", sell_now_label: "ขายเลย",
+    trade_tooltip: "เทรด", buy_now_label: "ซื้อ", sell_now_label: "ขาย",
     trade_cost_label: "จำนวนเงิน", trade_fee_label: "ค่าธรรมเนียม",
   }
 };
@@ -3384,8 +3384,10 @@ window.openSymbolDetail = function(sym) {
       symbolDetailCharts.push({ destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
     }
 
-    // Populate transactions table
-    const txs  = txList.filter(t => t.ticker === sym).sort((a,b) => b.date.localeCompare(a.date));
+    // Populate transactions table — scoped to the active portfolio (ALL view shows every portfolio).
+    const txs  = txList
+      .filter(t => t.ticker === sym && (activePortfolio === 'ALL' || (t.portfolio || DEFAULT_PORT) === activePortfolio))
+      .sort((a,b) => b.date.localeCompare(a.date));
     const body = document.getElementById('sdTxBody');
     const empty = document.getElementById('sdTxEmpty');
     if (body) {
@@ -3754,6 +3756,7 @@ function destroyActionCharts() {
   if (actionChart1) { actionChart1.destroy(); actionChart1 = null; }
   if (actionChart2) { actionChart2.destroy(); actionChart2 = null; }
   destroyActionTvChart();
+  destroyTradeTvChart();
 }
 
 // Shared Lightweight-Charts setup for the two area charts (symbol-detail +
@@ -4288,7 +4291,7 @@ window.submitTradeModal = async function() {
     postTransactionUpdates(sym, shares, price, txType, portfolio);
     if (s) s.innerHTML = `<span style="color:var(--gain)">${t('saved_msg')}</span>`;
     setTimeout(() => {
-      closeTradeModal();
+      document.getElementById('actionModal')?.classList.remove('open');
       setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500);
     }, 1000);
   } catch(e) {
@@ -4623,7 +4626,7 @@ function restoreTabDraft() {
     set('txPrice',  d.price);
     const nc = document.getElementById('txNoCommission');
     if (nc) nc.checked = d.noComm;
-    updateTxCalc();
+    recomputeTradeFrom('qty');
   } else if (tab === 'edit') {
     set('editQty',     d.qty);
     set('editAvgCost', d.avg);
@@ -4757,36 +4760,53 @@ function renderActionTabContent() {
     setTimeout(() => buildActionTvChart(sym), 0);
 
   } else if (actionModalTab === 'transaction') {
+    // Full Trade (buy/sell) UI hosted in-tab — reuses the trade-modal functions, scoped to the
+    // action modal's symbol/portfolio via tradeModalSym/tradeModalPort.
     const price = pos?.price || '';
-    txType = 'Buy';
+    tradeModalSym = sym; tradeModalPort = actionModalPort;
+    txType = 'Buy'; txSellAll = false;
+    const now = new Date();
+    const nowTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
     el.innerHTML = `
       <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
-        <div id="actionTvChartEl" style="height:220px"></div>
+        <div id="tradeTvChartEl" style="height:220px"></div>
       </div>
       <div class="tx-type-toggle" style="margin-bottom:14px">
-        <button id="txBuyBtn" class="tx-type-btn active-buy" onclick="setTxType('Buy')">${t('buy_label')}</button>
-        <button id="txSellBtn" class="tx-type-btn" onclick="setTxType('Sell')">${t('sell_label')}</button>
+        <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
+        <button id="txSellBtn" class="tx-type-btn" onclick="onTradeTypeChange('Sell')">${t('sell_now_label')}</button>
       </div>
       <div class="tx-row2">
-        <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'})}"></div>
-        <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${new Date().toTimeString().slice(0,8)}"></div>
+        <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${now.toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'})}"></div>
+        <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}"></div>
       </div>
       <input type="hidden" id="txTicker" value="${sym}">
       <div class="tx-row2">
-        <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">${t('Shares')} <button id="txSellAllBtn" onclick="setSellAll()" style="display:none;font-size:10px;font-weight:700;color:var(--loss);background:transparent;border:none;cursor:pointer;padding:0">${t('sell_all_btn')}</button></label><input class="tx-input" id="txShares" type="number" step="any" min="0" placeholder="0" oninput="updateTxCalc();txSellAll=false"></div>
-        <div class="tx-field"><label class="tx-label">${t('price_label')}</label><input class="tx-input" id="txPrice" type="number" step="any" min="0" value="${price}" oninput="updateTxCalc()"></div>
+        <div class="tx-field"><label class="tx-label">${t('price_label')}</label>
+          <input class="tx-input" id="txPrice" type="number" step="any" min="0" value="${price}" oninput="onTradePrice()">
+        </div>
+        <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">${t('qty_label')}
+          <button id="txSellAllBtn" onclick="onTradeSellAll()" style="display:none;font-size:10px;font-weight:700;color:var(--loss);background:transparent;border:none;cursor:pointer;padding:0">${t('sell_all_btn')}</button>
+        </label>
+          <input class="tx-input" id="txShares" type="number" step="any" min="0" placeholder="0" oninput="onTradeQty()">
+        </div>
+      </div>
+      <div class="tx-field"><label class="tx-label">${t('trade_cost_label')}</label>
+        <input class="tx-input" id="tradeCost" type="number" step="any" min="0" placeholder="0" oninput="onTradeCost()">
       </div>
       <div class="tx-field" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--track);border-radius:8px">
-        <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="updateTxCashPreview()">
-        <label for="txNoCommission" style="font-size:13px;font-weight:600;cursor:pointer">${t('comm_free_label')}</label>
+        <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="onTradeCommToggle()">
+        <div>
+          <label for="txNoCommission" style="font-size:13px;font-weight:600;cursor:pointer">${t('comm_free_label')}</label>
+          <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
+        </div>
       </div>
       <div id="txAllocBars"></div>
       ${buildCashSelectorHtml()}
-      <div id="actionTxSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
-      <button class="tx-submit" id="txSubmit" onclick="submitTxInAction('${sym}')">${t('record_tx_btn')}</button>
+      <div id="tradeSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
+      <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
       <div class="tx-status" id="txStatus"></div>
       ${symTxHistoryHtml(sym, actionModalPort)}`;
-    setTimeout(() => { updateTxCalc(); buildActionTvChart(sym); }, 0);
+    setTimeout(() => { buildTradeTvChart(sym); recomputeTradeFrom('qty'); }, 0);
 
   } else if (actionModalTab === 'edit') {
     // Move-shares block: only when this symbol is held in the current port and >1 portfolio exists.
@@ -7302,7 +7322,7 @@ function renderTable(model) {
 
     return `<tr>
       <td><div class="asset-cell">${logoCell(p.symbol, color)}
-        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button><button class="plan-btn trade-btn" onclick="openTradeModal('${p.symbol}')" title="${t('trade_tooltip')}">${TRADE_ICON}</button></div><div class="asset-name">${p.name}</div></div>
+        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
       </div></td>
       <td>${dc(fmtCurr(p.price), priceSub, priceSubCls)}</td>
       <td class="${dayCls}">${dc(dayChgStr, dayPctStr, dayCls)}</td>
