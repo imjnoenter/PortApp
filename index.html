@@ -1013,43 +1013,130 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .card.collapsed .card-header-extra { display: none !important; }
 .alloc-card .card-chevron { margin-left: 0; }
 
-/* ── Mobile page tab bar ── */
-.mob-tab-bar {
-  display: none;
-  grid-column: 1/-1;
+/* ── App shell: sidebar + topbar + pages ── */
+.app-shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; width: 100%; }
+
+.sidebar {
+  position: fixed; top: 0; left: 0; width: 232px; height: 100vh;
+  display: flex; flex-direction: column;
   background: var(--card);
-  border: 1px solid var(--card-edge);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-  padding: 3px;
-  gap: 2px;
+  border-right: 1px solid var(--line);
+  padding: var(--sp-4) var(--sp-3);
+  gap: var(--sp-2);
+  z-index: var(--z-sticky);
+}
+.sidebar-brand {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2) var(--sp-5);
+  min-width: 0;
+}
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
+.sidebar-foot { padding-top: var(--sp-3); border-top: 1px solid var(--line); display: flex; align-items: center; }
+
+.nav-item {
+  display: flex; align-items: center; gap: var(--sp-3);
+  width: 100%; border: none; background: none; cursor: pointer;
+  padding: 10px var(--sp-3); border-radius: 10px;
+  font-family: var(--font-ui); font-size: 14px; font-weight: 500;
+  color: var(--ink-soft); text-align: left;
+  transition: background .15s, color .15s;
+}
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.nav-item:hover { background: var(--hover); color: var(--ink); }
+.nav-item.active {
+  background: color-mix(in srgb, var(--terracotta) 12%, transparent);
+  color: var(--terracotta);
+  font-weight: 600;
+}
+.nav-item:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+
+/* Settings dropdown now lives at the bottom of the sidebar — open upward so it can't run off-screen */
+.sidebar-foot .settings-dropdown { top: auto; bottom: calc(100% + 8px); left: 0; right: auto; transform-origin: bottom left; }
+
+.sidebar-scrim {
+  position: fixed; inset: 0; z-index: var(--z-overlay);
+  background: rgba(0,0,0,.32);
+  opacity: 0; pointer-events: none;
+  transition: opacity .22s var(--ease-out-quint);
+}
+.app-shell.sidebar-open .sidebar-scrim { opacity: 1; pointer-events: auto; }
+
+.content-col { grid-column: 2; min-width: 0; width: 100%; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: var(--z-sticky);
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  padding: var(--sp-3) var(--sp-5);
+  min-height: 80px;
+}
+.topbar-left { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.topbar-burger {
+  display: none; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+  background: var(--track); border: 1px solid var(--line);
+  color: var(--ink); cursor: pointer;
+  transition: background .15s;
+}
+.topbar-burger:hover { background: var(--hover); }
+.topbar-burger svg { width: 18px; height: 18px; }
+.topbar-burger:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+.topbar-title {
+  font-family: var(--font-display); font-style: italic;
+  font-size: 20px; font-weight: 600; letter-spacing: -.4px;
+  color: var(--ink); white-space: nowrap;
+}
+
+.page-area {
+  max-width: 1360px; margin: 0 auto; width: 100%;
+  padding: var(--sp-5) max(var(--sp-5), env(safe-area-inset-right)) max(var(--sp-5), env(safe-area-inset-bottom)) max(var(--sp-5), env(safe-area-inset-left));
+}
+.page { display: none; }
+.app-shell[data-page="dashboard"]  .page[data-page="dashboard"],
+.app-shell[data-page="holdings"]   .page[data-page="holdings"],
+.app-shell[data-page="allocation"] .page[data-page="allocation"],
+.app-shell[data-page="plans"]      .page[data-page="plans"],
+.app-shell[data-page="activity"]   .page[data-page="activity"] {
+  display: flex; flex-direction: column; gap: var(--sp-5);
+  animation: pageFadeIn .15s var(--ease-out-quint);
+}
+@keyframes pageFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .page { animation: none !important; }
+}
+
+/* Per-page internal tiling */
+.dash-alerts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-5); }
+.alloc-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); align-items: start; }
+.alloc-donuts  { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); margin-top: var(--sp-5); }
+@media (max-width: 1024px) { .alloc-summary { grid-template-columns: 1fr; } }
+@media (max-width: 640px)  { .alloc-donuts  { grid-template-columns: 1fr; } }
+
+/* ── Responsive: sidebar becomes an off-canvas drawer ── */
+@media (max-width: 900px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .content-col { grid-column: 1; }
+  .sidebar {
+    position: fixed; left: 0; top: 0; width: 232px;
+    transform: translateX(-100%);
+    transition: transform .22s var(--ease-out-quint);
+    z-index: calc(var(--z-overlay) + 1);
+    box-shadow: var(--shadow-lg);
+  }
+  .app-shell.sidebar-open .sidebar { transform: none; }
+  .topbar-burger { display: flex; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }
 @media (max-width: 700px) {
-  .mob-tab-bar {
-    position: sticky;
-    top: calc(6px + env(safe-area-inset-top, 0px));
-    z-index: var(--z-dropdown);
-  }
-}
-.mob-tab {
-  flex: 1;
-  padding: 8px 4px 7px;
-  border: none;
-  border-radius: calc(var(--radius) - 3px);
-  background: none;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--font-ui);
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  cursor: pointer;
-  transition: color .15s, background .15s;
-}
-.mob-tab.active {
-  background: var(--btn-bg);
-  color: var(--btn-fg);
+  .topbar { padding: calc(var(--sp-3) + env(safe-area-inset-top, 0px)) var(--sp-3) var(--sp-3); min-height: 0; }
+  .topbar-title { font-size: 17px; }
+  .topbar-right .market-clock-pill { order: 10; width: 100%; }
+  .page-area { padding: var(--sp-2) max(var(--sp-2), env(safe-area-inset-right)) max(var(--sp-2), env(safe-area-inset-bottom)) max(var(--sp-2), env(safe-area-inset-left)); }
 }
 
 /* ── Mobile ≤700px ── */
@@ -1091,12 +1178,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   .donut-wrap { display: flex; justify-content: center; }
   .chart-wrap.donut-h { height: 220px; width: 100%; }
 
-  /* Tab visibility — hide sections not belonging to the active tab */
-  .mob-tab-bar { display: flex; }
-  .app:not(.mob-tab-overview)    [data-mob-tab="overview"]    { display: none; }
-  .app:not(.mob-tab-holding)     [data-mob-tab="holding"]     { display: none; }
-  .app:not(.mob-tab-transaction) [data-mob-tab="transaction"] { display: none; }
-  .app:not(.mob-tab-allocation)  [data-mob-tab="allocation"]  { display: none; }
 }
 
   .action-charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -2012,7 +2093,7 @@ const I18N = {
     charts_tab: "Charts", transactions_tab: "Transactions",
     all_stocks_label: "All Stocks", no_price_data: "No price data available",
     allocation: "Allocation", invested: "Invested", holdings: "Holdings",
-    "All": "All", "Big Value": "Big Value", "Medium Value": "Medium Value",
+    "All": "All", "Big Name": "Big Name", "Wait for sell": "Wait for sell", "Medium Cap": "Medium Cap", "Small Cap": "Small Cap",
     "Growth": "Growth", "Dividend": "Dividend", "Other": "Other",
     "Watchlist": "Watchlist", "Technology": "Technology",
     "Financials": "Financials", "Financial": "Financial",
@@ -2200,8 +2281,8 @@ const I18N = {
     charts_tab: "กราฟ", transactions_tab: "รายการซื้อขาย",
     all_stocks_label: "หุ้นทั้งหมด", no_price_data: "ไม่มีข้อมูลราคา",
     allocation: "สัดส่วน", invested: "ทุน", holdings: "รายการ",
-    "All": "ทั้งหมด", "Big Value": "หุ้นคุณค่าขนาดใหญ่",
-    "Medium Value": "หุ้นคุณค่าขนาดกลาง", "Growth": "หุ้นเติบโต",
+    "All": "ทั้งหมด", "Big Name": "หุ้นชื่อใหญ่", "Wait for sell": "รอขาย",
+    "Medium Cap": "หุ้นขนาดกลาง", "Small Cap": "หุ้นขนาดเล็ก", "Growth": "หุ้นเติบโต",
     "Dividend": "หุ้นปันผล", "Other": "อื่นๆ", "Watchlist": "รายการเฝ้าดู",
     "Technology": "เทคโนโลยี", "Financials": "กลุ่มการเงิน",
     "Financial": "กลุ่มการเงิน", "Healthcare": "กลุ่มการแพทย์",
@@ -4750,7 +4831,7 @@ function renderActionTabContent() {
     setTimeout(() => renderActionCharts(sym), 0);
 
   } else if (actionModalTab === 'allocation') {
-    const cats   = ['Big Value','Medium Value','Growth'];
+    const cats   = ['Big Name','Wait for sell','Medium Cap','Small Cap','Growth','Dividend'];
     const curCat = pos?.category || '';
     const curTgt = pos?.target != null ? (pos.target*100).toFixed(1) : '';
     el.innerHTML = actionChartsHtml(sym) + `
@@ -7617,7 +7698,7 @@ function watchlistRow(w) {
 window.openAddSymbol = function() {
   const overlay = document.getElementById('addSymbolModal');
   if (!overlay) return;
-  const cats = ['Big Value','Medium Value','Growth'];
+  const cats = ['Big Name','Wait for sell','Medium Cap','Small Cap','Growth','Dividend'];
   overlay.innerHTML = `<div class="tx-modal" style="max-width:400px" onclick="event.stopPropagation()">
     <div class="tx-header">
       <div class="tx-title">${t('add_symbol_title')}</div>
@@ -7694,7 +7775,7 @@ window.submitAddSymbol = async function() {
 function renderCategoryFilters(model) {
   const el = document.getElementById('catFilters');
   if (!el) return;
-  const ORDER = ['All', 'Big Value', 'Medium Value', 'Growth', 'ETF'];
+  const ORDER = ['All', 'Big Name', 'Wait for sell', 'Medium Cap', 'Small Cap', 'Growth', 'Dividend', 'ETF'];
   const present = new Set(model.positions.map(p => p.category || 'Other').filter(Boolean));
   const cats = [...ORDER.filter(c => c === 'All' || present.has(c)), ...[...present].filter(c => !ORDER.includes(c)).sort()];
   if (model.watchlist?.length) cats.push(t('Watchlist'));
@@ -8758,7 +8839,7 @@ function renderPlanExpandCharts(uid, sym, port) {
 // ── Render: category donut ────────────────────────────────────────────────────
 let catDonutInst = null, catDrilldown = null;
 // Category-specific fixed colors (Chart.js canvas config — CSS vars unavailable).
-const CAT_DONUT_COLORS = { Big: '#6b7eb8', Medium: '#c79038', Growth: '#6b8e5a', Other: '#8a7458', ETF: '#5B8DEF' };
+const CAT_DONUT_COLORS = { 'Big Name': '#6b7eb8', 'Wait for sell': '#b56a8a', 'Medium Cap': '#c79038', 'Small Cap': '#7aa3b8', 'Growth': '#6b8e5a', 'Dividend': '#d4825e', 'Other': '#8a7458', 'ETF': '#5B8DEF' };
 const CATEGORY_DONUT = {
   elId: 'catDonutChart', field: 'category', noun: 'category',
   topPadding: 50, translateCenter: true,
@@ -10257,19 +10338,25 @@ function initCollapsibleCards() {
   });
 }
 
-// ── Mobile tab switching ──────────────────────────────────────────────────────
-function setMobileTab(tab) {
-  const app = document.querySelector('.app');
-  if (!app) return;
-  app.className = app.className.replace(/\bmob-tab-\w+\b/g, '').trim() + ' mob-tab-' + tab;
-  document.querySelectorAll('.mob-tab').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
-  });
+// ── Page switching (sidebar nav) ────────────────────────────────────────────
+const NAV_LABELS = { dashboard: 'Dashboard', holdings: 'Holdings', allocation: 'Allocation', plans: 'Plans', activity: 'Activity' };
+
+function setPage(page) {
+  const shell = document.querySelector('.app-shell');
+  if (!shell) return;
+  shell.setAttribute('data-page', page);
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  const titleEl = document.getElementById('pageTitle');
+  if (titleEl) titleEl.textContent = NAV_LABELS[page] || page;
+  closeSidebar(); // mobile: close drawer after choosing
   requestAnimationFrame(() => {
-    window.dispatchEvent(new Event('resize'));
-    if (tab === 'allocation') {
+    window.dispatchEvent(new Event('resize')); // let Chart.js responsive charts re-fit now they're visible
+    if (page === 'allocation') {
       requestAnimationFrame(() => {
-        if (typeof currentModel !== 'undefined' && currentModel) renderGauge(currentModel);
+        if (typeof currentModel !== 'undefined' && currentModel) {
+          if (typeof renderGauge === 'function') renderGauge(currentModel);
+          if (typeof rerenderDonuts === 'function') rerenderDonuts();
+        }
         document.querySelectorAll('.pos-bar').forEach((bar, i) => {
           bar.classList.remove('bar-anim');
           void bar.offsetWidth;
@@ -10279,6 +10366,13 @@ function setMobileTab(tab) {
       });
     }
   });
+}
+
+function toggleSidebar() {
+  document.querySelector('.app-shell')?.classList.toggle('sidebar-open');
+}
+function closeSidebar() {
+  document.querySelector('.app-shell')?.classList.remove('sidebar-open');
 }
 
 // ── Build HTML shell ──────────────────────────────────────────────────────────
@@ -10299,31 +10393,38 @@ function portfolioToggleHtml() {
 
 function buildShell() {
   document.getElementById('root').innerHTML = `
-  <div class="app mob-tab-overview">
-    <div class="header">
-      <div class="header-left">
+  <div class="app-shell" data-page="dashboard">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
         <div class="brand-mark" aria-label="Portfolio" onclick="openPicPicker(event)"><img src="${profileIconSrc()}" alt="Portfolio" style="width:100%;height:100%;border-radius:inherit;display:block;object-fit:cover;"><span class="pic-change-hint">Change</span></div>
         <div class="header-title-group">
           <div class="header-title" id="headerTitle" onclick="toggleAccountMenu(event)">${_activeProfile()?.profileName || 'Portfolio'}${isReadOnly() ? '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:5px;vertical-align:middle">(view)</span>' : ''}</div>
           <div class="header-sub">${t('portfolio')}</div>
         </div>
-        <div class="header-divider"></div>
-        <div class="market-clock-pill">
-          <canvas id="marketClock"></canvas>
-          <div>
-            <div id="marketStatusText" class="mc-status">—</div>
-            <div id="marketClockTime" class="mc-et">—</div>
-            <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
-          </div>
-        </div>
-        ${portfolioToggleHtml()}
       </div>
-      <div class="header-actions">
-        <div class="last-updated" id="lastUpdated"></div>
-        <div id="quotesFreshness" style="font-size:10px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap"></div>
-        <a href="https://htmlpreview.github.io/?https://gist.githubusercontent.com/imjnoenter/52a3d0cf37e8f98d2e65770243d6f3cc/raw/report.html" target="_blank" rel="noopener" class="settings-gear-btn" title="Momentum Report" style="text-decoration:none">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          </a>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="dashboard" onclick="setPage('dashboard')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>${NAV_LABELS.dashboard}</span>
+        </button>
+        <button class="nav-item" data-page="holdings" onclick="setPage('holdings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>${NAV_LABELS.holdings}</span>
+        </button>
+        <button class="nav-item" data-page="allocation" onclick="setPage('allocation')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+          <span>${NAV_LABELS.allocation}</span>
+        </button>
+        <button class="nav-item" data-page="plans" onclick="setPage('plans')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          <span>${NAV_LABELS.plans}</span>
+        </button>
+        <button class="nav-item" data-page="activity" onclick="setPage('activity')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          <span>${NAV_LABELS.activity}</span>
+        </button>
+      </nav>
+      <div class="sidebar-foot">
         <div class="settings-gear-wrap">
           <button class="settings-gear-btn" onclick="toggleSettingsDropdown(event)" title="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -10354,230 +10455,264 @@ function buildShell() {
             </div>
           </div>
         </div>
-        <button class="refresh-btn" onclick="init()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-          ${t('refresh')}
-        </button>
       </div>
-    </div>
-
-    <!-- Mobile page tab bar -->
-    <div class="mob-tab-bar">
-      <button class="mob-tab active" data-tab="overview" onclick="setMobileTab('overview')">${t('overview_tab')}</button>
-      <button class="mob-tab" data-tab="holding" onclick="setMobileTab('holding')">${t('holding_tab')}</button>
-      ${TRANSACTION_URL ? `<button class="mob-tab" data-tab="transaction" onclick="setMobileTab('transaction')">${t('transaction_tab')}</button>` : ''}
-      <button class="mob-tab" data-tab="allocation" onclick="setMobileTab('allocation')">${t('allocation_tab')}</button>
-    </div>
-
-    <div class="main-panel">
-      <!-- 1. Stat cards -->
-      <div class="stat-grid" data-mob-tab="overview">
-        <div class="stat-card" id="sc-portVal"></div>
-        <div class="stat-card" id="sc-totalRet"></div>
-        <div class="stat-card" id="sc-dayRet"></div>
-        <div class="stat-card" id="sc-irr"></div>
-        <div class="stat-card" id="sc-cash"></div>
-        <div class="stat-card" id="sc-unreal"></div>
-        <div class="stat-card" id="sc-realized"></div>
-        <div class="stat-card" id="sc-div"></div>
-      </div>
-      <!-- 2. Charts row -->
-      ${TRANSACTION_URL ? `
-      <div class="charts-row" data-mob-tab="overview">
-        <div class="chart-tf-strip">
-          ${['7D','1M','3M','YTD','1Y','ALL'].map(f =>
-            `<button class="tf-chart-btn${f==='ALL'?' active':''}" data-tf="${f}" onclick="applyChartFilter('${f}')">${f}</button>`
-          ).join('')}
+    </aside>
+    <div class="content-col">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="topbar-burger" onclick="toggleSidebar()" aria-label="Menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div class="topbar-title" id="pageTitle">${NAV_LABELS.dashboard}</div>
         </div>
-        <div class="charts-pair">
-          <div class="card chart-half">
-            <div class="card-title">${t('port_vs_bench')}</div>
-            <div class="bench-status" id="benchmarkStatus">${t('loading_msg')}</div>
-            <div id="benchmarkChartWrap" style="display:none">
-              <div class="chart-wrap bench-h"><canvas id="benchmarkChart"></canvas></div>
+        <div class="topbar-right">
+          <div class="last-updated" id="lastUpdated"></div>
+          <div id="quotesFreshness" style="font-size:10px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap"></div>
+          <a href="https://htmlpreview.github.io/?https://gist.githubusercontent.com/imjnoenter/52a3d0cf37e8f98d2e65770243d6f3cc/raw/report.html" target="_blank" rel="noopener" class="settings-gear-btn" title="Momentum Report" style="text-decoration:none">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </a>
+          ${portfolioToggleHtml()}
+          <div class="market-clock-pill">
+            <canvas id="marketClock"></canvas>
+            <div>
+              <div id="marketStatusText" class="mc-status">—</div>
+              <div id="marketClockTime" class="mc-et">—</div>
+              <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
             </div>
           </div>
-          <div class="card chart-half">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <div class="card-title" style="margin-bottom:0">${t('cum_pnl')}</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span id="pnlTotal" style="font-size:12px;font-weight:700"></span>
-                <span id="nwTotal"  style="font-size:12px;font-weight:700;display:none"></span>
-                <div style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px">
-                  <button id="pnlTabPnl" class="pnl-tab-btn active" onclick="setPnlTab('pnl')">P&amp;L</button>
-                  <button id="pnlTabNw"  class="pnl-tab-btn"        onclick="setPnlTab('nw')">Net Worth</button>
+          <button class="refresh-btn" onclick="init()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+            ${t('refresh')}
+          </button>
+        </div>
+      </header>
+      <main class="page-area">
+        <section class="page" data-page="dashboard">
+          <!-- 1. Stat cards -->
+          <div class="stat-grid">
+            <div class="stat-card" id="sc-portVal"></div>
+            <div class="stat-card" id="sc-totalRet"></div>
+            <div class="stat-card" id="sc-dayRet"></div>
+            <div class="stat-card" id="sc-irr"></div>
+            <div class="stat-card" id="sc-cash"></div>
+            <div class="stat-card" id="sc-unreal"></div>
+            <div class="stat-card" id="sc-realized"></div>
+            <div class="stat-card" id="sc-div"></div>
+          </div>
+          <!-- 2. Charts row -->
+          ${TRANSACTION_URL ? `
+          <div class="charts-row">
+            <div class="chart-tf-strip">
+              ${['7D','1M','3M','YTD','1Y','ALL'].map(f =>
+                `<button class="tf-chart-btn${f==='ALL'?' active':''}" data-tf="${f}" onclick="applyChartFilter('${f}')">${f}</button>`
+              ).join('')}
+            </div>
+            <div class="charts-pair">
+              <div class="card chart-half">
+                <div class="card-title">${t('port_vs_bench')}</div>
+                <div class="bench-status" id="benchmarkStatus">${t('loading_msg')}</div>
+                <div id="benchmarkChartWrap" style="display:none">
+                  <div class="chart-wrap bench-h"><canvas id="benchmarkChart"></canvas></div>
+                </div>
+              </div>
+              <div class="card chart-half">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                  <div class="card-title" style="margin-bottom:0">${t('cum_pnl')}</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span id="pnlTotal" style="font-size:12px;font-weight:700"></span>
+                    <span id="nwTotal"  style="font-size:12px;font-weight:700;display:none"></span>
+                    <div style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px">
+                      <button id="pnlTabPnl" class="pnl-tab-btn active" onclick="setPnlTab('pnl')">P&amp;L</button>
+                      <button id="pnlTabNw"  class="pnl-tab-btn"        onclick="setPnlTab('nw')">Net Worth</button>
+                    </div>
+                  </div>
+                </div>
+                <div id="pnlTabContent">
+                  <div class="bench-status" id="pnlStatus">${t('loading_msg')}</div>
+                  <div id="pnlChartWrap" style="display:none">
+                    <div class="chart-wrap bench-h"><canvas id="pnlChart"></canvas></div>
+                  </div>
+                </div>
+                <div id="nwTabContent" style="display:none">
+                  <div style="display:flex;justify-content:flex-end;gap:2px;margin-bottom:6px">
+                    ${['3M','6M','1Y','ALL'].map(f => `<button class="nw-tf-btn${f==='ALL'?' active':''}" data-nwtf="${f}" onclick="setNwRange('${f}')">${f}</button>`).join('')}
+                  </div>
+                  <div class="bench-status" id="nwStatus">Waiting for price history…</div>
+                  <div id="nwChartWrap" style="display:none">
+                    <div class="chart-wrap bench-h"><canvas id="nwChart"></canvas></div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div id="pnlTabContent">
-              <div class="bench-status" id="pnlStatus">${t('loading_msg')}</div>
-              <div id="pnlChartWrap" style="display:none">
-                <div class="chart-wrap bench-h"><canvas id="pnlChart"></canvas></div>
-              </div>
+          </div>` : ''}
+          <!-- Plan Watch (alerts only, hidden when none) + Calendar -->
+          <div class="dash-alerts-row">
+            <div class="card" id="planWatchCard" style="display:none">
+              <div class="card-title" style="color:var(--loss)">🔔 Plan Watch</div>
+              <div id="planWatchPanel"></div>
             </div>
-            <div id="nwTabContent" style="display:none">
-              <div style="display:flex;justify-content:flex-end;gap:2px;margin-bottom:6px">
-                ${['3M','6M','1Y','ALL'].map(f => `<button class="nw-tf-btn${f==='ALL'?' active':''}" data-nwtf="${f}" onclick="setNwRange('${f}')">${f}</button>`).join('')}
-              </div>
-              <div class="bench-status" id="nwStatus">Waiting for price history…</div>
-              <div id="nwChartWrap" style="display:none">
-                <div class="chart-wrap bench-h"><canvas id="nwChart"></canvas></div>
-              </div>
+            <div class="card">
+              <div class="card-title">${t('upcoming_calendar_title')}</div>
+              <div id="calendarPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
             </div>
           </div>
-        </div>
-      </div>` : ''}
-      <!-- 3. Positions -->
-      <div class="card" data-mob-tab="holding">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:10px">
-          <div>
-            <div class="card-title" id="posTitle" style="margin-bottom:2px">${t('positions_title')}</div>
-            <div id="posDayReturn" class="card-header-extra" style="font-size:11px;color:var(--muted)"></div>
-            <div id="posIndexReturn" class="card-header-extra" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
-          </div>
-          <div class="card-header-extra" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-            <input id="symbolSearch" type="text" placeholder="${t('search_placeholder')}"
-              oninput="searchTerm=this.value;renderTable(currentModel)"
-              style="padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--track);color:var(--ink);font-size:12px;outline:none;width:140px;transition:border-color .15s"
-              onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--line)'">
-            <button class="add-tx-btn" onclick="openAddSymbol()"><span class="atx-plus">+</span><span class="atx-label">Symbol</span></button>
-          </div>
-        </div>
-        <div id="posSubTabs" class="pos-sub-tabs">
-          <button class="pos-sub-tab active" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
-          <button class="pos-sub-tab" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
-        </div>
-        <div id="catFilters" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"></div>
-        <div id="sectorFilters" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>
-        <div id="weightBar" style="margin-bottom:12px"></div>
-        <div class="table-scroll" id="posTable"></div>
-      </div>
-      <!-- Top 20 Stock Holdings (ETF portfolio only) -->
-      <div class="card" id="topHoldingsCard" data-mob-tab="overview" style="display:none">
-        <div class="card-title">Top 20 Stock Holdings</div>
-        <div id="topHoldingsBody"></div>
-      </div>
-      <!-- My Plans -->
-      <div class="card" data-mob-tab="overview">
-        <div class="card-title">${t('my_plans_title')}</div>
-        <div id="plansPanel"></div>
-      </div>
-      <!-- Holdings Performance -->
-      <div class="card" data-mob-tab="holding">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div class="card-title" style="margin-bottom:0">${t('holdings_performance_title')}</div>
-          <button id="hpModeToggle" class="add-tx-btn" onclick="toggleHpMode()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center;font-size:11px;font-weight:700;font-family:var(--font-mono);letter-spacing:.3px">%</button>
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-          <button class="hp-tab active" data-tab="all"       onclick="setHpTab('all')">${t('All')}</button>
-          <button class="hp-tab"        data-tab="gainers"   onclick="setHpTab('gainers')">${t('gainers_tab')}</button>
-          <button class="hp-tab"        data-tab="losers"    onclick="setHpTab('losers')">${t('losers_tab')}</button>
-          <button class="hp-tab"        data-tab="dividends" onclick="setHpTab('dividends')">${t('dividends')}</button>
-        </div>
-        <div id="holdingsPerf"><div style="color:var(--muted);font-size:12px;font-style:italic;text-align:center;padding:16px 0">${t('loading_msg')}</div></div>
-      </div>
-      <!-- Transactions -->
-      ${TRANSACTION_URL ? `
-      <div class="card" id="txCard" data-mob-tab="transaction">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px">
-          <div class="card-title" style="margin-bottom:0">${t('transactions_title')}<span class="tx-count-badge" id="txPanelCount"></span></div>
-          <div class="card-header-extra" style="display:flex;gap:6px">
-            <button class="add-tx-btn" onclick="openAddTx()"><span class="atx-plus">+</span><span class="atx-label">Transaction</span></button>
-            <button class="add-tx-btn" id="txPanelRefreshBtn" onclick="refreshTxPanel()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-            </button>
-          </div>
-        </div>
-        <div id="txPanelBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
-      </div>
-      <!-- Trade Journal -->
-      <div class="card" id="journalCard" data-mob-tab="transaction" style="display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
-          <div class="card-title" style="margin-bottom:0">${t('trade_journal_title')}<span class="tx-count-badge" id="journalCount"></span></div>
-          <div id="journalSummary" style="font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center"></div>
-        </div>
-        <div id="journalBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
-      </div>` : ''}
-    </div>
+        </section>
 
-    <div class="side-panel">
-      <!-- Plan Watch (alerts only, hidden when none) -->
-      <div class="card" id="planWatchCard" data-mob-tab="overview" style="display:none">
-        <div class="card-title" style="color:var(--loss)">🔔 Plan Watch</div>
-        <div id="planWatchPanel"></div>
-      </div>
-      <!-- Allocation -->
-      <div class="card alloc-card" data-mob-tab="allocation">
-        <div class="card-title">
-          <span>${t('allocation')}</span>
-          <button class="cash-edit-btn" onclick="openAllocMgmt()" style="font-size:11px;padding:4px 11px 4px 9px;margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>${t('manage_label')}</button>
-        </div>
-        <div class="gauge-wrap">
-          <canvas id="gaugeChart"></canvas>
-          <div class="gauge-center">
-            <div class="big" id="gauge-pct">—</div>
-            <div class="lbl">${t('invested')}</div>
+        <section class="page" data-page="holdings">
+          <!-- Positions -->
+          <div class="card">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:10px">
+              <div>
+                <div class="card-title" id="posTitle" style="margin-bottom:2px">${t('positions_title')}</div>
+                <div id="posDayReturn" class="card-header-extra" style="font-size:11px;color:var(--muted)"></div>
+                <div id="posIndexReturn" class="card-header-extra" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+              </div>
+              <div class="card-header-extra" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                <input id="symbolSearch" type="text" placeholder="${t('search_placeholder')}"
+                  oninput="searchTerm=this.value;renderTable(currentModel)"
+                  style="padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--track);color:var(--ink);font-size:12px;outline:none;width:140px;transition:border-color .15s"
+                  onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--line)'">
+                <button class="add-tx-btn" onclick="openAddSymbol()"><span class="atx-plus">+</span><span class="atx-label">Symbol</span></button>
+              </div>
+            </div>
+            <div id="posSubTabs" class="pos-sub-tabs">
+              <button class="pos-sub-tab active" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
+              <button class="pos-sub-tab" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
+            </div>
+            <div id="catFilters" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"></div>
+            <div id="sectorFilters" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>
+            <div id="weightBar" style="margin-bottom:12px"></div>
+            <div class="table-scroll" id="posTable"></div>
           </div>
-        </div>
-        <div class="alloc-stats" id="allocStats"></div>
-        <div class="alloc-list-head">
-          <span>${t('by_position_label')}</span>
-          <span id="allocListCount"></span>
-        </div>
-        <div class="pos-list" id="posList"></div>
-        <div class="alloc-note">${t('alloc_incl_cash_note')}</div>
-      </div>
-      <!-- Total Net Worth -->
-      <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('total_net_worth_label')}${donutExpandBtn('networth')}</div>
-        <div class="chart-wrap donut-h donut-wrap">
-          <canvas id="donutChart"></canvas>
-          <div class="donut-center"><div class="dc-label" id="donut-label">${t('total_net_worth_label')}</div><div class="dc-value" id="donut-value">—</div></div>
-        </div>
-      </div>
-      <!-- Category Breakdown -->
-      <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('category_breakdown_title')}${donutExpandBtn('category')}</div>
-        <div class="chart-wrap donut-h donut-wrap"><canvas id="catDonutChart"></canvas></div>
-      </div>
-      <!-- Sector Breakdown -->
-      <div class="card" data-mob-tab="allocation">
-        <div class="card-title">${t('sector_breakdown_title')}${donutExpandBtn('sector')}</div>
-        <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
-        <div id="sectorDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
-      </div>
-      <!-- Industry Breakdown -->
-      <div class="card" data-mob-tab="allocation">
-        <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutExpandBtn('industry')}</div>
-        <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
-        <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
-      </div>
-      <!-- P&L by Sector -->
-      <div class="card" data-mob-tab="overview">
-        <div class="card-title">${t('pnl_by_sector_title')}</div>
-        <div class="pnlsec-panel" id="pnlSectorPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
-      </div>
-      <!-- Risk & Concentration -->
-      <div class="card" data-mob-tab="overview">
-        <div class="card-title">${t('risk_concentration_title')}</div>
-        <div class="risk-panel" id="riskPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
-      </div>
-      <!-- Calendar -->
-      <div class="card" data-mob-tab="overview">
-        <div class="card-title">${t('upcoming_calendar_title')}</div>
-        <div id="calendarPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
-      </div>
-      <!-- Watchlist -->
-      <div class="card" data-mob-tab="overview">
-        <div class="card-title">${t('Watchlist')}</div>
-        <div id="watchlist"></div>
-      </div>
-      <!-- Dividend Breakdown -->
-      <div class="card" id="divBreakdownCard" data-mob-tab="overview" style="display:none">
-        <div class="card-title">${t('dividend_breakdown_title')}</div>
-        <div id="divBreakdown"></div>
-      </div>
+          <!-- Holdings Performance -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div class="card-title" style="margin-bottom:0">${t('holdings_performance_title')}</div>
+              <button id="hpModeToggle" class="add-tx-btn" onclick="toggleHpMode()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center;font-size:11px;font-weight:700;font-family:var(--font-mono);letter-spacing:.3px">%</button>
+            </div>
+            <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+              <button class="hp-tab active" data-tab="all"       onclick="setHpTab('all')">${t('All')}</button>
+              <button class="hp-tab"        data-tab="gainers"   onclick="setHpTab('gainers')">${t('gainers_tab')}</button>
+              <button class="hp-tab"        data-tab="losers"    onclick="setHpTab('losers')">${t('losers_tab')}</button>
+              <button class="hp-tab"        data-tab="dividends" onclick="setHpTab('dividends')">${t('dividends')}</button>
+            </div>
+            <div id="holdingsPerf"><div style="color:var(--muted);font-size:12px;font-style:italic;text-align:center;padding:16px 0">${t('loading_msg')}</div></div>
+          </div>
+          <!-- Top 20 Stock Holdings (ETF portfolio only) -->
+          <div class="card" id="topHoldingsCard" style="display:none">
+            <div class="card-title">Top 20 Stock Holdings</div>
+            <div id="topHoldingsBody"></div>
+          </div>
+          <!-- Watchlist -->
+          <div class="card">
+            <div class="card-title">${t('Watchlist')}</div>
+            <div id="watchlist"></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="allocation">
+          <div class="alloc-summary">
+            <!-- Allocation -->
+            <div class="card alloc-card">
+              <div class="card-title">
+                <span>${t('allocation')}</span>
+                <button class="cash-edit-btn" onclick="openAllocMgmt()" style="font-size:11px;padding:4px 11px 4px 9px;margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>${t('manage_label')}</button>
+              </div>
+              <div class="gauge-wrap">
+                <canvas id="gaugeChart"></canvas>
+                <div class="gauge-center">
+                  <div class="big" id="gauge-pct">—</div>
+                  <div class="lbl">${t('invested')}</div>
+                </div>
+              </div>
+              <div class="alloc-stats" id="allocStats"></div>
+              <div class="alloc-list-head">
+                <span>${t('by_position_label')}</span>
+                <span id="allocListCount"></span>
+              </div>
+              <div class="pos-list" id="posList"></div>
+              <div class="alloc-note">${t('alloc_incl_cash_note')}</div>
+            </div>
+            <!-- P&L by Sector -->
+            <div class="card">
+              <div class="card-title">${t('pnl_by_sector_title')}</div>
+              <div class="pnlsec-panel" id="pnlSectorPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
+            </div>
+            <!-- Risk & Concentration -->
+            <div class="card">
+              <div class="card-title">${t('risk_concentration_title')}</div>
+              <div class="risk-panel" id="riskPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
+            </div>
+          </div>
+          <div class="alloc-donuts">
+            <!-- Total Net Worth -->
+            <div class="card">
+              <div class="card-title">${t('total_net_worth_label')}${donutExpandBtn('networth')}</div>
+              <div class="chart-wrap donut-h donut-wrap">
+                <canvas id="donutChart"></canvas>
+                <div class="donut-center"><div class="dc-label" id="donut-label">${t('total_net_worth_label')}</div><div class="dc-value" id="donut-value">—</div></div>
+              </div>
+            </div>
+            <!-- Category Breakdown -->
+            <div class="card">
+              <div class="card-title">${t('category_breakdown_title')}${donutExpandBtn('category')}</div>
+              <div class="chart-wrap donut-h donut-wrap"><canvas id="catDonutChart"></canvas></div>
+            </div>
+            <!-- Sector Breakdown -->
+            <div class="card">
+              <div class="card-title">${t('sector_breakdown_title')}${donutExpandBtn('sector')}</div>
+              <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
+              <div id="sectorDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
+            </div>
+            <!-- Industry Breakdown -->
+            <div class="card">
+              <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutExpandBtn('industry')}</div>
+              <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
+              <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="page" data-page="plans">
+          <!-- My Plans -->
+          <div class="card">
+            <div class="card-title">${t('my_plans_title')}</div>
+            <div id="plansPanel"></div>
+          </div>
+        </section>
+
+        <section class="page" data-page="activity">
+          <!-- Transactions -->
+          ${TRANSACTION_URL ? `
+          <div class="card" id="txCard">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px">
+              <div class="card-title" style="margin-bottom:0">${t('transactions_title')}<span class="tx-count-badge" id="txPanelCount"></span></div>
+              <div class="card-header-extra" style="display:flex;gap:6px">
+                <button class="add-tx-btn" onclick="openAddTx()"><span class="atx-plus">+</span><span class="atx-label">Transaction</span></button>
+                <button class="add-tx-btn" id="txPanelRefreshBtn" onclick="refreshTxPanel()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="txPanelBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
+          </div>
+          <!-- Trade Journal -->
+          <div class="card" id="journalCard" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
+              <div class="card-title" style="margin-bottom:0">${t('trade_journal_title')}<span class="tx-count-badge" id="journalCount"></span></div>
+              <div id="journalSummary" style="font-size:11px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;align-items:center"></div>
+            </div>
+            <div id="journalBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
+          </div>` : ''}
+          <!-- Dividend Breakdown -->
+          <div class="card" id="divBreakdownCard" style="display:none">
+            <div class="card-title">${t('dividend_breakdown_title')}</div>
+            <div id="divBreakdown"></div>
+          </div>
+        </section>
+      </main>
     </div>
+    <div class="sidebar-scrim" onclick="toggleSidebar()"></div>
   </div>
   <div id="donutModal" class="donut-overlay">
     <div class="donut-modal" role="dialog" aria-modal="true" aria-labelledby="donutModalTitle">
@@ -11218,7 +11353,7 @@ function renderAllocDonuts() {
   if (!allocMgmtState) return;
   const sym = allocMgmtState.selectedSym;
   const t = sym ? allocMgmtState.targets[sym] : null;
-  const CAT_COLORS = { 'Big Value': '#6b7eb8', 'Medium Value': '#f59e0b', 'Growth': '#22c55e', 'Other': '#9ca85a' };
+  const CAT_COLORS = { 'Big Name': '#6b7eb8', 'Wait for sell': '#b56a8a', 'Medium Cap': '#f59e0b', 'Small Cap': '#7aa3b8', 'Growth': '#22c55e', 'Dividend': '#d4825e', 'Other': '#9ca85a' };
   const SEC_PALETTE = ['#6b7eb8','#8a5a7e','#c79038','#6b8e5a','#7aa3b8','#b56a8a','#9ca85a','#d4825e','#8a7458','#9a7aa3'];
   const sectorColorMap = {};
   [...new Set(Object.values(allocMgmtState.targets).map(x => x.sector))].forEach((s, i) => {
@@ -11950,7 +12085,7 @@ async function init() {
       const banner = document.createElement('div');
       banner.className = 'error-banner';
       banner.innerHTML = `Failed to load: ${e.message}<br><small>Check the sheet is public. Tap your account name above to switch or edit your profile, or hit Refresh to retry.</small>`;
-      document.querySelector('.main-panel')?.prepend(banner);
+      document.querySelector('.page-area')?.prepend(banner);
     } else {
       const el = document.getElementById('lastUpdated');
       if (el) { el.textContent = t('refresh_failed'); el.style.color = 'var(--loss)'; }

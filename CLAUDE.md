@@ -177,7 +177,7 @@ function doGet(e) {
 ```
 
 ## Sheet Schema
-- **Category** values: `"Big Value"`, `"Medium Value"`, `"Growth"`, `"Dividend"`, `"Other"`
+- **Category** values: `"Big Name"`, `"Wait for sell"`, `"Medium Cap"`, `"Small Cap"`, `"Growth"`, `"Dividend"`, `"Other"`
 - **Industry** — free-form string from Yahoo Finance `assetProfile.industry`; ETFs use `"ETF"`; falls back to `'Other'` in charts
 - **Market Cap** — a sheet formula column on `Claude` (computed sheet-side); `parseRows()` reads it directly via `cell(r, "Market Cap")` — no client or Apps Script fetch needed. Hidden entirely in the Performance table for the ETF portfolio view.
 - **Cash/Cash Reserves** — per-portfolio, stored in the `Portfolios` registry sheet. Pre-migration fallback reads from `Claude` row 1.
