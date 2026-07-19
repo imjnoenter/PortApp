@@ -987,6 +987,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
 
+/* ── Monthly Returns Heatmap ── */
+.mret-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11px; }
+.mret-table th, .mret-table td { padding: 4px 6px; text-align: center; white-space: nowrap; }
+.mret-th { font-size: 10px; font-weight: 500; color: var(--muted); }
+.mret-rowlabel { font-size: 10.5px; font-weight: 600; color: var(--ink); text-align: right; padding-right: var(--sp-2); }
+.mret-cell { font-weight: 700; border-radius: 4px; }
+.mret-blank { background: var(--track); }
+.mret-year { font-weight: 700; }
+.mret-avgrow { border-top: 1px solid var(--line); }
+.mret-avgrow .mret-rowlabel { color: var(--muted); }
+
 /* ── Tablet ≤1080px ── */
 @media (max-width: 1080px) {
   .app { grid-template-columns: 1fr; }
@@ -2209,6 +2220,20 @@ const I18N = {
     risk_dist_high: "Avg vs 52W High", risk_near_low: "Near 52W Low",
     risk_within_10: "within 10%", risk_diversified: "Diversified",
     risk_moderate: "Moderate", risk_concentrated: "Concentrated",
+    risk_volatility: "Volatility (ann.)", risk_max_drawdown: "Max Drawdown",
+    risk_sharpe: "Sharpe Ratio", risk_beta: "Beta vs SPY", risk_alpha: "Alpha (ann.)",
+    risk_vs_spy: "vs SPY",
+    fwd_income_net: "Proj. Income / yr", fwd_income_gross_sub: "gross",
+    fwd_yield: "Forward Yield", fwd_yield_on_cost: "Yield on Cost",
+    true_exposure_title: "True Exposure (look-through)",
+    true_exp_direct: "direct", true_exp_via_etf: "via ETFs",
+    true_exp_note: "Direct holdings blended with each ETF's constituents to reveal real exposure.",
+    true_exp_empty: "No ETF look-through data yet.",
+    correlation_title: "Correlation Matrix",
+    corr_legend_together: "move together", corr_legend_diversify: "diversify",
+    corr_omitted_suffix: "smaller holdings not shown",
+    monthly_returns_title: "Monthly Returns",
+    mret_avg_label: "Avg", year_label: "Year",
     no_realized_pnl: "No realized P&L in this period.",
     no_tx_data: "No transaction data.",
     reading_history_msg: "Reading price history from Google Sheets…",
@@ -2420,6 +2445,20 @@ const I18N = {
     risk_dist_high: "เฉลี่ยห่างจากจุดสูงสุด 52 สัปดาห์", risk_near_low: "ใกล้จุดต่ำสุด 52 สัปดาห์",
     risk_within_10: "ภายใน 10%", risk_diversified: "กระจายดี",
     risk_moderate: "ปานกลาง", risk_concentrated: "กระจุกตัว",
+    risk_volatility: "ความผันผวน (ต่อปี)", risk_max_drawdown: "ขาดทุนสูงสุด",
+    risk_sharpe: "อัตราส่วนชาร์ป", risk_beta: "เบต้าเทียบ SPY", risk_alpha: "อัลฟ่า (ต่อปี)",
+    risk_vs_spy: "เทียบ SPY",
+    fwd_income_net: "ปันผลคาดการณ์/ปี", fwd_income_gross_sub: "ก่อนหักภาษี",
+    fwd_yield: "อัตราผลตอบแทนคาดการณ์", fwd_yield_on_cost: "ผลตอบแทนต่อต้นทุน",
+    true_exposure_title: "สัดส่วนที่แท้จริง (มองทะลุ ETF)",
+    true_exp_direct: "ถือตรง", true_exp_via_etf: "ผ่าน ETF",
+    true_exp_note: "รวมหุ้นที่ถือโดยตรงกับหุ้นในพอร์ต ETF เพื่อแสดงสัดส่วนที่แท้จริง",
+    true_exp_empty: "ยังไม่มีข้อมูลมองทะลุ ETF",
+    correlation_title: "ตารางความสัมพันธ์",
+    corr_legend_together: "เคลื่อนไหวไปด้วยกัน", corr_legend_diversify: "กระจายความเสี่ยง",
+    corr_omitted_suffix: "หุ้นสัดส่วนย่อยที่ไม่ได้แสดง",
+    monthly_returns_title: "ผลตอบแทนรายเดือน",
+    mret_avg_label: "เฉลี่ย", year_label: "ปี",
     no_realized_pnl: "ไม่มีกำไร/ขาดทุนที่รับรู้แล้วในช่วงเวลานี้",
     no_tx_data: "ไม่มีข้อมูลประวัติการทำรายการ",
     reading_history_msg: "กำลังอ่านข้อมูลประวัติราคาจาก Google Sheets…",
@@ -2498,6 +2537,8 @@ function setLang(lang) {
 }
 
 let currentModel = null;
+const RISK_FREE_RATE = 0.045;   // annual risk-free rate for Sharpe / alpha (edit here)
+let _riskAdjMemo = { key: null, data: null }; // memoized risk-adjusted metrics
 // ── Multi-portfolio state ─────────────────────────────────────────────────────
 let activePortfolio    = localStorage.getItem('portfolioView.v1') || 'ALL'; // 'ALL' | 'Long-Term' | 'Trade'
 let _posTab = 'overview';
@@ -6974,6 +7015,9 @@ async function fetchEtfData(symbols) {
   }
   renderTable(currentModel);
   renderTopHoldings(currentModel);
+  renderTrueExposure(currentModel);
+  renderCorrelationMatrix(currentModel);
+  renderMonthlyReturns(currentModel);
   renderSectorDonut(currentModel);
   renderIndustryDonut(currentModel);
 }
@@ -7007,6 +7051,223 @@ async function fetchStockReturns() {
 
 let _topHoldingSectors = {};
 let _sectorFetchInFlight = false;
+
+// True look-through exposure: direct holding weight + weight embedded inside each
+// ETF's cached constituents. Reveals hidden concentration (own AAPL directly AND
+// via VOO/QQQ). Only ETFs' cached top holdings are decomposed; the remainder of
+// each ETF's value is uncounted and surfaced as a residual note. ALL / ETF views.
+function computeTrueExposure(model) {
+  const allPos = [...(model.positions || []), ...(model.sgovPos ? [model.sgovPos] : [])];
+  const totalVal = allPos.reduce((s, p) => s + (p.currentValue || 0), 0);
+  if (totalVal <= 0) return null;
+  const { agg } = _blendedEtfHoldings(model);
+  if (!Object.keys(agg).length) return null; // no ETF look-through data cached yet
+  const rows = {};
+  for (const p of allPos) {
+    if (_etfDataCache[p.symbol]?.topHoldings?.length) continue; // ETF itself → represented by its constituents
+    const w = (p.currentValue || 0) / totalVal;
+    if (w <= 0) continue;
+    (rows[p.symbol] = rows[p.symbol] || { symbol: p.symbol, name: p.name || p.symbol, direct: 0, viaEtf: 0 }).direct += w;
+  }
+  for (const h of Object.values(agg)) {
+    const r = rows[h.symbol] = rows[h.symbol] || { symbol: h.symbol, name: h.name, direct: 0, viaEtf: 0 };
+    r.viaEtf += h.blended;
+    if (h.name && h.name !== h.symbol) r.name = h.name;
+  }
+  const list = Object.values(rows).map(r => ({ ...r, total: r.direct + r.viaEtf }))
+                                  .sort((a, b) => b.total - a.total);
+  const classified = list.reduce((s, r) => s + r.total, 0);
+  return { list, totalVal, residualFrac: Math.max(0, 1 - classified) };
+}
+
+function renderTrueExposure(model) {
+  const card = document.getElementById('trueExposureCard');
+  const body = document.getElementById('trueExposureBody');
+  const note = document.getElementById('trueExposureNote');
+  if (!card || !body || !model) return;
+  const data = (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? computeTrueExposure(model) : null;
+  if (!data) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const pct = v => (v * 100).toFixed(1) + '%';
+  body.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:var(--muted);font-weight:500">
+        <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)">${t('ticker_label')}</th>
+        <th style="text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)">${t('true_exp_direct')}</th>
+        <th style="text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)">${t('true_exp_via_etf')}</th>
+        <th style="text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)">${t('Total')}</th>
+      </tr></thead>
+      <tbody>
+        ${data.list.slice(0, 12).map(r => {
+          const hidden = r.direct > 0 && r.viaEtf >= r.direct * 0.5; // ETF adds ≥50% on top of direct
+          return `<tr style="border-bottom:1px solid var(--line)">
+            <td style="padding:5px 6px">
+              <div style="display:flex;align-items:center;gap:5px">
+                ${logoCell(r.symbol, colorFor(r.symbol))}
+                <span style="font-weight:600">${r.symbol}</span>
+              </div>
+            </td>
+            <td style="text-align:right;padding:5px 6px;color:var(--muted)">${r.direct > 0 ? pct(r.direct) : '—'}</td>
+            <td style="text-align:right;padding:5px 6px;color:${r.viaEtf > 0 ? 'var(--peri)' : 'var(--muted)'}">${r.viaEtf > 0 ? pct(r.viaEtf) : '—'}</td>
+            <td style="text-align:right;padding:5px 6px;font-weight:700${hidden ? ';color:var(--honey)' : ''}">${pct(r.total)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  if (note) note.textContent = data.residualFrac > 0.005
+    ? `${t('other_unclassified_label')}: ${fmtCurr(data.residualFrac * data.totalVal)} (${(data.residualFrac * 100).toFixed(1)}%)`
+    : '';
+}
+
+// Correlation Matrix — Pearson r of daily returns between the top-10 holdings by current value.
+function computeCorrelationMatrix(model) {
+  const eligible = (model.positions || []).filter(p => {
+    const prices = historyCache?.prices?.[p.symbol];
+    return prices && Object.keys(prices).length >= 2;
+  });
+  const syms = eligible.slice()
+    .sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0))
+    .slice(0, 20)
+    .map(p => p.symbol);
+  if (syms.length < 2) return null;
+
+  const returnMaps = {};
+  for (const sym of syms) {
+    const prices = historyCache.prices[sym];
+    const dates = Object.keys(prices).sort();
+    const rets = {};
+    for (let i = 1; i < dates.length; i++) {
+      const prev = prices[dates[i - 1]], cur = prices[dates[i]];
+      if (prev > 0 && cur > 0) rets[dates[i]] = cur / prev - 1;
+    }
+    returnMaps[sym] = rets;
+  }
+
+  const matrix = syms.map(() => syms.map(() => null));
+  for (let i = 0; i < syms.length; i++) {
+    matrix[i][i] = 1;
+    for (let j = i + 1; j < syms.length; j++) {
+      const a = returnMaps[syms[i]], b = returnMaps[syms[j]];
+      const commonDates = Object.keys(a).filter(d => b[d] !== undefined);
+      if (commonDates.length < 30) continue;
+      const xs = commonDates.map(d => a[d]), ys = commonDates.map(d => b[d]);
+      const n = xs.length;
+      const meanX = xs.reduce((s, v) => s + v, 0) / n;
+      const meanY = ys.reduce((s, v) => s + v, 0) / n;
+      let cov = 0, varX = 0, varY = 0;
+      for (let k = 0; k < n; k++) {
+        const dx = xs[k] - meanX, dy = ys[k] - meanY;
+        cov += dx * dy; varX += dx * dx; varY += dy * dy;
+      }
+      const r = (varX > 0 && varY > 0) ? cov / Math.sqrt(varX * varY) : null;
+      matrix[i][j] = matrix[j][i] = r;
+    }
+  }
+  return { syms, matrix, omittedCount: eligible.length - syms.length };
+}
+
+// Diverging correlation scale, theme-aware: tints the theme's own accent tokens into the
+// card surface via color-mix, so it adapts across all 4 themes and stays legible with --ink text.
+// r→+1 red --loss (move together), r→0 near-neutral (--card), r→−1 green --gain (diversifier).
+function corrColor(r) {
+  const v = Math.max(-1, Math.min(1, r));
+  const pct = (0.08 + Math.abs(v) * 0.34) * 100; // 8%..42% tint of accent into the card surface
+  const accent = v >= 0 ? '--loss' : '--gain';
+  return { bg: `color-mix(in oklab, var(${accent}) ${pct.toFixed(1)}%, var(--card))`, fg: 'var(--ink)' };
+}
+
+function renderCorrelationMatrix(model) {
+  const card = document.getElementById('correlationCard');
+  const body = document.getElementById('correlationBody');
+  const note = document.getElementById('correlationNote');
+  if (!card || !body || !model) return;
+  const data = computeCorrelationMatrix(model);
+  if (!data) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const { syms, matrix, omittedCount } = data;
+  const colGroup = `<col style="width:3rem">${syms.map(() => `<col>`).join('')}`;
+  const headCells = syms.map(s => `<th style="padding:3px 5px;font-size:10px;font-weight:500;color:var(--muted);text-align:center">${s}</th>`).join('');
+  const rows = syms.map((rowSym, i) => {
+    const cells = syms.map((colSym, j) => {
+      const r = matrix[i][j];
+      if (r == null) return `<td style="padding:3px 5px;text-align:center;background:var(--track);color:var(--muted);font-size:11px">—</td>`;
+      const { bg, fg } = corrColor(r);
+      return `<td style="padding:3px 5px;text-align:center;background:${bg};color:${fg};font-size:11px;font-weight:700">${r.toFixed(2)}</td>`;
+    }).join('');
+    return `<tr><th style="padding:3px 5px;font-size:9px;font-weight:500;color:var(--muted);text-align:right;white-space:nowrap">${rowSym}</th>${cells}</tr>`;
+  }).join('');
+  body.innerHTML = `<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;table-layout:fixed;font-size:11px">
+    <colgroup>${colGroup}</colgroup>
+    <thead><tr><th></th>${headCells}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+  if (note) {
+    let txt = `<div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap">−1 · ${t('corr_legend_diversify')}</span>
+      <span style="flex:1;height:8px;border-radius:4px;background:linear-gradient(90deg, var(--gain), var(--card), var(--loss))"></span>
+      <span style="font-size:10px;color:var(--muted);white-space:nowrap">${t('corr_legend_together')} · +1</span>
+    </div>`;
+    if (omittedCount > 0) txt += `<div style="font-size:10px;color:var(--muted);margin-top:4px">+${omittedCount} ${t('corr_omitted_suffix')}</div>`;
+    note.innerHTML = txt;
+  }
+}
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Monthly Returns Heatmap — year×month grid of computeMonthlyReturns() output. Month cells are
+// color-filled (saturating at ±20%); the Year column + Avg row are colored text only.
+function renderMonthlyReturns(model) {
+  const card = document.getElementById('monthlyReturnsCard');
+  const body = document.getElementById('monthlyReturnsBody');
+  if (!card || !body) return;
+  const data = computeMonthlyReturns(txCache);
+  if (!data) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  // Unsigned magnitude for month cells: "10%" not "10.0%", minus only for negatives, "-0%" near zero.
+  const fmtCell = r => {
+    const pct = r * 100;
+    const mag = Math.abs(pct);
+    const rounded = Math.round(mag * 10) / 10;
+    const magStr = rounded % 1 === 0 ? String(rounded) : rounded.toFixed(1);
+    return (pct < 0 ? '-' : '') + magStr + '%';
+  };
+  // Always-signed, 1 decimal, for Year column + Avg row.
+  const fmtSigned = r => {
+    const pct = r * 100;
+    return (pct >= 0 ? '+' : '-') + Math.abs(pct).toFixed(1) + '%';
+  };
+  const cellStyle = r => {
+    const MAX = 60; // saturation % of accent tint at |r| = 20%
+    const pct = Math.min(Math.abs(r) / 0.20, 1) * MAX;
+    const accent = r >= 0 ? '--gain' : '--loss';
+    return `background:color-mix(in oklab, var(${accent}) ${pct.toFixed(1)}%, var(--card));color:var(--ink)`;
+  };
+  const textColor = v => v == null ? 'var(--muted)' : (v >= 0 ? 'var(--gain)' : 'var(--loss)');
+
+  const headCells = MONTH_ABBR.map(m => `<th class="mret-th">${m}</th>`).join('');
+  const rows = data.years.map(y => {
+    const cells = y.months.map((r, i) => {
+      if (r == null) return `<td class="mret-cell mret-blank"></td>`;
+      const sign = r >= 0 ? '+' : '';
+      const title = `${MONTH_FULL[i]} ${y.year}: ${sign}${(r * 100).toFixed(2)}%`;
+      return `<td class="mret-cell" style="${cellStyle(r)}" title="${title}">${fmtCell(r)}</td>`;
+    }).join('');
+    const yearCell = `<td class="mret-year" style="color:${textColor(y.yearTotal)}">${y.yearTotal == null ? '—' : fmtSigned(y.yearTotal)}</td>`;
+    return `<tr><th class="mret-rowlabel">${y.year}</th>${cells}${yearCell}</tr>`;
+  }).join('');
+
+  const avgCells = data.avgMonths.map(r =>
+    `<td class="mret-cell mret-avg" style="color:${textColor(r)}">${r == null ? '—' : fmtSigned(r)}</td>`
+  ).join('');
+  const avgRow = `<tr class="mret-avgrow"><th class="mret-rowlabel">${t('mret_avg_label')}</th>${avgCells}<td class="mret-year" style="color:${textColor(data.avgYear)}">${data.avgYear == null ? '—' : fmtSigned(data.avgYear)}</td></tr>`;
+
+  body.innerHTML = `<div class="table-scroll"><table class="mret-table">
+    <thead><tr><th></th>${headCells}<th class="mret-th">${t('year_label')}</th></tr></thead>
+    <tbody>${rows}${avgRow}</tbody>
+  </table></div>`;
+}
 
 function renderTopHoldings(model) {
   const card = document.getElementById('topHoldingsCard');
@@ -8990,6 +9251,159 @@ function renderPnLBySector(model) {
 }
 
 // ── Render: Risk & Concentration panel ───────────────────────────────────────
+// Time-weighted daily return series for the portfolio and SPY, stripping each
+// day's external cash flow so deposits/withdrawals don't fabricate volatility.
+// Portfolio TWR day-return = (V_end − netFlow) / V_prev − 1; SPY = clean price return.
+function computeReturnSeries(txs) {
+  if (!txs?.length || !historyCache?.prices?.['SPY']) return null;
+  const prices = historyCache.prices;
+  const dateSet = new Set();
+  Object.values(prices).forEach(p => Object.keys(p).forEach(d => dateSet.add(d)));
+  const sorted = [...txs]
+    .filter(tx => tx.type === 'Buy' || tx.type === 'Sell')
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  const firstBuyDate = sorted.find(tx => tx.type === 'Buy')?.dateStr;
+  if (!firstBuyDate) return null;
+  const days = [...dateSet].filter(d => d >= firstBuyDate).sort();
+  if (days.length < 25) return null;
+
+  const holdings = {};
+  let txIdx = 0, prevVal = null, prevSpy = null;
+  const rp = [], rs = [];
+  for (const day of days) {
+    let flow = 0; // net cash into portfolio this day (buys − sells)
+    while (txIdx < sorted.length && sorted[txIdx].dateStr <= day) {
+      const tx = sorted[txIdx++];
+      const amt = (tx.shares || 0) * (tx.price || 0);
+      if (tx.type === 'Buy') { holdings[tx.ticker] = (holdings[tx.ticker] || 0) + tx.shares; flow += amt; }
+      else { holdings[tx.ticker] = Math.max(0, (holdings[tx.ticker] || 0) - tx.shares);
+             if ((holdings[tx.ticker] || 0) < 1e-9) delete holdings[tx.ticker]; flow -= amt; }
+    }
+    let portVal = 0, hasPrices = false;
+    for (const [sym, sh] of Object.entries(holdings)) {
+      if (sh < 1e-9) continue;
+      const p = nearestPrice(prices[sym], day);
+      if (p != null) { portVal += sh * p; hasPrices = true; }
+    }
+    if (Object.keys(holdings).length > 0 && !hasPrices) continue;
+    const spyP = nearestPrice(prices['SPY'], day);
+    if (spyP == null) continue;
+    if (prevVal != null && prevVal > 0 && prevSpy > 0) {
+      rp.push((portVal - flow) / prevVal - 1);
+      rs.push(spyP / prevSpy - 1);
+    }
+    prevVal = portVal; prevSpy = spyP;
+  }
+  return rp.length >= 20 ? { rp, rs } : null;
+}
+
+// Monthly Returns Heatmap — same daily TWR holdings-walk as computeReturnSeries (kept standalone
+// so the Risk panel's series definition never shifts), but keeps each day's YYYY-MM instead of
+// discarding dates, compounding daily returns into a per-calendar-month figure.
+function computeMonthlyReturns(txs) {
+  if (!txs?.length || !historyCache?.prices?.['SPY']) return null;
+  const prices = historyCache.prices;
+  const dateSet = new Set();
+  Object.values(prices).forEach(p => Object.keys(p).forEach(d => dateSet.add(d)));
+  const sorted = [...txs]
+    .filter(tx => tx.type === 'Buy' || tx.type === 'Sell')
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  const firstBuyDate = sorted.find(tx => tx.type === 'Buy')?.dateStr;
+  if (!firstBuyDate) return null;
+  const days = [...dateSet].filter(d => d >= firstBuyDate).sort();
+  if (days.length < 25) return null;
+
+  const holdings = {};
+  let txIdx = 0, prevVal = null, prevSpy = null, rCount = 0;
+  const monthlyCompound = {}; // 'YYYY-MM' -> running Π(1+r) for that month's daily returns
+  for (const day of days) {
+    let flow = 0; // net cash into portfolio this day (buys − sells)
+    while (txIdx < sorted.length && sorted[txIdx].dateStr <= day) {
+      const tx = sorted[txIdx++];
+      const amt = (tx.shares || 0) * (tx.price || 0);
+      if (tx.type === 'Buy') { holdings[tx.ticker] = (holdings[tx.ticker] || 0) + tx.shares; flow += amt; }
+      else { holdings[tx.ticker] = Math.max(0, (holdings[tx.ticker] || 0) - tx.shares);
+             if ((holdings[tx.ticker] || 0) < 1e-9) delete holdings[tx.ticker]; flow -= amt; }
+    }
+    let portVal = 0, hasPrices = false;
+    for (const [sym, sh] of Object.entries(holdings)) {
+      if (sh < 1e-9) continue;
+      const p = nearestPrice(prices[sym], day);
+      if (p != null) { portVal += sh * p; hasPrices = true; }
+    }
+    if (Object.keys(holdings).length > 0 && !hasPrices) continue;
+    const spyP = nearestPrice(prices['SPY'], day);
+    if (spyP == null) continue;
+    if (prevVal != null && prevVal > 0 && prevSpy > 0) {
+      const r = (portVal - flow) / prevVal - 1;
+      const ym = day.slice(0, 7);
+      monthlyCompound[ym] = (monthlyCompound[ym] ?? 1) * (1 + r);
+      rCount++;
+    }
+    prevVal = portVal; prevSpy = spyP;
+  }
+  if (rCount < 20) return null;
+
+  const months = Object.keys(monthlyCompound).sort();
+  if (!months.length) return null;
+  const firstYear = +months[0].slice(0, 4);
+  const currentYear = new Date().getFullYear();
+
+  const years = [];
+  for (let y = currentYear; y >= firstYear; y--) {
+    const monthVals = [];
+    for (let m = 0; m < 12; m++) {
+      const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+      monthVals.push(monthlyCompound[key] != null ? monthlyCompound[key] - 1 : null);
+    }
+    const nonNull = monthVals.filter(v => v != null);
+    const yearTotal = nonNull.length ? nonNull.reduce((acc, v) => acc * (1 + v), 1) - 1 : null;
+    years.push({ year: y, months: monthVals, yearTotal });
+  }
+
+  const avgMonths = [];
+  for (let m = 0; m < 12; m++) {
+    const vals = years.map(y => y.months[m]).filter(v => v != null);
+    avgMonths.push(vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null);
+  }
+  const yearTotals = years.map(y => y.yearTotal).filter(v => v != null);
+  const avgYear = yearTotals.length ? yearTotals.reduce((s, v) => s + v, 0) / yearTotals.length : null;
+
+  return { years, avgMonths, avgYear };
+}
+
+// Volatility (ann.), max drawdown, Sharpe, beta & alpha vs SPY from a TWR series.
+function computeRiskAdjusted(series) {
+  const { rp, rs } = series;
+  const n = rp.length;
+  const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+  const mp = mean(rp), ms = mean(rs);
+  const varp = rp.reduce((s, x) => s + (x - mp) ** 2, 0) / (n - 1);
+  const vars = rs.reduce((s, x) => s + (x - ms) ** 2, 0) / (n - 1);
+  const cov  = rp.reduce((s, x, i) => s + (x - mp) * (rs[i] - ms), 0) / (n - 1);
+  const volAnn = Math.sqrt(varp * 252);
+  const annRetPort = Math.pow(1 + mp, 252) - 1;
+  const annRetSpy  = Math.pow(1 + ms, 252) - 1;
+  const sharpe = volAnn > 0 ? (annRetPort - RISK_FREE_RATE) / volAnn : null;
+  const beta   = vars > 0 ? cov / vars : null;
+  const alpha  = beta != null ? annRetPort - (RISK_FREE_RATE + beta * (annRetSpy - RISK_FREE_RATE)) : null;
+  let idx = 1, peak = 1, maxDD = 0;
+  for (const r of rp) { idx *= (1 + r); if (idx > peak) peak = idx; const dd = idx / peak - 1; if (dd < maxDD) maxDD = dd; }
+  return { volAnn: volAnn * 100, maxDD: maxDD * 100, sharpe, beta, alpha: alpha != null ? alpha * 100 : null };
+}
+
+// Memoized wrapper — the risk panel re-renders on every quote tick, but a
+// multi-hundred-day series barely moves intraday, so recompute only when the
+// portfolio view, tx count, or number of history days changes.
+function riskAdjusted() {
+  const key = `${activePortfolio}:${txCache?.length || 0}:${Object.keys(historyCache?.prices?.['SPY'] || {}).length}`;
+  if (_riskAdjMemo.key === key) return _riskAdjMemo.data;
+  const series = computeReturnSeries(txCache);
+  const data = series ? computeRiskAdjusted(series) : null;
+  _riskAdjMemo = { key, data };
+  return data;
+}
+
 function renderRiskPanel(model) {
   const el = document.getElementById('riskPanel');
   if (!el || !model) return;
@@ -9059,6 +9473,15 @@ function renderRiskPanel(model) {
   const distTone    = !hasW52 ? null : avgDistHigh <= -25 ? 'loss' : avgDistHigh <= -12 ? 'honey' : 'gain';
   const nearLowTone = nearLowCount === 0 ? 'gain' : nearLowCount <= 2 ? 'honey' : 'loss';
 
+  // ── Risk-adjusted (TWR vs SPY) ──────────────────────────────────────────────
+  const ra = riskAdjusted();
+  const pct1 = (v, sign) => `${sign && v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+  const volTone    = !ra ? null : ra.volAnn < 15 ? 'gain' : ra.volAnn < 25 ? 'honey' : 'loss';
+  const ddTone     = !ra ? null : ra.maxDD > -15 ? 'gain' : ra.maxDD > -30 ? 'honey' : 'loss';
+  const sharpeTone = !ra || ra.sharpe == null ? null : ra.sharpe >= 1 ? 'gain' : ra.sharpe >= 0 ? 'honey' : 'loss';
+  const betaTone   = !ra || ra.beta == null ? null : ra.beta > 1.3 ? 'honey' : null;
+  const alphaTone  = !ra || ra.alpha == null ? null : ra.alpha >= 0 ? 'gain' : 'loss';
+
   el.innerHTML = `
     ${row(t('risk_largest'), `${big.symbol} · ${(big.stockWeightPct||0).toFixed(1)}%`, bigTone)}
     ${row(t('risk_top3'), top3.toFixed(1) + '%', top3Tone, `${t('of_target_label')} equity`)}
@@ -9080,7 +9503,60 @@ function renderRiskPanel(model) {
         hasW52 ? (avgDistHigh >= 0 ? '+' : '') + avgDistHigh.toFixed(1) + '%' : '—', distTone)}
     ${row(t('risk_near_low'),
         hasW52 ? String(nearLowCount) : '—', nearLowTone, hasW52 ? t('risk_within_10') : '')}
+    <div class="risk-divider"></div>
+    ${row(t('risk_volatility'),    ra ? pct1(ra.volAnn) : '—', volTone)}
+    ${row(t('risk_max_drawdown'),  ra ? pct1(ra.maxDD) : '—', ddTone)}
+    ${row(t('risk_sharpe'),        ra && ra.sharpe != null ? ra.sharpe.toFixed(2) : '—', sharpeTone)}
+    ${row(t('risk_beta'),          ra && ra.beta  != null ? ra.beta.toFixed(2) : '—', betaTone, t('risk_vs_spy'))}
+    ${row(t('risk_alpha'),         ra && ra.alpha != null ? pct1(ra.alpha, true) : '—', alphaTone, t('risk_vs_spy'))}
   `;
+}
+
+// Forward-looking income: trailing-12-month per-share dividends × current shares.
+// Yields use current equity value / cost basis of all held positions (excl. cash).
+function computeForwardIncome(model) {
+  const divData = historyCache?.dividends || {};
+  const pos = model?.positions || [];
+  if (!pos.length || !Object.keys(divData).length) return null;
+  const cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear() - 1);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  let gross = 0, net = 0, equityVal = 0, cost = 0, payers = 0;
+  for (const p of pos) {
+    equityVal += p.currentValue || 0;
+    cost += p.costBasis || 0;
+    const events = divData[p.symbol];
+    if (!events || !(p.qty > 0)) continue;
+    let perShare = 0;
+    for (const [dateStr, amt] of Object.entries(events)) {
+      if (dateStr >= cutoffStr) perShare += amt;
+    }
+    if (perShare <= 0) continue;
+    gross += perShare * p.qty;
+    net   += perShare * p.qty * (1 - withholdingRate(p.symbol));
+    payers++;
+  }
+  if (gross <= 0) return null;
+  return {
+    gross, net, payers,
+    fwdYield:    equityVal > 0 ? net / equityVal * 100 : 0,
+    yieldOnCost: cost > 0      ? net / cost      * 100 : 0,
+  };
+}
+
+function forwardIncomeStrip() {
+  const fwd = computeForwardIncome(currentModel);
+  if (!fwd) return '';
+  const stat = (label, value, tone, sub) => `
+    <div style="flex:1;background:var(--track);border-radius:8px;padding:8px 10px;min-width:0">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+      <div style="font-size:15px;font-weight:700;${tone ? `color:${tone}` : ''}">${value}</div>
+      ${sub ? `<div style="font-size:10px;color:var(--muted)">${sub}</div>` : ''}
+    </div>`;
+  return `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    ${stat(t('fwd_income_net'), fmtCurr(fwd.net), 'var(--gain)', `${fmtCurr(fwd.gross)} ${t('fwd_income_gross_sub')}`)}
+    ${stat(t('fwd_yield'), fwd.fwdYield.toFixed(2) + '%', null)}
+    ${stat(t('fwd_yield_on_cost'), fwd.yieldOnCost.toFixed(2) + '%', null)}
+  </div>`;
 }
 
 // ── Render: dividend breakdown ────────────────────────────────────────────────
@@ -9106,12 +9582,12 @@ function renderDividendBreakdown(txs) {
     const net  = gross * (1 - rate);
     rows.push({ ticker, gross, net, rate, payments });
   }
-  if (!rows.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">${t('no_div_received')}</div>`; return; }
+  if (!rows.length) { el.innerHTML = forwardIncomeStrip() + `<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0">${t('no_div_received')}</div>`; return; }
   rows.sort((a, b) => b.net - a.net);
   const totalGross = rows.reduce((s, r) => s + r.gross, 0);
   const totalNet   = rows.reduce((s, r) => s + r.net,   0);
   const color = colorFor;
-  el.innerHTML = `
+  el.innerHTML = forwardIncomeStrip() + `
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="color:var(--muted);font-weight:500">
         <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)">${t('ticker_label')}</th>
@@ -9843,6 +10319,9 @@ async function loadBenchmark(retry = 0) {
         const card = document.getElementById('divBreakdownCard');
         if (card && dividends.gross > 0) card.style.display = '';
         renderHoldingsPerformance();
+        renderRiskPanel(currentModel);
+        renderCorrelationMatrix(currentModel);
+        renderMonthlyReturns(currentModel);
       }
       loadNetWorthChart();
       return !!data;
@@ -10565,6 +11044,11 @@ function buildShell() {
               </div>
             </div>
           </div>` : ''}
+          <!-- Monthly Returns Heatmap -->
+          <div class="card" id="monthlyReturnsCard" style="display:none">
+            <div class="card-title">${t('monthly_returns_title')}</div>
+            <div id="monthlyReturnsBody"></div>
+          </div>
           <!-- Plan Watch (alerts only, hidden when none) + Calendar -->
           <div class="dash-alerts-row">
             <div class="card" id="planWatchCard" style="display:none">
@@ -10663,6 +11147,19 @@ function buildShell() {
               <div class="card-title">${t('risk_concentration_title')}</div>
               <div class="risk-panel" id="riskPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
             </div>
+            <!-- True Exposure (look-through) -->
+            <div class="card" id="trueExposureCard" style="display:none">
+              <div class="card-title">${t('true_exposure_title')}</div>
+              <div id="trueExposureBody"></div>
+              <div id="trueExposureNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
+              <div style="font-size:10px;color:var(--muted);margin-top:6px">${t('true_exp_note')}</div>
+            </div>
+          </div>
+          <!-- Correlation Matrix (full-width row) -->
+          <div class="card" id="correlationCard" style="display:none">
+            <div class="card-title">${t('correlation_title')}</div>
+            <div id="correlationBody"></div>
+            <div id="correlationNote" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
           </div>
           <div class="alloc-donuts">
             <!-- Total Net Worth -->
@@ -11875,6 +12372,9 @@ function renderModelViews(model) {
   renderPnLBySector(model);
   renderRiskPanel(model);
   renderTopHoldings(model);
+  renderTrueExposure(model);
+  renderCorrelationMatrix(model);
+  renderMonthlyReturns(model);
   renderWatchlist(model);
   renderPlansPanel();
   renderPlanWatch();
