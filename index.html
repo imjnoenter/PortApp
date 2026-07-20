@@ -2249,6 +2249,10 @@ const I18N = {
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
     industry_breakdown_title: "Industry Breakdown",
+    custom_breakdown_title: "Custom",
+    mygroup_breakdown_title: "My Group",
+    custom_label: "Custom",
+    mygroup_label: "My Group",
     top_holding_breakdown_title: "Top Holding Breakdown",
     other_unclassified_label: "Other/Unclassified",
     expand_chart: "Expand",
@@ -2475,6 +2479,10 @@ const I18N = {
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
     industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
+    custom_breakdown_title: "Custom",
+    mygroup_breakdown_title: "My Group",
+    custom_label: "Custom",
+    mygroup_label: "My Group",
     top_holding_breakdown_title: "สัดส่วนหุ้นที่ถือครองสูงสุด",
     other_unclassified_label: "อื่นๆ/ไม่จัดประเภท",
     expand_chart: "ขยาย",
@@ -2569,6 +2577,7 @@ let pnlData = null;
 let txCache = null;
 let lastTxData = null;
 let historyCache = null;
+let _gicsMap = {}; // { TICKER: { sector, subIndustry } } — GICS overlay, see ensureGicsMap()
 let _journalTrades = [], _journalSort = 'closeDate', _journalDir = -1;
 
 // ── Add transaction ───────────────────────────────────────────────────────────
@@ -4852,6 +4861,17 @@ function renderActionTabContent() {
   } else if (actionModalTab === 'edit') {
     // Move-shares block: only when this symbol is held in the current port and >1 portfolio exists.
     const curQty   = pos?.qty || 0;
+    const customOpts  = [...new Set(_allRows.map(r => r.custom).filter(Boolean))];
+    const myGroupOpts = [...new Set(_allRows.map(r => r.myGroup).filter(Boolean))];
+    const customBlock = `
+      <div class="tx-field"><label class="tx-label">${t('custom_label')}</label>
+        <input class="tx-input" id="editCustom" type="text" list="editCustomList" value="${pos?.custom || ''}">
+        <datalist id="editCustomList">${customOpts.map(v=>`<option value="${v}"></option>`).join('')}</datalist>
+      </div>
+      <div class="tx-field"><label class="tx-label">${t('mygroup_label')}</label>
+        <input class="tx-input" id="editMyGroup" type="text" list="editMyGroupList" value="${pos?.myGroup || ''}">
+        <datalist id="editMyGroupList">${myGroupOpts.map(v=>`<option value="${v}"></option>`).join('')}</datalist>
+      </div>`;
     const showMove = !isReadOnly() && _portfolioRegistry.length > 1 && curQty > 0;
     const destOpts = _portfolioRegistry
       .filter(p => p.name !== actionModalPort)
@@ -4886,7 +4906,7 @@ function renderActionTabContent() {
         <div class="tx-field"><label class="tx-label">Avg Cost ($)</label>
           <input class="tx-input" id="editAvgCost" type="number" step="any" min="0" value="${pos?.avgPrice||''}" oninput="updateActionChartsPreview()">
         </div>
-      </div>
+      </div>${customBlock}
       <button class="tx-submit" onclick="submitSymbolEdit('${sym}','edit')">Save to Google Sheet</button>
       <div class="tx-status" id="symbolEditStatus"></div>${moveBlock}`;
     setTimeout(() => renderActionCharts(sym), 0);
@@ -5195,6 +5215,8 @@ window.submitSymbolEdit = async function(sym, tab) {
     const avg = parseFloat(document.getElementById('editAvgCost')?.value);
     if (!isNaN(qty)) params.set('qty', qty);
     if (!isNaN(avg)) params.set('avgPrice', avg);
+    if (document.getElementById('editCustom'))  params.set('custom',  document.getElementById('editCustom').value.trim());
+    if (document.getElementById('editMyGroup')) params.set('myGroup', document.getElementById('editMyGroup').value.trim());
   } else {
     const tgt = parseFloat(document.getElementById('editTargetPct')?.value);
     const cat = document.getElementById('editCategory')?.value;
@@ -5931,6 +5953,48 @@ async function fetchSheet() {
   return json.table;
 }
 
+// ── GICS overlay ──────────────────────────────────────────────────────────────
+// Yahoo's sector taxonomy renamed to match official GICS sector names (used as a fallback for
+// symbols not present in the GICS map — see parseRows). Communication Services, Industrials,
+// Energy, Utilities, Real Estate already match GICS names; ETF/blank pass through unchanged.
+const YAHOO_TO_GICS_SECTOR = {
+  'Technology': 'Information Technology',
+  'Financial Services': 'Financials',
+  'Healthcare': 'Health Care',
+  'Consumer Cyclical': 'Consumer Discretionary',
+  'Consumer Defensive': 'Consumer Staples',
+  'Basic Materials': 'Materials',
+};
+
+const GICS_MAP_URL = 'https://raw.githubusercontent.com/imjnoenter/gics-data/main/gics.json';
+const GICS_CACHE_KEY = 'gicsMap.v1';
+const GICS_CACHE_TTL = 7 * 24 * 3600 * 1000; // 7 days
+
+async function _fetchGicsMap() {
+  try {
+    const res = await fetch(GICS_MAP_URL);
+    const data = await res.json();
+    _gicsMap = data;
+    localStorage.setItem(GICS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+  } catch (err) {
+    console.warn('GICS map fetch failed', err);
+  }
+}
+
+// Populates _gicsMap for parseRows' sector/sub-industry overlay. In-memory short-circuit makes
+// this cheap on every init() re-run; only the very first load of the session actually awaits a fetch.
+async function ensureGicsMap() {
+  if (_gicsMap && Object.keys(_gicsMap).length) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(GICS_CACHE_KEY) || 'null'); } catch {}
+  if (cached && cached.data) {
+    _gicsMap = cached.data;
+    if (Date.now() - cached.ts > GICS_CACHE_TTL) _fetchGicsMap(); // stale — refresh in the background
+  } else {
+    await _fetchGicsMap(); // first-ever visit — wait so this load still gets the overlay
+  }
+}
+
 // ── Portfolios registry ───────────────────────────────────────────────────────
 const DEFAULT_PORT = 'Long-Term';
 // Used pre-migration (no Portfolios sheet) so the app still loads as a single portfolio.
@@ -6013,23 +6077,35 @@ function parseRows(table) {
     const c = row.c[i];
     return c == null ? null : c.v;
   };
-  return table.rows.map(r => ({
-    portfolio: cell(r, "Portfolio") || DEFAULT_PORT,
-    symbol:   cell(r, "Symbol"),
-    name:     cell(r, "Name"),
-    sector:   cell(r, "Sector"),
-    industry: cell(r, "Industry"),
-    category: cell(r, "Category"),
-    qty:      cell(r, "Qty"),
-    avgPrice: cell(r, "Avg price"),
-    target:   cell(r, "Target Allocation"),
-    price:    cell(r, "Current price"),
-    marketCap: cell(r, "Market Cap"),
-    cash:     cell(r, "Cash"),
-    cashRes:  cell(r, "Cash Reserves"),
-    fcd:      cell(r, "FCD"),
-    usd:      cell(r, "USD"),
-  })).filter(r => r.symbol);
+  return table.rows.map(r => {
+    const rawSymbol = cell(r, "Symbol");
+    const sheetSector = cell(r, "Sector");
+    const _gk = String(rawSymbol || '').trim().toUpperCase();
+    const _gicsRow = _gicsMap[_gk];
+    // GICS overlay: known ticker → official sector + sub-industry; else Yahoo sector renamed to
+    // GICS naming (pass-through for ETF/blank/anything not in the rename map).
+    const sector   = _gicsRow ? _gicsRow.sector      : (YAHOO_TO_GICS_SECTOR[sheetSector] || sheetSector);
+    const industry = _gicsRow ? _gicsRow.subIndustry : cell(r, "Industry");
+    return {
+      portfolio: cell(r, "Portfolio") || DEFAULT_PORT,
+      symbol:   rawSymbol,
+      name:     cell(r, "Name"),
+      sector,
+      industry,
+      category: cell(r, "Category"),
+      custom:   cell(r, "Custom"),
+      myGroup:  cell(r, "My Group"),
+      qty:      cell(r, "Qty"),
+      avgPrice: cell(r, "Avg price"),
+      target:   cell(r, "Target Allocation"),
+      price:    cell(r, "Current price"),
+      marketCap: cell(r, "Market Cap"),
+      cash:     cell(r, "Cash"),
+      cashRes:  cell(r, "Cash Reserves"),
+      fcd:      cell(r, "FCD"),
+      usd:      cell(r, "USD"),
+    };
+  }).filter(r => r.symbol);
 }
 
 // Slice _allRows for the active view. Single port → filter; ALL → merge same-symbol rows
@@ -6079,6 +6155,8 @@ function rowsForView(portId) {
       sector:   pick('sector'),
       industry: pick('industry'),
       category: pick('category'),
+      custom:   pick('custom'),
+      myGroup:  pick('myGroup'),
       qty:      sumQty,
       avgPrice: sumQty > 0 ? sumCost / sumQty : (pick('avgPrice') ?? null),
       target:   tgtRow ? tgtRow.target : null,
@@ -7020,6 +7098,8 @@ async function fetchEtfData(symbols) {
   renderMonthlyReturns(currentModel);
   renderSectorDonut(currentModel);
   renderIndustryDonut(currentModel);
+  renderCustomDonut(currentModel);
+  renderMyGroupDonut(currentModel);
 }
 
 async function fetchStockReturns() {
@@ -8281,6 +8361,37 @@ function renderIndustryDonut(model) {
   renderGroupedDonut(INDUSTRY_DONUT, model);
 }
 
+// ── Render: custom-tag donuts (user-defined Custom / My Group sheet columns) ────────────────
+// Hide the card entirely when no position carries a value for this tag column, so an all-"Other"
+// donut never shows before anything is tagged.
+function _renderTagDonut(model, cfg, cardId) {
+  const card = document.getElementById(cardId);
+  const has = model.positions.some(p => String(p[cfg.field] || '').trim());
+  if (card) card.style.display = has ? '' : 'none';
+  if (!has) { if (cfg.getInst()) { cfg.getInst().destroy(); cfg.setInst(null); } return; }
+  renderGroupedDonut(cfg, model);
+}
+
+let customDonutInst = null, customDrilldown = null;
+const CUSTOM_DONUT = {
+  elId: 'customDonutChart', field: 'custom', noun: 'custom',
+  topPadding: 65, translateCenter: false, color: colorFor,
+  getInst: () => customDonutInst, setInst: v => { customDonutInst = v; },
+  getDrill: () => customDrilldown, setDrill: v => { customDrilldown = v; },
+  afterChange() { renderCustomDonut(currentModel); }
+};
+function renderCustomDonut(model) { _renderTagDonut(model, CUSTOM_DONUT, 'customDonutCard'); }
+
+let myGroupDonutInst = null, myGroupDrilldown = null;
+const MYGROUP_DONUT = {
+  elId: 'myGroupDonutChart', field: 'myGroup', noun: 'my group',
+  topPadding: 65, translateCenter: false, color: colorFor,
+  getInst: () => myGroupDonutInst, setInst: v => { myGroupDonutInst = v; },
+  getDrill: () => myGroupDrilldown, setDrill: v => { myGroupDrilldown = v; },
+  afterChange() { renderMyGroupDonut(currentModel); }
+};
+function renderMyGroupDonut(model) { _renderTagDonut(model, MYGROUP_DONUT, 'myGroupDonutCard'); }
+
 // ── ETF portfolio: blended top-holdings donuts (Sector Breakdown + Top Holding Breakdown) ────
 // Both are static (no click/drill-down) since an ETF fractionally belongs to multiple
 // sectors/symbols here, unlike the single-value-per-position model the generic donut assumes.
@@ -8390,13 +8501,20 @@ function _donutModalTitleFor(kind) {
   if (kind === 'category') return t('category_breakdown_title');
   if (kind === 'sector')   return t('sector_breakdown_title');
   if (kind === 'industry') return activePortfolio === 'ETF' ? t('top_holding_breakdown_title') : t('industry_breakdown_title');
+  if (kind === 'custom')   return t('custom_breakdown_title');
+  if (kind === 'mygroup')  return t('mygroup_breakdown_title');
   return '';
 }
+
+const _DONUT_MODAL_BASES = {
+  sector: () => SECTOR_DONUT, industry: () => INDUSTRY_DONUT, category: () => CATEGORY_DONUT,
+  custom: () => CUSTOM_DONUT, mygroup: () => MYGROUP_DONUT,
+};
 
 // Modal-scoped clone of a grouped-donut config: same field/colour, but its own
 // chart instance + drilldown state (independent of the page) and a modal re-render.
 function _donutModalCfg(kind) {
-  const base = kind === 'sector' ? SECTOR_DONUT : kind === 'industry' ? INDUSTRY_DONUT : CATEGORY_DONUT;
+  const base = (_DONUT_MODAL_BASES[kind] || _DONUT_MODAL_BASES.category)();
   return {
     ...base,
     elId: 'donutModalCanvas',
@@ -10058,12 +10176,14 @@ function rerenderAllCharts() {
   if (!currentModel) return;
   try { Chart.helpers.each(Chart.instances, c => c.destroy()); } catch(_) {}
   destroyPlanExpandCharts();
-  donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = industryDonutInst = catDonutInst = nwChartInst = null;
+  donutChartInst = benchmarkChartInst = pnlChartInst = sectorDonutInst = industryDonutInst = catDonutInst = customDonutInst = myGroupDonutInst = nwChartInst = null;
   renderGauge(currentModel);
   renderDonut(currentModel);
   renderCategoryDonut(currentModel);
   renderSectorDonut(currentModel);
   renderIndustryDonut(currentModel);
+  renderCustomDonut(currentModel);
+  renderMyGroupDonut(currentModel);
   renderPnLBySector(currentModel);
   if (benchmarkData) renderBenchmarkChartFiltered(benchmarkData, chartTimeFilter);
   if (pnlData) {
@@ -11186,6 +11306,16 @@ function buildShell() {
               <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutExpandBtn('industry')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
               <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
+            </div>
+            <!-- Custom -->
+            <div class="card" id="customDonutCard">
+              <div class="card-title"><span>${t('custom_breakdown_title')}</span>${donutExpandBtn('custom')}</div>
+              <div class="chart-wrap donut-h donut-wrap"><canvas id="customDonutChart"></canvas></div>
+            </div>
+            <!-- My Group -->
+            <div class="card" id="myGroupDonutCard">
+              <div class="card-title"><span>${t('mygroup_breakdown_title')}</span>${donutExpandBtn('mygroup')}</div>
+              <div class="chart-wrap donut-h donut-wrap"><canvas id="myGroupDonutChart"></canvas></div>
             </div>
           </div>
         </section>
@@ -12369,6 +12499,8 @@ function renderModelViews(model) {
   renderCategoryDonut(model);
   renderSectorDonut(model);
   renderIndustryDonut(model);
+  renderCustomDonut(model);
+  renderMyGroupDonut(model);
   renderPnLBySector(model);
   renderRiskPanel(model);
   renderTopHoldings(model);
@@ -12453,7 +12585,7 @@ async function init() {
   Chart.helpers.each(Chart.instances, c => c.destroy());
 
   try {
-    const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios(), fetchContributions()]);
+    const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios(), fetchContributions(), ensureGicsMap()]);
     fxRate = rate;
     _allRows = parseRows(table);
     _portfolioRegistry = portfolios;
@@ -12487,6 +12619,7 @@ async function init() {
         recordFetch({ action: 'refreshReturns' });
         recordFetch({ action: 'backfillCalendar' });
         recordFetch({ action: 'refreshCalendar' });
+        recordFetch({ action: 'refreshGics' });
         const fEl = document.getElementById('quotesFreshness');
         if (fEl) {
           if (_lastQuoteSource?.type === 'sheet') {
@@ -12679,9 +12812,13 @@ function isExtendedHours() {
     if (typeof sectorDonutInst !== 'undefined' && sectorDonutInst)       { sectorDonutInst.destroy();    sectorDonutInst    = null; }
     if (typeof industryDonutInst !== 'undefined' && industryDonutInst)   { industryDonutInst.destroy();  industryDonutInst  = null; }
     if (typeof catDonutInst !== 'undefined' && catDonutInst)             { catDonutInst.destroy();       catDonutInst       = null; }
+    if (typeof customDonutInst !== 'undefined' && customDonutInst)       { customDonutInst.destroy();    customDonutInst    = null; }
+    if (typeof myGroupDonutInst !== 'undefined' && myGroupDonutInst)     { myGroupDonutInst.destroy();   myGroupDonutInst   = null; }
     renderDonut(currentModel);
     renderSectorDonut(currentModel);
     renderIndustryDonut(currentModel);
+    renderCustomDonut(currentModel);
+    renderMyGroupDonut(currentModel);
     renderCategoryDonut(currentModel);
   }
 

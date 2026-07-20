@@ -42,6 +42,7 @@ function doGet(e) {
       case 'refreshReturns':   return refreshReturnsAction(ss, p);
       case 'backfillCalendar': return backfillCalendarAction(ss, p);
       case 'refreshCalendar':  return refreshCalendarAction(ss, p);
+      case 'refreshGics':      return refreshGicsAction(ss, p);
       case 'delete':         return deleteTxnAction(ss, p);
       case 'update':         return updateTxnAction(ss, p);
       case '':
@@ -495,6 +496,68 @@ function refreshCalendarForSymbol_(sym) {
   else sh.appendRow(row);
 }
 
+/* ── GICS sector/sub-industry (external published dataset) ─────────────────── */
+
+const GICS_MAP_URL = 'https://raw.githubusercontent.com/imjnoenter/gics-data/main/gics.json';
+
+// No CacheService — the file is ~1,500 UPPERCASE dot-notation tickers and may exceed the
+// 100KB per-key cache limit. Call frequency is low (per-add + weekly), so a fresh fetch each
+// time is cheap enough. Returns {} on any failure so callers can treat a miss like "no GICS data".
+function _fetchGicsMap_() {
+  try {
+    const resp = UrlFetchApp.fetch(GICS_MAP_URL, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (resp.getResponseCode() !== 200) return {};
+    return JSON.parse(resp.getContentText()) || {};
+  } catch (err) { return {}; }
+}
+
+const GICS_REFRESH_COOLDOWN_MS = 7 * 24 * 3600 * 1000;
+
+// Pinged every init() (see index.html); a global Script Properties timestamp gates the actual
+// work to once a week — most pings are a single cheap property read. When due, every Claude
+// symbol present in the GICS map gets its Sector/Industry overwritten (GICS always wins).
+function refreshGicsAction(ss, p) {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('lastFullGicsRefresh'));
+  if (last && (Date.now() - last) < GICS_REFRESH_COOLDOWN_MS) return jsonResp({ ok: true, skipped: true });
+
+  const sh = ss.getSheetByName('Claude');
+  if (!sh) return jsonResp({ ok: false, error: 'Claude sheet not found' });
+  const headers = readHeaders(sh);
+  const symCol      = findColIdx(headers, 'Symbol');
+  const sectorCol   = findColIdx(headers, 'Sector');
+  const industryCol = findColIdx(headers, 'Industry');
+  if (!symCol || (!sectorCol && !industryCol)) return jsonResp({ ok: true, updated: 0 });
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return jsonResp({ ok: true, updated: 0 });
+
+  const map = _fetchGicsMap_();
+  if (!Object.keys(map).length) return jsonResp({ ok: false, error: 'GICS map fetch failed', updated: 0 });
+
+  const n = lastRow - 1;
+  const syms = sh.getRange(2, symCol, n, 1).getValues().flat().map(v => normSym(v).toUpperCase());
+  const sectorVals   = sectorCol   > 0 ? sh.getRange(2, sectorCol,   n, 1).getValues() : null;
+  const industryVals = industryCol > 0 ? sh.getRange(2, industryCol, n, 1).getValues() : null;
+
+  let updated = 0;
+  for (let i = 0; i < n; i++) {
+    const g = map[syms[i]];
+    if (!g) continue;
+    if (sectorVals   && g.sector)      sectorVals[i][0]   = g.sector;
+    if (industryVals && g.subIndustry) industryVals[i][0] = g.subIndustry;
+    updated++;
+  }
+
+  if (updated) {
+    if (sectorVals)   sh.getRange(2, sectorCol,   n, 1).setValues(sectorVals);
+    if (industryVals) sh.getRange(2, industryCol, n, 1).setValues(industryVals);
+  }
+
+  props.setProperty('lastFullGicsRefresh', String(Date.now()));
+  return jsonResp({ ok: true, updated });
+}
+
 function isMarketOpenET_() {
   const now  = new Date();
   const day  = parseInt(Utilities.formatDate(now, 'America/New_York', 'u'));
@@ -591,6 +654,13 @@ function addSymbolAction(ss, p) {
   if (findClaudeRow(sh, headers, sym, port) > 0)
     return jsonResp({ ok: false, error: 'Already exists: ' + sym + ' in ' + port });
 
+  const gicsMap = _fetchGicsMap_();
+  const gics = gicsMap[sym.toUpperCase()];
+  if (gics) {
+    if (gics.sector)      p.sector   = gics.sector;
+    if (gics.subIndustry) p.industry = gics.subIndustry;
+  }
+
   const meta = fetchYahooMetadata(sym);
   if (!p.name     && meta?.name)     p.name     = meta.name;
   if (!p.sector   && meta?.sector)   p.sector   = meta.sector;
@@ -676,6 +746,35 @@ function updateSymbolAction(ss, p) {
   if (p.avgPrice !== undefined) sh.getRange(row, findColIdx(headers, 'Avg price')).setValue(Number(p.avgPrice));
   if (p.target   !== undefined) sh.getRange(row, findColIdx(headers, 'Target Allocation')).setValue(Number(p.target));
   if (p.category !== undefined && categoryCol > 0) sh.getRange(row, categoryCol).setValue(p.category);
+
+  // Custom / My Group are symbol-level tags, not per-portfolio — when the user edits them,
+  // propagate to every row for this symbol across ALL portfolios, not just the resolved `row`.
+  // Empty strings are written intentionally (clearing a tag), so gate on `!== undefined`, not truthiness.
+  if (p.custom !== undefined || p.myGroup !== undefined) {
+    let customCol = findColIdx(headers, 'Custom');
+    if (!customCol && p.custom !== undefined) {
+      customCol = sh.getLastColumn() + 1;
+      sh.getRange(1, customCol).setValue('Custom');
+      headers.push('Custom');
+    }
+    let myGroupCol = findColIdx(headers, 'My Group');
+    if (!myGroupCol && p.myGroup !== undefined) {
+      myGroupCol = sh.getLastColumn() + 1;
+      sh.getRange(1, myGroupCol).setValue('My Group');
+      headers.push('My Group');
+    }
+
+    const lastRow = sh.getLastRow();
+    if ((customCol > 0 || myGroupCol > 0) && lastRow >= 2) {
+      const syms = sh.getRange(2, symCol, lastRow - 1, 1).getValues().flat();
+      syms.forEach((raw, i) => {
+        if (normSym(raw) !== sym) return;
+        const r = i + 2;
+        if (customCol  > 0 && p.custom  !== undefined) sh.getRange(r, customCol).setValue(p.custom);
+        if (myGroupCol > 0 && p.myGroup !== undefined) sh.getRange(r, myGroupCol).setValue(p.myGroup);
+      });
+    }
+  }
 
   return jsonResp({ ok: true });
 }
@@ -1342,8 +1441,14 @@ function backfillMetadataAction(ss, p) {
       if (!nameVal) { _setBackfillCooldown_('lastAttempt:NAME:' + sym); continue; }
       rows.forEach(row => {
         sh.getRange(row, nameCol).setValue(nameVal);
-        if (sectorCol   > 0 && sectorVal) sh.getRange(row, sectorCol).setValue(sectorVal);
-        if (industryCol > 0 && indVal)    sh.getRange(row, industryCol).setValue(indVal);
+        if (sectorCol > 0 && sectorVal) {
+          const curSector = String(sh.getRange(row, sectorCol).getValue() || '').trim();
+          if (!curSector) sh.getRange(row, sectorCol).setValue(sectorVal);
+        }
+        if (industryCol > 0 && indVal) {
+          const curIndustry = String(sh.getRange(row, industryCol).getValue() || '').trim();
+          if (!curIndustry) sh.getRange(row, industryCol).setValue(indVal);
+        }
       });
       updated++;
     } catch (err) { _setBackfillCooldown_('lastAttempt:NAME:' + sym); }
