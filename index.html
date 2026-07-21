@@ -2246,6 +2246,7 @@ const I18N = {
     overview_tab: "Overview", holding_tab: "Holding",
     transaction_tab: "Transaction", allocation_tab: "Allocation",
     by_position_label: "By position", alloc_incl_cash_note: "Weights are % of total portfolio (cash included)", total_net_worth_label: "Total Net Worth",
+    nw_incl_cash: "Incl. cash", nw_holdings_only: "Holdings",
     category_breakdown_title: "Category Breakdown",
     sector_breakdown_title: "Sector Breakdown",
     industry_breakdown_title: "Industry Breakdown",
@@ -2476,6 +2477,7 @@ const I18N = {
     transaction_tab: "ประวัติรายการ", allocation_tab: "สัดส่วนการลงทุน",
     by_position_label: "ตามสถานะถือครอง", alloc_incl_cash_note: "น้ำหนักคิดเป็น % ของพอร์ตทั้งหมด (รวมเงินสด)",
     total_net_worth_label: "มูลค่าสินทรัพย์สุทธิรวม",
+    nw_incl_cash: "รวมเงินสด", nw_holdings_only: "เฉพาะหุ้น",
     category_breakdown_title: "สัดส่วนแยกตามประเภท",
     sector_breakdown_title: "สัดส่วนแยกตามกลุ่มอุตสาหกรรม",
     industry_breakdown_title: "สัดส่วนแยกตามอุตสาหกรรม",
@@ -2566,6 +2568,7 @@ let pnlChartInst = null;
 let nwChartInst  = null;
 let nwData       = null;
 let nwTimeFilter = 'ALL';
+let _nwDonutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Total Net Worth donut: include cash slice (default on)
 let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
@@ -7997,12 +8000,37 @@ function _netWorthDonutData(model) {
   if (categoryFilter !== 'All') positions = positions.filter(p => (p.category || 'Other') === categoryFilter);
   if (sectorFilter   !== 'All') positions = positions.filter(p => (p.sector   || 'Other') === sectorFilter);
   const noFilter = categoryFilter === 'All' && sectorFilter === 'All';
-  const items = noFilter ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
+  const items = (noFilter && _nwDonutInclCash) ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
   const total  = items.reduce((s, p) => s + p.currentValue, 0);
   const labels = items.map(p => p.symbol);
   const data   = items.map(p => p.currentValue);
   return { labels, data, colors: labels.map(colorFor), total };
 }
+// Segmented [ Incl. cash | Holdings ] control for the Total Net Worth donut.
+// Shared markup for the card title and the fullscreen modal head.
+function nwCashToggleHtml(prefix, wrapId) {
+  const on = _nwDonutInclCash;
+  return `<div class="nw-cash-toggle"${wrapId ? ` id="${wrapId}"` : ''} style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px;margin-left:auto">
+    <button id="${prefix}InclCash" class="pnl-tab-btn${on ? ' active' : ''}" onclick="event.stopPropagation();setNwDonutCash(true)">${t('nw_incl_cash')}</button>
+    <button id="${prefix}HoldOnly" class="pnl-tab-btn${on ? '' : ' active'}" onclick="event.stopPropagation();setNwDonutCash(false)">${t('nw_holdings_only')}</button>
+  </div>`;
+}
+function _syncNwCashToggles() {
+  const on = _nwDonutInclCash;
+  [['cardNwInclCash', 'cardNwHoldOnly'], ['modalNwInclCash', 'modalNwHoldOnly']].forEach(([a, b]) => {
+    const ea = document.getElementById(a), eb = document.getElementById(b);
+    if (ea) ea.classList.toggle('active', on);
+    if (eb) eb.classList.toggle('active', !on);
+  });
+}
+window.setNwDonutCash = function(on) {
+  _nwDonutInclCash = !!on;
+  localStorage.setItem('nwDonutCash.v1', on ? 'on' : 'off');
+  _syncNwCashToggles();
+  if (currentModel) renderDonut(currentModel);
+  if (_donutModalKind === 'networth') renderDonutModal();
+};
+
 function renderDonut(model) {
   if (donutChartInst) { donutChartInst.destroy(); donutChartInst = null; }
   const { labels, data, colors, total } = _netWorthDonutData(model);
@@ -8010,7 +8038,9 @@ function renderDonut(model) {
   const valueEl = document.getElementById('donut-value');
   const filterLabel = [categoryFilter !== 'All' ? t(categoryFilter) : '', sectorFilter !== 'All' ? t(sectorFilter) : ''].filter(Boolean).join(' · ');
   if (labelEl) labelEl.textContent = filterLabel || 'Total Net Worth';
-  if (valueEl) valueEl.textContent = fmtCurr(total);
+  // Unfiltered: center is pinned to full net worth (holdings + cash) regardless of
+  // the cash toggle. Filtered: keep showing the filtered subtotal as before.
+  if (valueEl) valueEl.textContent = fmtCurr(filterLabel ? total : model.totalCurrent);
   donutChartInst = new Chart(document.getElementById('donutChart').getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, colors) },
@@ -8420,11 +8450,12 @@ function _setDonutNote(id, text) {
   if (el) el.textContent = text;
 }
 
-function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, noun, totalOverride) {
+function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, noun, totalOverride, centerOverride) {
   if (getInst()) { getInst().destroy(); setInst(null); }
   const el = document.getElementById(elId);
   if (!el) return;
   const grandTotal = totalOverride != null ? totalOverride : data.reduce((s, v) => s + v, 0);
+  const centerVal  = centerOverride != null ? centerOverride : grandTotal;  // center can differ from the %-denominator (net-worth donut pins center to holdings+cash)
   const centerPlugin = {
     id: elId + 'Center',
     afterDatasetsDraw(chart) {
@@ -8436,7 +8467,7 @@ function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, nou
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = `600 14px ${css('--font-display')||'serif'}`;
       ctx.fillStyle = css('--ink');
-      ctx.fillText(fmtCurr(grandTotal), arc.x, arc.y);
+      ctx.fillText(fmtCurr(centerVal), arc.x, arc.y);
       ctx.restore();
     }
   };
@@ -8531,6 +8562,9 @@ window.openDonutModal = function(kind) {
   _donutModalDrill = null;
   const titleEl = document.getElementById('donutModalTitle');
   if (titleEl) titleEl.textContent = _donutModalTitleFor(kind);
+  const ct = document.getElementById('donutModalCashToggle');
+  if (ct) ct.style.display = kind === 'networth' ? 'flex' : 'none';
+  _syncNwCashToggles();
   const ov = document.getElementById('donutModal');
   if (ov) ov.classList.add('open');
   requestAnimationFrame(() => renderDonutModal());
@@ -8550,8 +8584,9 @@ function renderDonutModal() {
   let res, showResidual = false;
   if (kind === 'networth') {
     res = _netWorthDonutData(model);
+    const noFilter = categoryFilter === 'All' && sectorFilter === 'All';
     _renderEtfStaticDonut('donutModalCanvas', () => _donutModalInst, v => { _donutModalInst = v; },
-      res.labels, res.data, res.colors, 'portfolio', res.total);
+      res.labels, res.data, res.colors, 'portfolio', res.total, noFilter ? model.totalCurrent : null);
   } else if (isEtf) {
     res = kind === 'sector' ? _etfSectorDonutData(model) : _etfHoldingDonutData(model);
     showResidual = true;
@@ -11284,7 +11319,7 @@ function buildShell() {
           <div class="alloc-donuts">
             <!-- Total Net Worth -->
             <div class="card">
-              <div class="card-title">${t('total_net_worth_label')}${donutExpandBtn('networth')}</div>
+              <div class="card-title">${t('total_net_worth_label')}${nwCashToggleHtml('cardNw')}${donutExpandBtn('networth')}</div>
               <div class="chart-wrap donut-h donut-wrap">
                 <canvas id="donutChart"></canvas>
                 <div class="donut-center"><div class="dc-label" id="donut-label">${t('total_net_worth_label')}</div><div class="dc-value" id="donut-value">—</div></div>
@@ -11365,6 +11400,7 @@ function buildShell() {
     <div class="donut-modal" role="dialog" aria-modal="true" aria-labelledby="donutModalTitle">
       <div class="donut-modal-head">
         <h2 class="donut-modal-title" id="donutModalTitle"></h2>
+        ${nwCashToggleHtml('modalNw', 'donutModalCashToggle')}
         <button class="donut-modal-close" onclick="closeDonutModal()" aria-label="Close">×</button>
       </div>
       <div class="donut-modal-body">
