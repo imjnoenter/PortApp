@@ -36,6 +36,7 @@ function doGet(e) {
       case 'removeSymbol':   return removeSymbolAction(ss, p);
       case 'transferShares': return transferSharesAction(ss, p);
       case 'fetchHoldings':  return fetchHoldingsAction(p);
+      case 'fetchOHLC':      return fetchOHLCAction(p);
       case 'fetchStockSectors': return fetchStockSectorsAction(p);
       case 'backfillMetadata': return backfillMetadataAction(ss, p);
       case 'backfillReturns':  return backfillReturnsAction(ss, p);
@@ -272,6 +273,36 @@ function _fetchYahooChartReturns_(sym) {
     const result = JSON.parse(resp.getContentText())?.chart?.result?.[0];
     return _computeReturnsFromChart_(result);
   } catch (err) { return null; }
+}
+
+// Full OHLC series for the Heikin Ashi chart toggle (see index.html fetchYahooOHLC). v8/finance/chart
+// needs no crumb, so this can run server-side and return browser-readable JSON — the client's direct
+// Yahoo/corsproxy fetch is production-dead (see Known Limitations in CLAUDE.md).
+function _fetchYahooOHLCMap_(sym) {
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/'
+      + encodeURIComponent(sym.replace(/\./g, '-')) + '?range=2y&interval=1d';
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (resp.getResponseCode() !== 200) return null;
+    const result = JSON.parse(resp.getContentText())?.chart?.result?.[0];
+    if (!result?.timestamp) return null;
+    const q = result.indicators?.quote?.[0] || {};
+    const open = q.open || [], high = q.high || [], low = q.low || [], close = q.close || [];
+    const out = {};
+    result.timestamp.forEach((ts, i) => {
+      if (open[i] != null && high[i] != null && low[i] != null && close[i] != null) {
+        out[new Date(ts * 1000).toISOString().slice(0, 10)] = { o: open[i], h: high[i], l: low[i], c: close[i] };
+      }
+    });
+    return Object.keys(out).length ? out : null;
+  } catch (err) { return null; }
+}
+
+function fetchOHLCAction(p) {
+  const sym = String(p.symbol || '').trim();
+  if (!sym) return jsonResp({ ok: false, error: 'no symbol' });
+  const ohlc = _fetchYahooOHLCMap_(sym);
+  return jsonResp({ ok: true, ohlc: ohlc || {} });
 }
 
 const RETURNS_REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;

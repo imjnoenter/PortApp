@@ -3501,7 +3501,7 @@ window.openSymbolDetail = function(sym) {
         type: 'doughnut',
         data: { labels: items.map(p=>p.symbol), datasets: [{ data: items.map(p=>p.currentValue||0), backgroundColor: bg, borderColor: border, borderWidth: bw, hoverBorderWidth: 0 }] },
         options: { responsive:true, maintainAspectRatio:false, cutout:'65%', animation:false,
-          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>`  ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%` },
+          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>{ const base=`  ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%`; const ret=symbolReturnTipLine(c.label, currentModel); return ret?[base,ret]:base; } },
             backgroundColor:css('--tooltip-bg'), bodyColor:'#faf3e0', padding:8, cornerRadius:8 }}}
       });
     };
@@ -3986,8 +3986,11 @@ window.setChartType = function(mode) {
   if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
     buildSdTvChart(window._sdTvSym);
   }
-  if (document.getElementById('actionModal')?.classList.contains('open') && actionModalTab === 'plan' && planState.symbol) {
-    buildActionTvChart(planState.symbol);
+  if (document.getElementById('actionModal')?.classList.contains('open')) {
+    // The PLAN and TRANSACTION tabs both host the shared #actionTvChartEl (with the
+    // Area/HA pills), so a toggle must rebuild the chart on either one.
+    if (actionModalTab === 'plan' && planState.symbol) buildActionTvChart(planState.symbol);
+    else if (actionModalTab === 'transaction' && actionModalSym) buildActionTvChart(actionModalSym);
   }
 };
 
@@ -8093,6 +8096,14 @@ function donutDataset(data, colors) {
     hoverOffset:  t.hoverOffset,
   }];
 }
+// Extra tooltip line for a donut symbol slice: that symbol's total return, formatted to
+// match the Positions table exactly. Returns '' for non-position slices (Cash, "Available",
+// sectors, or symbols not currently held) so callers can omit the line.
+function symbolReturnTipLine(sym, model) {
+  const p = (model || currentModel)?.positions?.find(x => x.symbol === sym);
+  if (!p) return '';
+  return ` ${t('total_ret')}: ${p.pnl>=0?'+':''}${fmtCurr(p.pnl)} (${fmtPct(p.pnlPct)})`;
+}
 function donutBaseOptions(tooltipLabel) {
   const t = window.donutTweaks;
   return {
@@ -8252,7 +8263,11 @@ function renderDonut(model) {
   donutChartInst = new Chart(document.getElementById('donutChart').getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, colors) },
-    options: donutBaseOptions(c => ` ${c.label}: ${fmtCurr(c.raw)} (${total > 0 ? (c.raw/total*100).toFixed(1) : 0}%)`),
+    options: donutBaseOptions(c => {
+      const base = ` ${c.label}: ${fmtCurr(c.raw)} (${total > 0 ? (c.raw/total*100).toFixed(1) : 0}%)`;
+      const ret = symbolReturnTipLine(c.label, model);
+      return ret ? [base, ret] : base;
+    }),
     plugins: [donutInnerRing, donutShadow, donutOuterLabels]
   });
 }
@@ -8529,7 +8544,11 @@ function renderGroupedDonut(cfg, model) {
   };
 
   const tooltipFn = drilled
-    ? c => ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of ${cfg.noun})`
+    ? c => {
+        const base = ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of ${cfg.noun})`;
+        const ret = symbolReturnTipLine(c.label, model);
+        return ret ? [base, ret] : base;
+      }
     : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
 
   el.style.cursor = 'pointer';
@@ -8679,7 +8698,12 @@ function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, nou
       ctx.restore();
     }
   };
-  const tooltipFn = c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}% of ${noun})`;
+  const tooltipFn = c => {
+    const base = ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}% of ${noun})`;
+    if (noun !== 'portfolio') return base;
+    const ret = symbolReturnTipLine(c.label);
+    return ret ? [base, ret] : base;
+  };
   el.style.cursor = 'default';
   setInst(new Chart(el.getContext('2d'), {
     type: 'doughnut',
@@ -9467,7 +9491,7 @@ function renderPlanExpandCharts(uid, sym, port) {
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '65%', animation: false,
         plugins: { legend: { display: false },
-          tooltip: { callbacks: { label: c => ` ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%` },
+          tooltip: { callbacks: { label: c => { const base = ` ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%`; const ret = symbolReturnTipLine(c.label, m); return ret ? [base, ret] : base; } },
             backgroundColor: css('--tooltip-bg'), bodyColor: '#faf3e0', padding: 8, cornerRadius: 8 }}
       }
     });
@@ -10508,6 +10532,12 @@ async function fetchYahooPrices(ticker, p1, p2) {
 // Mirrors fetchYahooPrices but keeps full OHLC (needed for Heikin Ashi). Returns
 // { dateStr: {o,h,l,c} } or null. Populates the caller-side _ohlcCache.
 async function fetchYahooOHLC(ticker, p1, p2) {
+  // Prefer the server-side Apps Script path (v8/chart needs no crumb server-side and returns
+  // browser-readable JSON, so this works in production where the direct/corsproxy paths don't).
+  try {
+    const resp = await recordFetch({ action: 'fetchOHLC', symbol: ticker }, true);
+    if (resp?.ohlc && Object.keys(resp.ohlc).length) return resp.ohlc;
+  } catch (_) {}
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker(ticker))}?period1=${p1}&period2=${p2}&interval=1d`;
   const parse = d => {
     const r = d?.chart?.result?.[0]; if (!r?.timestamp) return null;

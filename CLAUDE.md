@@ -60,7 +60,7 @@ All new CSS should use tokens, not raw values.
 
 **Google Apps Script (write operations + quote refresh):**
 - `RECORD_URL` = Apps Script web app (`doGet`)
-- Actions: `addSymbol`, `updateSymbol`, `removeSymbol`, `updateCash`, `savePlan`, `clearPlan`, `fetchHistory`, `transferShares`, `fetchHoldings` (ETF data), `fetchStockSectors`, `backfillMetadata`, `backfillReturns`, `refreshReturns` (see Returns Pipeline below), `backfillCalendar`, `refreshCalendar` (see Calendar Pipeline below)
+- Actions: `addSymbol`, `updateSymbol`, `removeSymbol`, `updateCash`, `savePlan`, `clearPlan`, `fetchHistory`, `transferShares`, `fetchHoldings` (ETF data), `fetchStockSectors`, `backfillMetadata`, `backfillReturns`, `refreshReturns` (see Returns Pipeline below), `backfillCalendar`, `refreshCalendar` (see Calendar Pipeline below), `fetchOHLC` (Heikin Ashi OHLC series, see TV Chart below)
 - All write calls go through `recordFetch(params)` which injects `_WRITE_KEY` automatically
 - `addSymbol` fetches Name/Sector/Industry server-side via `fetchYahooMetadata()` (Yahoo quoteSummary + crumb) — no client-side metadata fetch needed. Also calls `refreshReturnsForSymbol_(sym)` synchronously (non-ETF only) and `refreshCalendarForSymbol_(sym)` synchronously (unconditionally) so the new symbol has Returns/Calendar data immediately instead of waiting for the next daily refresh.
 - `getYahooCrumb()` returns `{ crumb, cookieStr }` — acquires Yahoo Finance session cookie + crumb; required for quoteSummary and v7/quote from Apps Script. **Property is `cookieStr`, not `cookie`.** **Only usable server-side** — a browser cannot attach the resulting session cookie to a cross-origin fetch, so this crumb flow cannot be replicated client-side (see Known Limitations).
@@ -281,6 +281,7 @@ All functions below operate on `txCache` (minimal fields). They are called insid
 Two instances: symbol detail modal (`sdTvChart`) and action modal PLAN tab (`actionTvChartEl`).
 - Both builders share `createTvAreaChart(el, height, symColor, clrTrack, clrMuted)` (chart + area-series config) and `buildTvSeriesData(sym, priceMap)` (sorted `{time,value}` series with today's live price spliced onto the tail). The two differ only in height (260 vs 220) and what they draw on top (the symbol-detail one adds tranche/SL/avg price lines + range buttons).
 - Data source: `historyCache.prices[sym]` merged with Yahoo Finance 2Y fetch
+- Heikin Ashi OHLC (`fetchYahooOHLC`) is fetched server-side via the Apps Script `fetchOHLC` action (v8/finance/chart, no crumb needed) — the client's direct Yahoo/corsproxy fetch is kept only as a fallback for localhost/view-only use (both are production-dead per Known Limitations).
 - Yahoo fetch triggers lazily when range buttons can't be satisfied by cached data (`dates[0] > fromStr`)
 - Fetched Yahoo data is merged back into `historyCache` for the session (in-memory only, not persisted to sheet)
 - `window._sdTvSym/Chart/Series/PriceMap` are the globals that `sdSetRange` operates on
