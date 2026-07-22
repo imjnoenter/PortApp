@@ -2580,6 +2580,8 @@ let pnlData = null;
 let txCache = null;
 let lastTxData = null;
 let historyCache = null;
+let _ohlcCache = {}; // { sym: { dateStr: {o,h,l,c} } } — Heikin Ashi OHLC cache, in-memory/session only
+let chartType = localStorage.getItem('chartType.v1') || 'area'; // 'area' | 'heikin' — TV chart type pref
 let _gicsMap = {}; // { TICKER: { sector, subIndustry } } — GICS overlay, see ensureGicsMap()
 let _journalTrades = [], _journalSort = 'closeDate', _journalDir = -1;
 
@@ -3164,6 +3166,194 @@ function destroySymbolDetailCharts() {
   symbolDetailCharts = [];
 }
 
+// Builds (or rebuilds, e.g. on chart-type toggle) the symbol-detail modal's TV
+// chart. Standalone so setChartType() can re-invoke it without re-rendering the
+// whole modal. Honors the global `chartType` ('area'|'heikin'); degrades to area
+// (without touching the persisted pref) if a Heikin Ashi OHLC fetch fails.
+async function buildSdTvChart(sym) {
+  const tvEl = document.getElementById('sdTvChart');
+  if (!tvEl || typeof LightweightCharts === 'undefined') return;
+
+  // Destroy any previously-built TV chart entry (toggle re-invocation) before rebuilding.
+  symbolDetailCharts = symbolDetailCharts.filter(c => {
+    if (c._isTv) { try { c.destroy(); } catch(_) {} return false; }
+    return true;
+  });
+
+  const pos  = findPos(sym);
+  const plan = getPlan(sym) || {};
+  const { tranches = [], sl } = plan;
+
+  // Fetch close-only history if not cached yet (used for area mode + as HA fallback source)
+  let priceMap = historyCache?.prices?.[sym];
+  if (!priceMap) {
+    const fresh = await readHistory();
+    if (fresh?.prices?.[sym]) { historyCache = fresh; priceMap = fresh.prices[sym]; }
+  }
+  if (!priceMap) {
+    const p2 = Math.floor(Date.now() / 1000);
+    const p1 = p2 - 2 * 365 * 86400;
+    priceMap = await fetchYahooPrices(sym, p1, p2);
+  }
+
+  // Fetch OHLC lazily when HA mode is requested and not already cached this session
+  let ohlcMap = null, haFailed = false;
+  if (chartType === 'heikin') {
+    ohlcMap = _ohlcCache[sym];
+    if (!ohlcMap) {
+      const p2 = Math.floor(Date.now() / 1000);
+      const p1 = p2 - 2 * 365 * 86400;
+      ohlcMap = await fetchYahooOHLC(sym, p1, p2);
+      if (ohlcMap) _ohlcCache[sym] = ohlcMap;
+    }
+    haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
+  }
+  const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
+
+  const clrInk = css('--ink'), clrTrack = css('--track'),
+        clrMuted = css('--ink-soft');
+  const symColor  = colorFor(sym);
+
+  // Legend overlay (clear any leftover content from a previous open/rebuild)
+  tvEl.innerHTML = '';
+  tvEl.style.position = 'relative';
+  tvEl.style.touchAction = 'none';
+  const legend = document.createElement('div');
+  legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none;line-height:1.4';
+  legend.innerHTML = `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>`;
+  tvEl.appendChild(legend);
+
+  if (chartType === 'heikin' && haFailed) {
+    const note = document.createElement('div');
+    note.style.cssText = 'position:absolute;top:9px;right:10px;z-index:10;pointer-events:none;font-size:9px;color:var(--muted)';
+    note.textContent = 'candles unavailable';
+    tvEl.appendChild(note);
+  }
+
+  // createTvAreaChart reads the global `chartType` to pick the series type — force it to
+  // the effective (possibly degraded) type for this build without touching the persisted pref.
+  const _userChartType = chartType;
+  chartType = effectiveType;
+  const { chart: tvChart, series: tvSeries } = createTvAreaChart(tvEl, 390, symColor, clrTrack, clrMuted);
+  chartType = _userChartType;
+
+  const hasData = effectiveType === 'heikin'
+    ? !!(ohlcMap && Object.keys(ohlcMap).length)
+    : !!(priceMap && Object.keys(priceMap).length);
+
+  let lastReal = null;
+  if (hasData) {
+    if (effectiveType === 'heikin') {
+      tvSeries.setData(computeHeikinAshi(ohlcMap));
+      tvChart.timeScale().fitContent();
+      const dates = Object.keys(ohlcMap).sort();
+      // Use the real live/current price, not the synthetic HA close
+      lastReal = findPos(sym)?.price ?? ohlcMap[dates[dates.length - 1]]?.c ?? null;
+
+      // Real current-price dashed line with axis label (HA candles carry the synthetic close, so surface the true price)
+      if (lastReal) {
+        tvSeries.createPriceLine({
+          price: lastReal, color: symColor,
+          lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
+          axisLabelVisible: true, title: '',
+        });
+      }
+    } else {
+      const seriesData = buildTvSeriesData(sym, priceMap);
+      tvSeries.setData(seriesData);
+      tvChart.timeScale().fitContent();
+      lastReal = seriesData[seriesData.length - 1]?.value ?? null;
+
+      // Last price dashed line (area mode only — HA candles already show open/close per bar)
+      if (lastReal) {
+        tvSeries.createPriceLine({
+          price: lastReal, color: symColor,
+          lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
+          axisLabelVisible: false, title: '',
+        });
+      }
+    }
+
+    // Tranche & SL price lines — series-agnostic, run in both modes
+    const available = TRANCHE_COLORS.filter(c => c !== symColor);
+    tranches.forEach((t, i) => {
+      if (!t.price || t.price <= 0) return;
+      tvSeries.createPriceLine({
+        price: t.price,
+        color: available[i % available.length],
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `T${i + 1}`,
+      });
+    });
+    if (sl) {
+      tvSeries.createPriceLine({
+        price: sl,
+        color: '#bb4d3c',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'SL',
+      });
+    }
+    if (pos?.avgPrice > 0) {
+      tvSeries.createPriceLine({
+        price: pos.avgPrice,
+        color: '#ffffff',
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'Avg',
+      });
+    }
+
+    // Show last (real) price in legend by default
+    if (lastReal != null) legend.innerHTML =
+      `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
+      `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(lastReal)}</span>`;
+
+    // Update legend on crosshair move — HA mode shows the real close, not the synthetic HA close
+    tvChart.subscribeCrosshairMove(param => {
+      if (!param.time || !param.seriesData?.size) {
+        legend.innerHTML =
+          `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
+          `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(lastReal)}</span>`;
+        return;
+      }
+      let val = null;
+      if (effectiveType === 'heikin') {
+        val = _ohlcCache[sym]?.[param.time]?.c ?? null;
+      } else {
+        const d = param.seriesData.get(tvSeries);
+        val = d ? d.value : null;
+      }
+      if (val != null) legend.innerHTML =
+        `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
+        `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(val)}</span>`;
+    });
+  } else {
+    tvEl.insertAdjacentHTML('beforeend',
+      `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">${t('no_price_data')}</div>`);
+  }
+
+  // Resize observer
+  const ro = new ResizeObserver(() => tvChart.resize(tvEl.clientWidth, 390));
+  ro.observe(tvEl);
+
+  // Range switcher state
+  window._sdTvChart     = tvChart;
+  window._sdTvSeries    = tvSeries;
+  window._sdTvPriceMap  = priceMap || {};
+  window._sdTvOhlcMap   = ohlcMap || {};
+  window._sdTvMode      = effectiveType;
+  window._sdTvSym       = sym;
+  updateChartTypeButtons('sdChartType');
+  sdSetRange('3M');
+
+  symbolDetailCharts.push({ _isTv: true, destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
+}
+
 window.openSymbolDetail = function(sym) {
   if (!currentModel) return;
   destroySymbolDetailCharts();
@@ -3217,7 +3407,7 @@ window.openSymbolDetail = function(sym) {
 
   const overlay = document.getElementById('symbolDetailModal');
   if (!overlay) return;
-  overlay.innerHTML = `<div class="tx-modal" style="max-width:620px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
+  overlay.innerHTML = `<div class="tx-modal" style="max-width:930px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
     <div class="tx-header">
       <div style="display:flex;align-items:center;gap:10px">
         ${logoCell(sym, color)}
@@ -3259,8 +3449,10 @@ window.openSymbolDetail = function(sym) {
     </div>
     <div id="sdChartsPane">
       <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px">
-        <div id="sdTvChart" style="height:260px"></div>
+        <div id="sdTvChart" style="height:390px"></div>
         <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
+          ${[['area','Area'],['heikin','HA']].map(([m,label])=>`<button id="sdChartType_${m}" onclick="setChartType('${m}')"
+            style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('')}
           ${['1M','3M','6M','YTD','1Y','ALL'].map(r=>`<button id="sdRange_${r}" onclick="sdSetRange('${r}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${r}</button>`).join('')}
         </div>
@@ -3318,124 +3510,7 @@ window.openSymbolDetail = function(sym) {
     symbolDetailCharts = [c1, c2].filter(Boolean);
 
     // ── TradingView Lightweight Chart ────────────────────────────────────────
-    const tvEl = document.getElementById('sdTvChart');
-    if (tvEl && typeof LightweightCharts !== 'undefined') {
-      // Fetch history if not cached yet
-      let priceMap = historyCache?.prices?.[sym];
-      if (!priceMap) {
-        const fresh = await readHistory();
-        if (fresh?.prices?.[sym]) { historyCache = fresh; priceMap = fresh.prices[sym]; }
-      }
-      // Fallback: fetch 2Y of daily closes from Yahoo Finance
-      if (!priceMap) {
-        const p2 = Math.floor(Date.now() / 1000);
-        const p1 = p2 - 2 * 365 * 86400;
-        priceMap = await fetchYahooPrices(sym, p1, p2);
-      }
-
-      const clrInk = css('--ink'), clrTrack = css('--track'), clrCard = css('--card'),
-            clrMuted = css('--ink-soft'), clrGain = css('--gain');
-      const symColor  = colorFor(sym);
-
-      // Legend overlay (clear any leftover content from a previous open)
-      tvEl.innerHTML = '';
-      tvEl.style.position = 'relative';
-      tvEl.style.touchAction = 'none';
-      const legend = document.createElement('div');
-      legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none;line-height:1.4';
-      legend.innerHTML = `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>`;
-      tvEl.appendChild(legend);
-
-      const { chart: tvChart, series: areaSeries } = createTvAreaChart(tvEl, 260, symColor, clrTrack, clrMuted);
-
-      let seriesData = [];
-      if (priceMap && Object.keys(priceMap).length) {
-        seriesData = buildTvSeriesData(sym, priceMap);
-        areaSeries.setData(seriesData);
-        tvChart.timeScale().fitContent();
-
-        // Last price dashed line
-        const lastPx = seriesData[seriesData.length - 1]?.value;
-        if (lastPx) {
-          areaSeries.createPriceLine({
-            price: lastPx, color: symColor,
-            lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
-            axisLabelVisible: false, title: '',
-          });
-        }
-
-        // Tranche & SL price lines
-        const available = TRANCHE_COLORS.filter(c => c !== symColor);
-        tranches.forEach((t, i) => {
-          if (!t.price || t.price <= 0) return;
-          areaSeries.createPriceLine({
-            price: t.price,
-            color: available[i % available.length],
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: `T${i + 1}`,
-          });
-        });
-        if (sl) {
-          areaSeries.createPriceLine({
-            price: sl,
-            color: '#bb4d3c',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'SL',
-          });
-        }
-        if (pos?.avgPrice > 0) {
-          areaSeries.createPriceLine({
-            price: pos.avgPrice,
-            color: '#ffffff',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'Avg',
-          });
-        }
-
-        // Show last price in legend by default
-        const lastPoint = seriesData[seriesData.length - 1];
-        if (lastPoint) legend.innerHTML =
-          `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
-          `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(lastPoint.value)}</span>`;
-
-        // Update legend on crosshair move
-        tvChart.subscribeCrosshairMove(param => {
-          if (!param.time || !param.seriesData?.size) {
-            const last = seriesData[seriesData.length - 1];
-            legend.innerHTML =
-              `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
-              `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(last?.value)}</span>`;
-            return;
-          }
-          const d = param.seriesData.get(areaSeries);
-          if (d) legend.innerHTML =
-            `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
-            `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(d.value)}</span>`;
-        });
-      } else {
-        tvEl.insertAdjacentHTML('beforeend',
-          `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">${t('no_price_data')}</div>`);
-      }
-
-      // Resize observer
-      const ro = new ResizeObserver(() => tvChart.resize(tvEl.clientWidth, 260));
-      ro.observe(tvEl);
-
-      // Range switcher
-      window._sdTvChart     = tvChart;
-      window._sdTvSeries    = areaSeries;
-      window._sdTvPriceMap  = priceMap || {};
-      window._sdTvSym       = sym;
-      sdSetRange('1Y');
-
-      symbolDetailCharts.push({ destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
-    }
+    await buildSdTvChart(sym);
 
     // Populate transactions table — scoped to the active portfolio (ALL view shows every portfolio).
     const txs  = txList
@@ -3475,14 +3550,17 @@ window.sdSwitchTab = function(tab) {
 
 window.closeSymbolDetail = function() {
   destroySymbolDetailCharts();
-  window._sdTvChart = window._sdTvSeries = window._sdTvPriceMap = null;
+  window._sdTvChart = window._sdTvSeries = window._sdTvPriceMap = window._sdTvOhlcMap = window._sdTvMode = null;
   document.getElementById('symbolDetailModal')?.classList.remove('open');
 };
 
 window.sdSetRange = async function(range) {
-  const chart    = window._sdTvChart;
+  const chart = window._sdTvChart;
+  const mode  = window._sdTvMode || 'area';
   const priceMap = window._sdTvPriceMap;
-  if (!chart || !priceMap) return;
+  const ohlcMap  = window._sdTvOhlcMap;
+  if (!chart) return;
+  if (mode === 'heikin' ? !ohlcMap : !priceMap) return;
 
   // Highlight active button
   ['1M','3M','6M','YTD','1Y','ALL'].forEach(r => {
@@ -3507,6 +3585,32 @@ window.sdSetRange = async function(range) {
   }
   const fromStr = from.toISOString().slice(0,10);
   const toStr   = now.toISOString().slice(0,10);
+
+  if (mode === 'heikin') {
+    let dates   = Object.keys(ohlcMap).sort();
+    let clipped = dates.filter(d => d >= fromStr && d <= toStr);
+    const needsYahoo = clipped.length < 2 || dates[0] > fromStr;
+    if (needsYahoo) {
+      const sym    = window._sdTvSym;
+      const series = window._sdTvSeries;
+      if (sym && series) {
+        const p2 = Math.floor(Date.now() / 1000);
+        const p1 = p2 - 2 * 365 * 86400;
+        const yahooOhlc = await fetchYahooOHLC(sym, p1, p2);
+        if (yahooOhlc) {
+          const merged = Object.assign({}, yahooOhlc, ohlcMap);
+          _ohlcCache[sym] = merged;
+          window._sdTvOhlcMap = merged;
+          series.setData(computeHeikinAshi(merged));
+          dates   = Object.keys(merged).sort();
+          clipped = dates.filter(d => d >= fromStr && d <= toStr);
+        }
+      }
+      if (clipped.length < 2) { chart.timeScale().fitContent(); return; }
+    }
+    chart.timeScale().setVisibleRange({ from: clipped[0], to: clipped[clipped.length - 1] });
+    return;
+  }
 
   let dates = Object.keys(priceMap).sort();
   let clipped = dates.filter(d => d >= fromStr && d <= toStr);
@@ -3812,8 +3916,9 @@ function destroyActionCharts() {
   destroyTradeTvChart();
 }
 
-// Shared Lightweight-Charts setup for the two area charts (symbol-detail +
-// action PLAN tab). Both use identical chart/series config bar the height.
+// Shared Lightweight-Charts setup for the two price charts (symbol-detail +
+// action PLAN tab). Both use identical chart config bar the height. Series type
+// branches on the global `chartType` pref ('area' | 'heikin').
 function createTvAreaChart(el, height, symColor, clrTrack, clrMuted) {
   const chart = LightweightCharts.createChart(el, {
     width: el.clientWidth, height,
@@ -3824,10 +3929,17 @@ function createTvAreaChart(el, height, symColor, clrTrack, clrMuted) {
     timeScale: { borderColor: clrTrack, timeVisible: false },
     handleScroll: true, handleScale: true,
   });
-  const series = chart.addAreaSeries({
-    lineColor: symColor, topColor: symColor + '55', bottomColor: symColor + '00',
-    lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
-  });
+  const series = chartType === 'heikin'
+    ? chart.addCandlestickSeries({
+        upColor: '#26a69a', downColor: '#ef5350',
+        borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+        wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+        lastValueVisible: false, priceLineVisible: false, // axis shows the REAL price line, not the synthetic HA close
+      })
+    : chart.addAreaSeries({
+        lineColor: symColor, topColor: symColor + '55', bottomColor: symColor + '00',
+        lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+      });
   return { chart, series };
 }
 
@@ -3845,6 +3957,52 @@ function buildTvSeriesData(sym, priceMap) {
   return seriesData;
 }
 
+// Build a Lightweight-Charts candlestick data array from a date→{o,h,l,c} map,
+// transformed into Heikin Ashi bars (ascending by date).
+function computeHeikinAshi(ohlcMap) {
+  const dates = Object.keys(ohlcMap).sort();
+  const out = [];
+  let prevHaOpen = null, prevHaClose = null;
+  dates.forEach(d => {
+    const { o, h, l, c } = ohlcMap[d];
+    const haClose = (o + h + l + c) / 4;
+    const haOpen  = prevHaOpen == null ? (o + c) / 2 : (prevHaOpen + prevHaClose) / 2;
+    const haHigh  = Math.max(h, haOpen, haClose);
+    const haLow   = Math.min(l, haOpen, haClose);
+    out.push({ time: d, open: haOpen, high: haHigh, low: haLow, close: haClose });
+    prevHaOpen = haOpen; prevHaClose = haClose;
+  });
+  return out;
+}
+
+// Sets the active chart type, persists it, and re-renders whichever TV chart(s)
+// are currently open (symbol-detail modal and/or action-modal PLAN tab).
+window.setChartType = function(mode) {
+  if (mode !== 'area' && mode !== 'heikin') return;
+  chartType = mode;
+  localStorage.setItem('chartType.v1', mode);
+  updateChartTypeButtons('sdChartType');
+  updateChartTypeButtons('actionChartType');
+  if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
+    buildSdTvChart(window._sdTvSym);
+  }
+  if (document.getElementById('actionModal')?.classList.contains('open') && actionModalTab === 'plan' && planState.symbol) {
+    buildActionTvChart(planState.symbol);
+  }
+};
+
+// Highlights the active Area/HA pill for a given id prefix ('sdChartType' or 'actionChartType').
+function updateChartTypeButtons(prefix) {
+  ['area', 'heikin'].forEach(m => {
+    const btn = document.getElementById(prefix + '_' + m);
+    if (!btn) return;
+    const active = m === chartType;
+    btn.style.background  = active ? 'var(--ink)' : 'transparent';
+    btn.style.color       = active ? 'var(--card)' : 'var(--muted)';
+    btn.style.borderColor = active ? 'var(--ink)'  : 'var(--line)';
+  });
+}
+
 async function buildActionTvChart(sym) {
   const el = document.getElementById('actionTvChartEl');
   if (!el || typeof LightweightCharts === 'undefined') return;
@@ -3853,18 +4011,10 @@ async function buildActionTvChart(sym) {
 
   const clrInk = css('--ink'), clrTrack = css('--track'), clrMuted = css('--ink-soft');
   const symColor = colorFor(sym);
-
-  el.style.position = 'relative';
-  el.style.touchAction = 'none';
-  ({ chart: actionTvChart, series: actionTvSeries } = createTvAreaChart(el, 220, symColor, clrTrack, clrMuted));
-
-  const legend = document.createElement('div');
-  legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
-  el.appendChild(legend);
-
-  let priceMap = historyCache?.prices?.[sym] ? { ...historyCache.prices[sym] } : null;
   const p2 = Math.floor(Date.now() / 1000);
   const p1 = p2 - 2 * 365 * 86400;
+
+  let priceMap = historyCache?.prices?.[sym] ? { ...historyCache.prices[sym] } : null;
   const yahoo = await fetchYahooPrices(sym, p1, p2);
   if (yahoo) {
     priceMap = Object.assign({}, yahoo, priceMap || {});
@@ -3872,24 +4022,80 @@ async function buildActionTvChart(sym) {
     if (!historyCache.prices) historyCache.prices = {};
     historyCache.prices[sym] = priceMap;
   }
-  if (priceMap && Object.keys(priceMap).length) {
-    const seriesData = buildTvSeriesData(sym, priceMap);
-    actionTvSeries.setData(seriesData);
 
-    const fromStr = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
-    const clipped = seriesData.filter(d => d.time >= fromStr);
-    if (clipped.length > 1) actionTvChart.timeScale().setVisibleRange({ from: clipped[0].time, to: clipped[clipped.length-1].time });
-    else actionTvChart.timeScale().fitContent();
+  let ohlcMap = null, haFailed = false;
+  if (chartType === 'heikin') {
+    ohlcMap = _ohlcCache[sym];
+    if (!ohlcMap) {
+      ohlcMap = await fetchYahooOHLC(sym, p1, p2);
+      if (ohlcMap) _ohlcCache[sym] = ohlcMap;
+    }
+    haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
+  }
+  const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
 
-    const last = seriesData[seriesData.length - 1];
+  el.style.position = 'relative';
+  el.style.touchAction = 'none';
+  const _userChartType = chartType;
+  chartType = effectiveType;
+  ({ chart: actionTvChart, series: actionTvSeries } = createTvAreaChart(el, 220, symColor, clrTrack, clrMuted));
+  chartType = _userChartType;
+
+  const legend = document.createElement('div');
+  legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
+  el.appendChild(legend);
+
+  if (chartType === 'heikin' && haFailed) {
+    const note = document.createElement('div');
+    note.style.cssText = 'position:absolute;top:9px;right:64px;z-index:10;pointer-events:none;font-size:9px;color:var(--muted)';
+    note.textContent = 'candles unavailable';
+    el.appendChild(note);
+  }
+
+  // Area/HA toggle pills — top-right, clear of the top-left legend
+  const typeToggle = document.createElement('div');
+  typeToggle.style.cssText = 'position:absolute;top:8px;right:10px;z-index:10;display:flex;gap:4px';
+  typeToggle.innerHTML = [['area','Area'],['heikin','HA']].map(([m,label]) => `<button id="actionChartType_${m}" onclick="setChartType('${m}')"
+    style="padding:3px 8px;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('');
+  el.appendChild(typeToggle);
+
+  const hasData = effectiveType === 'heikin'
+    ? !!(ohlcMap && Object.keys(ohlcMap).length)
+    : !!(priceMap && Object.keys(priceMap).length);
+
+  if (hasData) {
+    let lastReal;
+    if (effectiveType === 'heikin') {
+      actionTvSeries.setData(computeHeikinAshi(ohlcMap));
+      const dates = Object.keys(ohlcMap).sort();
+      const fromStr = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+      const clipped = dates.filter(d => d >= fromStr);
+      if (clipped.length > 1) actionTvChart.timeScale().setVisibleRange({ from: clipped[0], to: clipped[clipped.length-1] });
+      else actionTvChart.timeScale().fitContent();
+      lastReal = findPos(sym)?.price ?? ohlcMap[dates[dates.length - 1]]?.c ?? null;
+    } else {
+      const seriesData = buildTvSeriesData(sym, priceMap);
+      actionTvSeries.setData(seriesData);
+      const fromStr = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+      const clipped = seriesData.filter(d => d.time >= fromStr);
+      if (clipped.length > 1) actionTvChart.timeScale().setVisibleRange({ from: clipped[0].time, to: clipped[clipped.length-1].time });
+      else actionTvChart.timeScale().fitContent();
+      lastReal = seriesData[seriesData.length - 1]?.value ?? null;
+    }
+
     const setLegend = val => {
       legend.innerHTML = `<span style="font-size:12px;font-weight:700;color:${symColor}">${sym}</span>`
         + `<span style="font-size:11px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(val)}</span>`;
     };
-    if (last) setLegend(last.value);
+    if (lastReal != null) setLegend(lastReal);
     actionTvChart.subscribeCrosshairMove(param => {
-      const d = param.seriesData?.get(actionTvSeries);
-      setLegend(d ? d.value : last?.value);
+      if (effectiveType === 'heikin') {
+        const v = param.time ? (_ohlcCache[sym]?.[param.time]?.c ?? null) : null;
+        setLegend(v != null ? v : lastReal);
+      } else {
+        const d = param.seriesData?.get(actionTvSeries);
+        setLegend(d ? d.value : lastReal);
+      }
     });
   } else {
     legend.innerHTML = `<span style="font-size:12px;font-weight:700;color:${symColor}">${sym}</span>`
@@ -3898,6 +4104,7 @@ async function buildActionTvChart(sym) {
 
   actionTvRo = new ResizeObserver(() => { if (actionTvChart) actionTvChart.resize(el.clientWidth, 220); });
   actionTvRo.observe(el);
+  updateChartTypeButtons('actionChartType');
   updateActionTvLines();
   updateActionNewAvgLine();
 }
@@ -3911,7 +4118,7 @@ function updateActionTvLines() {
     actionTvLines.push(actionTvSeries.createPriceLine({
       price: _lastPx, color: colorFor(planState.symbol),
       lineWidth: 2, lineStyle: LightweightCharts.LineStyle.LargeDashed,
-      axisLabelVisible: false, title: '',
+      axisLabelVisible: chartType === 'heikin', title: '', // HA hides the series' own last value, so show the real price here
     }));
   }
   const available = TRANCHE_COLORS.filter(c => c !== colorFor(planState.symbol));
@@ -3975,6 +4182,7 @@ function destroyTradeTvChart() {
 // Live "new avg" line — recomputed on every input change. Buy: weighted avg of held + new
 // shares (fees excluded, matches postTransactionUpdates). Sell: avg is unchanged.
 function updateTradeAvgLine() {
+  updateActionNewAvgLine(); // transaction tab now shares the action chart (actionTvSeries)
   if (!tradeTvSeries) return;
   if (tradeTvNewAvgLine) { try { tradeTvSeries.removePriceLine(tradeTvNewAvgLine); } catch(_) {} tradeTvNewAvgLine = null; }
   const model = modelForPort(tradeModalPort);
@@ -4822,7 +5030,7 @@ function renderActionTabContent() {
     const nowTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
     el.innerHTML = `
       <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
-        <div id="tradeTvChartEl" style="height:220px"></div>
+        <div id="actionTvChartEl" style="height:220px"></div>
       </div>
       <div class="tx-type-toggle" style="margin-bottom:14px">
         <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
@@ -4859,7 +5067,7 @@ function renderActionTabContent() {
       <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
       <div class="tx-status" id="txStatus"></div>
       ${symTxHistoryHtml(sym, actionModalPort)}`;
-    setTimeout(() => { buildTradeTvChart(sym); recomputeTradeFrom('qty'); }, 0);
+    setTimeout(() => { buildActionTvChart(sym); recomputeTradeFrom('qty'); }, 0);
 
   } else if (actionModalTab === 'edit') {
     // Move-shares block: only when this symbol is held in the current port and >1 portfolio exists.
@@ -10290,6 +10498,27 @@ async function fetchYahooPrices(ticker, p1, p2) {
     const r = d?.chart?.result?.[0]; if (!r?.timestamp) return null;
     const cls = r.indicators?.quote?.[0]?.close ?? [], out = {};
     r.timestamp.forEach((ts,i) => { if (cls[i]!=null) out[new Date(ts*1000).toISOString().slice(0,10)] = cls[i]; });
+    return Object.keys(out).length ? out : null;
+  };
+  try { return parse(await (await fetch(url)).json()); } catch {}
+  try { return parse(await (await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`)).json()); } catch {}
+  return null;
+}
+
+// Mirrors fetchYahooPrices but keeps full OHLC (needed for Heikin Ashi). Returns
+// { dateStr: {o,h,l,c} } or null. Populates the caller-side _ohlcCache.
+async function fetchYahooOHLC(ticker, p1, p2) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker(ticker))}?period1=${p1}&period2=${p2}&interval=1d`;
+  const parse = d => {
+    const r = d?.chart?.result?.[0]; if (!r?.timestamp) return null;
+    const q = r.indicators?.quote?.[0] || {};
+    const { open = [], high = [], low = [], close = [] } = q;
+    const out = {};
+    r.timestamp.forEach((ts, i) => {
+      if (open[i] != null && high[i] != null && low[i] != null && close[i] != null) {
+        out[new Date(ts*1000).toISOString().slice(0,10)] = { o: open[i], h: high[i], l: low[i], c: close[i] };
+      }
+    });
     return Object.keys(out).length ? out : null;
   };
   try { return parse(await (await fetch(url)).json()); } catch {}
