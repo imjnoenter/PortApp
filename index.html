@@ -844,8 +844,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .donut-modal-title {
   font-family: var(--font-display); font-size: 18px; font-weight: 600;
   color: var(--ink); letter-spacing: -.2px; margin: 0;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .donut-modal-close {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   background: none; border: none; color: var(--muted); cursor: pointer;
   font-size: 24px; line-height: 1; padding: 2px 8px; border-radius: 8px;
   transition: color .15s, background .15s;
@@ -881,9 +883,20 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 @media (max-width: 640px) {
   .donut-overlay { padding: 0; }
   .donut-modal { width: 100vw; max-width: 100vw; height: 100%; max-height: none; border-radius: 0; border: none; }
-  .donut-modal-body { grid-template-columns: 1fr; gap: var(--sp-4); overflow-y: auto; }
+  /* Full-bleed sheet: the card surface still runs under the notch / Dynamic Island
+     (a letterboxed bar would read as a rendering bug), but the head's controls are
+     pushed clear of it — otherwise the close button sits in the status-bar strip,
+     where iOS never delivers the tap to the page. */
+  .donut-modal-head { padding: var(--sp-3) var(--sp-4); padding-top: calc(var(--sp-3) + env(safe-area-inset-top, 0px)); }
+  .donut-modal-body { grid-template-columns: 1fr; gap: var(--sp-4); overflow-y: auto; padding-bottom: calc(var(--sp-5) + env(safe-area-inset-bottom, 0px)); }
   .donut-modal-chart { height: clamp(260px, 42vh, 360px); }
   .donut-modal-legend { max-height: none; overflow-y: visible; }
+}
+/* Touch input: the head's controls are the only way out of a full-screen sheet,
+   so they get real targets rather than the pointer-precision sizes above. */
+@media (pointer: coarse) {
+  .donut-modal-close { min-width: 44px; min-height: 44px; padding: 0; margin-right: -8px; }
+  .donut-modal-head .pnl-tab-btn { min-height: 36px; padding: 8px 14px; font-size: 11px; }
 }
 .chart-wrap.bar-h   { height: 200px; }
 .donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; pointer-events: none; }
