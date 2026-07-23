@@ -1038,16 +1038,34 @@ function updateTxnAction(ss, p) {
   return jsonResp({ ok: true });
 }
 
+// The client records a transaction with a no-cors GET, which the browser/network layer will
+// silently re-send if the connection drops — and this is the only additive write in the app
+// (holdings/cash writes send absolute values, so they self-heal). Guard it on the transaction's
+// own content: Date+Time carries seconds and is frozen when the modal opens, so a re-send has an
+// identical key while a genuine repeat trade (modal reopened) never does. The lock serializes the
+// getLastRow()/write pair, which would otherwise let two concurrent appends target the same row.
 function appendTxnAction(ss, p) {
-  const sheet = getTxnSheet(ss);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Date','Time','Type','Ticker','Shares',
-      'Price_Per_Share','Trade_Value','Com','Tax','Trade_Value+Fee','Commission_Free','Portfolio']);
-    sheet.getRange(1, 1, 1, 12).setFontWeight('bold');
+  const key   = 'txdup:' + [p.date, p.time, p.type, p.ticker, p.shares, p.price,
+                            p.portfolio || DEFAULT_PORT].join('|');
+  const cache = CacheService.getScriptCache();
+  const lock  = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return jsonResp({ ok: false, error: 'busy' });
+  try {
+    if (cache.get(key)) return jsonResp({ ok: true, duplicate: true });
+    const sheet = getTxnSheet(ss);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(['Date','Time','Type','Ticker','Shares',
+        'Price_Per_Share','Trade_Value','Com','Tax','Trade_Value+Fee','Commission_Free','Portfolio']);
+      sheet.getRange(1, 1, 1, 12).setFontWeight('bold');
+    }
+    const row = sheet.getLastRow() + 1;
+    writeTxnRow(sheet, row, p);
+    SpreadsheetApp.flush();   // commit before releasing, so the next holder sees the new lastRow
+    cache.put(key, '1', 600); // 10 min — long enough to cover any retry window
+    return jsonResp({ ok: true });
+  } finally {
+    lock.releaseLock();
   }
-  const row = sheet.getLastRow() + 1;
-  writeTxnRow(sheet, row, p);
-  return jsonResp({ ok: true });
 }
 
 /* ── history fetch (unchanged) ────────────────────────────────────────────── */

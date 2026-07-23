@@ -264,6 +264,7 @@ modelForPort(port)/findPosIn(model,sym) → port-scoped model + lookup for the a
 - `postTransactionUpdates(ticker, shares, price, txType)` → upserts Qty/AvgCost, adjusts cash, handles Sell All deletion
 - `calcFees(tv)` = 0.15% commission + 7% VAT on commission (skipped when "No commission" checkbox is checked)
 - Cash selector: FCD or USD
+- **Append is the only additive write.** `updateSymbol`/`updateCash` send absolute values (recomputed client-side), so re-running `postTransactionUpdates` is idempotent — a duplicated submit corrupts only the `transactions` sheet, never Qty/AvgCost/cash. `appendTxnAction` therefore dedupes on the transaction's own content (`date|time|type|ticker|shares|price|portfolio`) via `CacheService` with a 10-min TTL, returning `{ok:true,duplicate:true}` on a repeat, and holds a `LockService` lock across the `getLastRow()`/write pair. Date+Time carries seconds and is frozen at modal-open, so a network re-send of the no-cors GET keys identically while a genuine repeat trade (modal reopened) never does.
 
 ## Computed Analytics (txCache-based)
 All functions below operate on `txCache` (minimal fields). They are called inside the `TRANSACTION_URL` async IIFE in `init()`.
