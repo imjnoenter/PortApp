@@ -875,6 +875,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .dm-label { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-val { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dm-pct { font-family: var(--font-mono); font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+.dm-ret { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
 .dm-legend-row.residual { cursor: default; opacity: .6; }
 .dm-legend-row.residual:hover { background: none; }
 @media (max-width: 640px) {
@@ -3173,6 +3174,7 @@ function destroySymbolDetailCharts() {
 async function buildSdTvChart(sym) {
   const tvEl = document.getElementById('sdTvChart');
   if (!tvEl || typeof LightweightCharts === 'undefined') return;
+  const seq = ++_sdTvBuildSeq;
 
   // Destroy any previously-built TV chart entry (toggle re-invocation) before rebuilding.
   symbolDetailCharts = symbolDetailCharts.filter(c => {
@@ -3208,6 +3210,8 @@ async function buildSdTvChart(sym) {
     }
     haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
   }
+  // A newer build superseded this one while we were awaiting — don't touch DOM/globals.
+  if (seq !== _sdTvBuildSeq) return;
   const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
 
   const clrInk = css('--ink'), clrTrack = css('--track'),
@@ -3549,6 +3553,7 @@ window.sdSwitchTab = function(tab) {
 };
 
 window.closeSymbolDetail = function() {
+  _sdTvBuildSeq++;
   destroySymbolDetailCharts();
   window._sdTvChart = window._sdTvSeries = window._sdTvPriceMap = window._sdTvOhlcMap = window._sdTvMode = null;
   document.getElementById('symbolDetailModal')?.classList.remove('open');
@@ -3891,6 +3896,10 @@ window.saveContribution = async function() {
 // ── Action modal charts ───────────────────────────────────────────────────────
 let actionChart1 = null, actionChart2 = null;
 let actionTvChart = null, actionTvSeries = null, actionTvLines = [], actionTvRo = null, actionTvNewAvgLine = null;
+// Build-generation counters: a chart-type toggle can start a second async build before the
+// first finishes; only the newest build may touch the DOM/globals (see buildSdTvChart /
+// buildActionTvChart).
+let _sdTvBuildSeq = 0, _actionTvBuildSeq = 0;
 let tradeTvChart = null, tradeTvSeries = null, tradeTvLines = [], tradeTvRo = null, tradeTvNewAvgLine = null;
 let tradeModalSym = null, tradeModalPort = null;
 
@@ -3910,6 +3919,7 @@ function destroyActionTvChart() {
 }
 
 function destroyActionCharts() {
+  _actionTvBuildSeq++;
   if (actionChart1) { actionChart1.destroy(); actionChart1 = null; }
   if (actionChart2) { actionChart2.destroy(); actionChart2 = null; }
   destroyActionTvChart();
@@ -4009,6 +4019,7 @@ function updateChartTypeButtons(prefix) {
 async function buildActionTvChart(sym) {
   const el = document.getElementById('actionTvChartEl');
   if (!el || typeof LightweightCharts === 'undefined') return;
+  const seq = ++_actionTvBuildSeq;
   destroyActionTvChart();
   el.innerHTML = '';
 
@@ -4035,6 +4046,8 @@ async function buildActionTvChart(sym) {
     }
     haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
   }
+  // A newer build superseded this one while we were awaiting — don't touch DOM/globals.
+  if (seq !== _actionTvBuildSeq) return;
   const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
 
   el.style.position = 'relative';
@@ -8096,13 +8109,17 @@ function donutDataset(data, colors) {
     hoverOffset:  t.hoverOffset,
   }];
 }
+// Shared format for the donut tooltip's total-return line. fmtPct signs itself; fmtCurr doesn't.
+function formatReturnTipLine(pnl, pct) {
+  return ` ${t('total_ret')}: ${pnl>=0?'+':''}${fmtCurr(pnl)} (${fmtPct(pct)})`;
+}
 // Extra tooltip line for a donut symbol slice: that symbol's total return, formatted to
 // match the Positions table exactly. Returns '' for non-position slices (Cash, "Available",
 // sectors, or symbols not currently held) so callers can omit the line.
 function symbolReturnTipLine(sym, model) {
   const p = (model || currentModel)?.positions?.find(x => x.symbol === sym);
   if (!p) return '';
-  return ` ${t('total_ret')}: ${p.pnl>=0?'+':''}${fmtCurr(p.pnl)} (${fmtPct(p.pnlPct)})`;
+  return formatReturnTipLine(p.pnl, p.pnlPct);
 }
 function donutBaseOptions(tooltipLabel) {
   const t = window.donutTweaks;
@@ -8223,7 +8240,8 @@ function _netWorthDonutData(model) {
   const total  = items.reduce((s, p) => s + p.currentValue, 0);
   const labels = items.map(p => p.symbol);
   const data   = items.map(p => p.currentValue);
-  return { labels, data, colors: labels.map(colorFor), total };
+  const rets   = items.map(p => p.symbol === 'Cash' ? null : { pnl: p.pnl || 0, pct: p.pnlPct || 0 });
+  return { labels, data, colors: labels.map(colorFor), total, rets };
 }
 // Segmented [ Incl. cash | Holdings ] control for the Total Net Worth donut.
 // Shared markup for the card title and the fullscreen modal head.
@@ -8501,23 +8519,32 @@ function renderGroupedDonut(cfg, model) {
   if (cfg.beforeRender) cfg.beforeRender();
 
   const map = {};
-  for (const p of model.positions) { const k = p[cfg.field] || 'Other'; map[k] = (map[k] || 0) + p.currentValue; }
+  const retMap = {};
+  for (const p of model.positions) {
+    const k = p[cfg.field] || 'Other';
+    map[k] = (map[k] || 0) + p.currentValue;
+    const r = retMap[k] || (retMap[k] = { pnl: 0, cost: 0 });
+    r.pnl  += p.pnl || 0;
+    r.cost += p.costBasis || 0;
+  }
   const grandTotal = Object.values(map).reduce((s, v) => s + v, 0);
   const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
 
   const drilled = cfg.getDrill();
-  let labels, data, colors, drillTotal;
+  let labels, data, colors, drillTotal, rets;
   if (drilled) {
     const stocks = model.positions.filter(p => (p[cfg.field] || 'Other') === drilled);
     drillTotal = stocks.reduce((s, p) => s + p.currentValue, 0);
     labels = stocks.map(p => p.symbol);
     data   = stocks.map(p => p.currentValue);
     colors = stocks.map(p => colorFor(p.symbol));
+    rets   = stocks.map(p => ({ pnl: p.pnl || 0, pct: p.pnlPct || 0 }));
   } else {
     drillTotal = grandTotal;
     labels = keys.map(k => t(k));
     data   = keys.map(k => map[k]);
     colors = keys.map(cfg.color);
+    rets   = keys.map(k => { const r = retMap[k]; return r && r.cost ? { pnl: r.pnl, pct: r.pnl / r.cost * 100 } : null; });
   }
 
   const centerPlugin = {
@@ -8543,13 +8570,18 @@ function renderGroupedDonut(cfg, model) {
     }
   };
 
+  const tipRet = c => { const r = rets[c.dataIndex]; return r ? formatReturnTipLine(r.pnl, r.pct) : ''; };
   const tooltipFn = drilled
     ? c => {
         const base = ` ${c.label}: ${fmtCurr(c.raw)} (${drillTotal>0?(c.raw/drillTotal*100).toFixed(1):0}% of ${cfg.noun})`;
-        const ret = symbolReturnTipLine(c.label, model);
+        const ret = tipRet(c);
         return ret ? [base, ret] : base;
       }
-    : c => ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
+    : c => {
+        const base = ` ${c.label}: ${fmtCurr(c.raw)} (${grandTotal>0?(c.raw/grandTotal*100).toFixed(1):0}%)`;
+        const ret = tipRet(c);
+        return ret ? [base, ret] : base;
+      };
 
   el.style.cursor = 'pointer';
   cfg.setInst(new Chart(el.getContext('2d'), {
@@ -8574,7 +8606,7 @@ function renderGroupedDonut(cfg, model) {
     },
     plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
   }));
-  return { labels, data, colors, total: drilled ? drillTotal : grandTotal, drilled: !!drilled };
+  return { labels, data, colors, rets, total: drilled ? drillTotal : grandTotal, drilled: !!drilled };
 }
 
 // Shared post-drill sync for the filter-coupled donuts (sector + category).
@@ -8827,21 +8859,23 @@ function renderDonutModal() {
   } else {
     res = renderGroupedDonut(_donutModalCfg(kind), model);
   }
-  _buildDonutLegend(res.labels, res.data, res.colors, res.total, showResidual);
+  _buildDonutLegend(res.labels, res.data, res.colors, res.total, showResidual, res.rets);
 }
 
-function _buildDonutLegend(labels, data, colors, total, showResidual) {
+function _buildDonutLegend(labels, data, colors, total, showResidual, rets) {
   const el = document.getElementById('donutModalLegend');
   if (!el) return;
   const rows = labels.map((lab, i) => ({ label: lab, value: data[i] || 0, color: colors[i], idx: i }))
     .sort((a, b) => b.value - a.value);
   let html = rows.map(r => {
     const pct = total > 0 ? r.value / total * 100 : 0;
+    const ret = rets?.[r.idx];
     return `<div class="dm-legend-row" onclick="_highlightDonutSlice(this, ${r.idx})">
       <span class="dm-swatch" style="background:${r.color}"></span>
       <span class="dm-label">${r.label}</span>
       <span class="dm-val">${fmtCurr(r.value)}</span>
       <span class="dm-pct">${pct.toFixed(1)}%</span>
+      <span class="dm-ret" style="color:${ret ? (ret.pct>=0 ? 'var(--gain)' : 'var(--loss)') : 'var(--muted)'}">${ret ? fmtPct(ret.pct) : ''}</span>
     </div>`;
   }).join('');
   if (showResidual) {
@@ -8853,6 +8887,7 @@ function _buildDonutLegend(labels, data, colors, total, showResidual) {
         <span class="dm-label">${t('other_unclassified_label')}</span>
         <span class="dm-val">${fmtCurr(residual)}</span>
         <span class="dm-pct">${pct.toFixed(1)}%</span>
+        <span class="dm-ret"></span>
       </div>`;
     }
   }
@@ -10534,10 +10569,14 @@ async function fetchYahooPrices(ticker, p1, p2) {
 async function fetchYahooOHLC(ticker, p1, p2) {
   // Prefer the server-side Apps Script path (v8/chart needs no crumb server-side and returns
   // browser-readable JSON, so this works in production where the direct/corsproxy paths don't).
-  try {
-    const resp = await recordFetch({ action: 'fetchOHLC', symbol: ticker }, true);
-    if (resp?.ohlc && Object.keys(resp.ohlc).length) return resp.ohlc;
-  } catch (_) {}
+  // Skipped on read-only profiles: recordFetch() surfaces a "read-only — enable saving" banner,
+  // which is wrong for a pure chart read, and it can't return data there anyway.
+  if (!isReadOnly()) {
+    try {
+      const resp = await recordFetch({ action: 'fetchOHLC', symbol: ticker }, true);
+      if (resp?.ohlc && Object.keys(resp.ohlc).length) return resp.ohlc;
+    } catch (_) {}
+  }
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooTicker(ticker))}?period1=${p1}&period2=${p2}&interval=1d`;
   const parse = d => {
     const r = d?.chart?.result?.[0]; if (!r?.timestamp) return null;
