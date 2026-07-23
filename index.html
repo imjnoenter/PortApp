@@ -4655,10 +4655,14 @@ function renderActionCharts(sym, previewValue, overrideCat) {
       avEl.innerHTML = `Available: <strong style="color:${color}">${available.toFixed(1)}%</strong>`;
     }
 
-    const mkAllocChart = (id, items) => {
+    // `denom`/`denomNoun`: chart 1 shows each slice's absolute portfolio target %
+    // (its ring already includes the "Available" slice, so those sum to 100).
+    // Chart 2 is a category subset with no filler slice, so its % must be relative
+    // to that category — matching both its arc sizes and the actionLbl2 label.
+    const mkAllocChart = (id, items, denom, denomNoun) => {
       const el = document.getElementById(id);
       if (!el) return null;
-      const total  = items.reduce((s,p) => s+p.tgtPct, 0);
+      const total  = denom != null ? denom : items.reduce((s,p) => s+p.tgtPct, 0);
       const labels = items.map(p => p.symbol);
       const data   = items.map(p => p.tgtPct);
       const bg     = items.map(p => p.symbol==='Available' ? 'rgba(100,116,139,0.25)' : p.symbol===sym ? colorFor(p.symbol) : colorFor(p.symbol)+'55');
@@ -4669,12 +4673,17 @@ function renderActionCharts(sym, previewValue, overrideCat) {
         data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: border, borderWidth: bw, hoverBorderWidth:0 }] },
         options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
           plugins: { legend:{display:false},
-            tooltip: { callbacks:{ label: c => ` ${c.label}: ${c.raw.toFixed(1)}% of portfolio` },
+            tooltip: { callbacks:{ label: c => {
+              const pct = denom != null ? (total > 0 ? c.raw / total * 100 : 0) : c.raw;
+              return ` ${c.label}: ${pct.toFixed(1)}% of ${denomNoun || 'portfolio'}`;
+            } },
               backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding:8, cornerRadius:8 }}}
       });
     };
     actionChart1 = mkAllocChart('actionChart1', c1items);
-    actionChart2 = mkAllocChart('actionChart2', c2items.length ? c2items : c1items);
+    actionChart2 = c2items.length
+      ? mkAllocChart('actionChart2', c2items, c2tot, category || 'category')
+      : mkAllocChart('actionChart2', c1items);
     return;
   }
 
@@ -8186,13 +8195,19 @@ const donutInnerRing = {
 // Outer labels — curved connector + serif symbol + mono percent
 const donutOuterLabels = {
   id: 'donutOuterLabels',
-  afterDatasetsDraw(chart) {
+  afterDatasetsDraw(chart, args, opts) {
     if (!window.donutTweaks?.showLabels) return;
     const { ctx, data } = chart;
     const meta = chart.getDatasetMeta(0);
     if (!meta?.data?.length) return;
     const t = window.donutTweaks;
-    const total = data.datasets[0].data.reduce((s, v) => s + (v || 0), 0);
+    // Denominator must match whatever the tooltip divides by. Defaults to the sum
+    // of the plotted slices, but a chart whose slices don't cover the whole total
+    // (ETF look-through donuts: only classified holdings are charted) passes its
+    // real total via `plugins.donutOuterLabels.total` so labels and tooltips agree.
+    const total = opts?.total > 0
+      ? opts.total
+      : data.datasets[0].data.reduce((s, v) => s + (v || 0), 0);
     ctx.save();
     meta.data.forEach((arc, i) => {
       const val = data.datasets[0].data[i] || 0;
@@ -8737,10 +8752,15 @@ function _renderEtfStaticDonut(elId, getInst, setInst, labels, data, colors, nou
     return ret ? [base, ret] : base;
   };
   el.style.cursor = 'default';
+  const opts = { ...donutBaseOptions(tooltipFn), layout: { padding: 65 } };
+  // Keep the outer % labels on the same denominator as the tooltip — for the ETF
+  // look-through donuts the slices only cover classified holdings, so summing them
+  // would inflate every label (see donutOuterLabels).
+  opts.plugins = { ...opts.plugins, donutOuterLabels: { total: grandTotal } };
   setInst(new Chart(el.getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, colors) },
-    options: { ...donutBaseOptions(tooltipFn), layout: { padding: 65 } },
+    options: opts,
     plugins: [donutInnerRing, donutShadow, donutOuterLabels, centerPlugin]
   }));
 }
@@ -8769,8 +8789,11 @@ function _etfHoldingDonutData(model) {
 function renderEtfSectorDonut(model) {
   const { labels, data, colors, total } = _etfSectorDonutData(model);
   const residual = total - data.reduce((s, v) => s + v, 0);
+  // Denominator is the whole ETF-portfolio value, not just the charted (classified)
+  // slices — so slice % + the residual note's % add up to 100, and the card agrees
+  // with the fullscreen modal, which has always used this total.
   _renderEtfStaticDonut('sectorDonutChart', () => etfSectorDonutInst, v => { etfSectorDonutInst = v; },
-    labels, data, colors, 'sector');
+    labels, data, colors, 'sector', total);
   _setDonutNote('sectorDonutNote', residual > 0.5
     ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/total*100).toFixed(1)}%)` : '');
 }
@@ -8779,7 +8802,7 @@ function renderEtfTopHoldingDonut(model) {
   const { labels, data, colors, total } = _etfHoldingDonutData(model);
   const residual = total - data.reduce((s, v) => s + v, 0);
   _renderEtfStaticDonut('industryDonutChart', () => etfHoldingDonutInst, v => { etfHoldingDonutInst = v; },
-    labels, data, colors, 'holding');
+    labels, data, colors, 'holding', total);
   _setDonutNote('industryDonutNote', residual > 0.5
     ? `${t('other_unclassified_label')}: ${fmtCurr(residual)} (${(residual/total*100).toFixed(1)}%)` : '');
 }
