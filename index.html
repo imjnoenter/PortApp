@@ -364,6 +364,42 @@ body {
   flex-shrink: 0;
 }
 .market-clock-pill canvas { display: block; flex-shrink: 0; }
+#clockSlotSidebar .market-clock-pill { width: 100%; }
+
+/* ── Monthly calendar grid ── */
+.cal-nav { display: flex; align-items: center; justify-content: center; gap: var(--sp-3); margin-bottom: 10px; }
+.cal-nav button {
+  border: none; background: var(--track); color: var(--ink-soft);
+  width: 24px; height: 24px; border-radius: 7px; cursor: pointer;
+  font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+.cal-nav button:hover { background: var(--hover); color: var(--ink); }
+.cal-nav .cal-month { font-size: 12px; font-weight: 700; letter-spacing: .3px; min-width: 130px; text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-wd { text-align: center; font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; padding: 2px 0; }
+.cal-cell {
+  position: relative; min-height: 36px; border-radius: 7px; overflow: hidden;
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 4px 4px 4px 5px; text-align: left;
+  transition: background .12s;
+}
+.cal-cell:not(.cal-out) { cursor: pointer; }
+.cal-cell:not(.cal-out):hover { background: var(--hover); }
+.cal-cell .cal-num { font-size: 10.5px; font-weight: 600; color: var(--ink-soft); line-height: 1; }
+.cal-out { opacity: .35; pointer-events: none; }
+.cal-past .cal-num { color: var(--muted); }
+.cal-today { background: color-mix(in srgb, var(--terracotta) 14%, transparent); }
+.cal-today .cal-num { color: var(--terracotta); font-weight: 800; }
+.cal-cell.cal-sel { outline: 2px solid var(--terracotta); outline-offset: -2px; }
+.cal-chips { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cal-chip { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 3px; line-height: 1.25; max-width: 100%; }
+.cal-chip-sym { font-size: 9px; font-weight: 700; }
+.cal-chip-e .cal-chip-sym { color: var(--plum); }
+.cal-chip-d .cal-chip-sym { color: var(--sage); }
+.cal-chip-tag { font-size: 7.5px; font-weight: 700; color: var(--muted); letter-spacing: .3px; }
+.cal-strip { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cal-strip-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0; }
 .mc-status {
   font-family: var(--font-ui);
   font-size: 13px; font-weight: 700;
@@ -634,6 +670,27 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .risk-divider { height: 1px; background: var(--line-soft); margin: 3px 0; opacity: .7; }
 .risk-bar-track { width: 110px; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
 .risk-bar-fill { height: 100%; border-radius: 3px; width: 100%; transform-origin: left; transition: transform .4s var(--ease-out-quint); }
+.stress-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.stress-chip {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .3px;
+  padding: 4px 8px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  background: var(--track); color: var(--muted); border: 1px solid transparent;
+  transition: background .2s var(--ease-out-quint), color .2s var(--ease-out-quint);
+}
+.stress-chip:hover { color: var(--ink); }
+.stress-chip.active {
+  background: color-mix(in oklab, var(--terracotta) 18%, var(--card));
+  color: var(--terracotta); border-color: color-mix(in oklab, var(--terracotta) 40%, transparent);
+}
+.stress-headline { text-align: center; padding: 6px 0 4px; }
+.stress-big { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -.6px; line-height: 1.05; }
+.stress-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.stress-mover { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.stress-mover-sym { font-family: var(--font-mono); font-size: 11px; font-weight: 600; width: 4.2rem; white-space: nowrap; }
+.stress-mover-beta { font-size: 9px; color: var(--muted-2); }
+.stress-mover-bar { flex: 1; height: 5px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.stress-mover-fill { height: 100%; border-radius: 3px; transform-origin: left; transition: transform .4s var(--ease-out-quint); }
+.stress-mover-val { font-family: var(--font-display); font-size: 12px; font-weight: 600; width: 4.6rem; text-align: right; white-space: nowrap; }
 
 .alloc-list-head {
   display: flex; justify-content: space-between; align-items: baseline;
@@ -1056,7 +1113,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   min-width: 0;
 }
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
-.sidebar-foot { padding-top: var(--sp-3); border-top: 1px solid var(--line); display: flex; align-items: center; }
+.sidebar-foot { padding-top: var(--sp-3); border-top: 1px solid var(--line); display: flex; align-items: center; gap: var(--sp-2); }
+.sidebar-foot .refresh-btn { flex: 1; justify-content: center; }
 
 .nav-item {
   display: flex; align-items: center; gap: var(--sp-3);
@@ -2211,6 +2269,7 @@ const I18N = {
     today_label: "Today", tomorrow_label: "Tomorrow",
     before_market_open: "Before Market Open", after_market_close: "After Market Close",
     no_upcoming_events: "No upcoming events in 30 days",
+    no_events_month: "No events this month", nothing_this_day: "Nothing on this day",
     loading_calendar_msg: "Loading calendar…", no_calendar_data: "No calendar data",
     no_entries: "No entries",
     add_symbol_title: "Add Symbol",
@@ -2246,6 +2305,12 @@ const I18N = {
     correlation_title: "Correlation Matrix",
     corr_legend_together: "move together", corr_legend_diversify: "diversify",
     corr_omitted_suffix: "smaller holdings not shown",
+    stress_test_title: "Stress Test — What-If",
+    stress_impact_label: "Estimated impact",
+    stress_net_worth: "Net worth", stress_eff_beta: "Portfolio beta (wtd)",
+    stress_scenario_label: "Market move", stress_hist_label: "Historical",
+    stress_movers_label: "Biggest movers",
+    stress_fallback_note: "used market beta (thin history)",
     monthly_returns_title: "Monthly Returns",
     mret_avg_label: "Avg", year_label: "Year",
     no_realized_pnl: "No realized P&L in this period.",
@@ -2438,6 +2503,7 @@ const I18N = {
     today_label: "วันนี้", tomorrow_label: "พรุ่งนี้",
     before_market_open: "ก่อนตลาดเปิด", after_market_close: "หลังตลาดปิด",
     no_upcoming_events: "ไม่มีกิจกรรมในอีก 30 วันข้างหน้า",
+    no_events_month: "ไม่มีกิจกรรมในเดือนนี้", nothing_this_day: "ไม่มีกิจกรรมในวันนี้",
     loading_calendar_msg: "กำลังโหลดปฏิทิน…", no_calendar_data: "ไม่มีข้อมูลปฏิทิน",
     // Watchlist
     no_entries: "ไม่มีรายการ",
@@ -2475,6 +2541,12 @@ const I18N = {
     true_exp_empty: "ยังไม่มีข้อมูลมองทะลุ ETF",
     correlation_title: "ตารางความสัมพันธ์",
     corr_legend_together: "เคลื่อนไหวไปด้วยกัน", corr_legend_diversify: "กระจายความเสี่ยง",
+    stress_test_title: "ทดสอบภาวะวิกฤต — จำลองสถานการณ์",
+    stress_impact_label: "ผลกระทบโดยประมาณ",
+    stress_net_worth: "มูลค่าสุทธิ", stress_eff_beta: "เบต้าพอร์ต (ถ่วงน้ำหนัก)",
+    stress_scenario_label: "ตลาดเปลี่ยนแปลง", stress_hist_label: "เหตุการณ์ในอดีต",
+    stress_movers_label: "หุ้นกระทบมากสุด",
+    stress_fallback_note: "ใช้เบต้าตลาด (ข้อมูลย้อนหลังไม่พอ)",
     corr_omitted_suffix: "หุ้นสัดส่วนย่อยที่ไม่ได้แสดง",
     monthly_returns_title: "ผลตอบแทนรายเดือน",
     mret_avg_label: "เฉลี่ย", year_label: "ปี",
@@ -2596,6 +2668,7 @@ let lastTxData = null;
 let historyCache = null;
 let _ohlcCache = {}; // { sym: { dateStr: {o,h,l,c} } } — Heikin Ashi OHLC cache, in-memory/session only
 let chartType = localStorage.getItem('chartType.v1') || 'area'; // 'area' | 'heikin' — TV chart type pref
+let emaOn = localStorage.getItem('emaOn.v1') === '1'; // EMA 50/100/200 overlay pref (default off)
 let _gicsMap = {}; // { TICKER: { sector, subIndustry } } — GICS overlay, see ensureGicsMap()
 let _journalTrades = [], _journalSort = 'closeDate', _journalDir = -1;
 
@@ -3352,6 +3425,16 @@ async function buildSdTvChart(sym) {
         `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>` +
         `<span style="font-size:12px;font-weight:600;color:${clrInk};margin-left:8px">${fmtCurr(val)}</span>`;
     });
+
+    // EMA 50/100/200 overlays — computed from real closes, so independent of area/HA
+    const emaCloseMap = effectiveType === 'heikin' ? _closesFromOhlc(ohlcMap) : priceMap;
+    window._sdTvEma = applyEmaLines(tvChart, emaCloseMap, null);
+    if (window._sdTvEma.length) {
+      const key = document.createElement('div');
+      key.style.cssText = 'position:absolute;top:27px;left:10px;z-index:10;pointer-events:none;font-size:10px';
+      key.innerHTML = `<span style="color:var(--muted)">EMA </span>` + emaKeyHtml();
+      tvEl.appendChild(key);
+    }
   } else {
     tvEl.insertAdjacentHTML('beforeend',
       `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">${t('no_price_data')}</div>`);
@@ -3369,6 +3452,7 @@ async function buildSdTvChart(sym) {
   window._sdTvMode      = effectiveType;
   window._sdTvSym       = sym;
   updateChartTypeButtons('sdChartType');
+  updateEmaButtons();
   sdSetRange('3M');
 
   symbolDetailCharts.push({ _isTv: true, destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
@@ -3473,6 +3557,8 @@ window.openSymbolDetail = function(sym) {
         <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
           ${[['area','Area'],['heikin','HA']].map(([m,label])=>`<button id="sdChartType_${m}" onclick="setChartType('${m}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('')}
+          <button id="sdEma" onclick="toggleEma()"
+            style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">EMA</button>
           ${['1M','3M','6M','YTD','1Y','ALL'].map(r=>`<button id="sdRange_${r}" onclick="sdSetRange('${r}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${r}</button>`).join('')}
         </div>
@@ -3624,6 +3710,7 @@ window.sdSetRange = async function(range) {
           const _st = _loadHaStore(); _st[sym] = { d: _haToday(), ohlc: merged }; _saveHaStore(_st);
           window._sdTvOhlcMap = merged;
           series.setData(computeHeikinAshi(_spliceLiveHa(merged, sym)));
+          window._sdTvEma = applyEmaLines(chart, _closesFromOhlc(merged), window._sdTvEma);
           dates   = Object.keys(merged).sort();
           clipped = dates.filter(d => d >= fromStr && d <= toStr);
         }
@@ -3659,6 +3746,7 @@ window.sdSetRange = async function(range) {
           seriesData = [...seriesData.filter(d => d.time !== todayStr), { time: todayStr, value: livePrice }];
         }
         series.setData(seriesData);
+        window._sdTvEma = applyEmaLines(chart, merged, window._sdTvEma);
         dates   = seriesData.map(d => d.time);
         clipped = dates.filter(d => d >= fromStr && d <= toStr);
       }
@@ -4047,6 +4135,89 @@ function updateChartTypeButtons(prefix) {
   });
 }
 
+// ── EMA 50/100/200 overlays (shared by both TV charts) ───────────────────────
+// Teal light→dark ramp — distinct from symColor / TRANCHE_COLORS / SL-red / avg-white.
+const EMA_PERIODS = [50, 100, 200];
+const EMA_COLORS  = { 50: '#7fd4c8', 100: '#3fa8b5', 200: '#2a6f8f' };
+
+// Date→close map from a date→{o,h,l,c} OHLC map (EMA uses the real close, not the HA close).
+function _closesFromOhlc(ohlcMap) {
+  const out = {};
+  for (const d in ohlcMap) out[d] = ohlcMap[d].c;
+  return out;
+}
+
+// EMA line data from a date→close map. Seeded with the SMA of the first `period`
+// closes, then rolled with k=2/(period+1); emits points from bar `period` onward
+// (ascending by date). Returns [] when history has fewer than `period` bars.
+function computeEma(closeMap, period) {
+  const dates = Object.keys(closeMap).sort();
+  if (dates.length < period) return [];
+  const k = 2 / (period + 1);
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += closeMap[dates[i]];
+  let ema = sum / period;
+  const out = [{ time: dates[period - 1], value: ema }];
+  for (let i = period; i < dates.length; i++) {
+    ema = closeMap[dates[i]] * k + ema * (1 - k);
+    out.push({ time: dates[i], value: ema });
+  }
+  return out;
+}
+
+// (Re)builds the EMA line overlays on a TV chart from a date→close map when the
+// emaOn pref is set. Removes `prevRefs` first; returns the new line-series refs so
+// range switches (sdSetRange's lazy backfill) can refresh them over merged data.
+// Periods with insufficient history are silently skipped (short-history symbols).
+function applyEmaLines(chart, closeMap, prevRefs) {
+  (prevRefs || []).forEach(s => { try { chart.removeSeries(s); } catch(_) {} });
+  if (!emaOn || !closeMap) return [];
+  const refs = [];
+  EMA_PERIODS.forEach(period => {
+    const data = computeEma(closeMap, period);
+    if (data.length < 2) return;
+    const s = chart.addLineSeries({
+      color: EMA_COLORS[period], lineWidth: 1,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
+    s.setData(data);
+    refs.push(s);
+  });
+  return refs;
+}
+
+// Color-coded "50 · 100 · 200" key markup for the static EMA legend.
+function emaKeyHtml() {
+  return EMA_PERIODS.map(p => `<span style="color:${EMA_COLORS[p]};font-weight:700">${p}</span>`)
+    .join('<span style="color:var(--muted)"> · </span>');
+}
+
+// Toggles the EMA overlay pref and rebuilds whichever TV chart(s) are open
+// (mirrors setChartType; the detail chart's range resets to 3M on rebuild).
+window.toggleEma = function() {
+  emaOn = !emaOn;
+  localStorage.setItem('emaOn.v1', emaOn ? '1' : '0');
+  updateEmaButtons();
+  if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
+    buildSdTvChart(window._sdTvSym);
+  }
+  if (document.getElementById('actionModal')?.classList.contains('open')) {
+    if (actionModalTab === 'plan' && planState.symbol) buildActionTvChart(planState.symbol);
+    else if (actionModalTab === 'transaction' && actionModalSym) buildActionTvChart(actionModalSym);
+  }
+};
+
+// Highlights the EMA pill on both charts to match the emaOn pref.
+function updateEmaButtons() {
+  ['sdEma', 'actionEma'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.style.background  = emaOn ? 'var(--ink)' : 'transparent';
+    btn.style.color       = emaOn ? 'var(--card)' : 'var(--muted)';
+    btn.style.borderColor = emaOn ? 'var(--ink)'  : 'var(--line)';
+  });
+}
+
 async function buildActionTvChart(sym) {
   const el = document.getElementById('actionTvChartEl');
   if (!el || typeof LightweightCharts === 'undefined') return;
@@ -4107,7 +4278,9 @@ async function buildActionTvChart(sym) {
   const typeToggle = document.createElement('div');
   typeToggle.style.cssText = 'position:absolute;top:8px;right:10px;z-index:10;display:flex;gap:4px';
   typeToggle.innerHTML = [['area','Area'],['heikin','HA']].map(([m,label]) => `<button id="actionChartType_${m}" onclick="setChartType('${m}')"
-    style="padding:3px 8px;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('');
+    style="padding:3px 8px;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('')
+    + `<button id="actionEma" onclick="toggleEma()"
+    style="padding:3px 8px;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;transition:all .15s">EMA</button>`;
   el.appendChild(typeToggle);
 
   const hasData = effectiveType === 'heikin'
@@ -4148,6 +4321,16 @@ async function buildActionTvChart(sym) {
         setLegend(d ? d.value : lastReal);
       }
     });
+
+    // EMA 50/100/200 overlays — real closes, independent of area/HA
+    const emaCloseMap = effectiveType === 'heikin' ? _closesFromOhlc(ohlcMap) : priceMap;
+    const emaRefs = applyEmaLines(actionTvChart, emaCloseMap, null);
+    if (emaRefs.length) {
+      const key = document.createElement('div');
+      key.style.cssText = 'position:absolute;top:26px;left:10px;z-index:10;pointer-events:none;font-size:9px';
+      key.innerHTML = `<span style="color:var(--muted)">EMA </span>` + emaKeyHtml();
+      el.appendChild(key);
+    }
   } else {
     legend.innerHTML = `<span style="font-size:12px;font-weight:700;color:${symColor}">${sym}</span>`
       + `<span style="font-size:10px;color:var(--muted);margin-left:8px">${t('no_history_msg')}</span>`;
@@ -4156,6 +4339,7 @@ async function buildActionTvChart(sym) {
   actionTvRo = new ResizeObserver(() => { if (actionTvChart) actionTvChart.resize(el.clientWidth, 220); });
   actionTvRo.observe(el);
   updateChartTypeButtons('actionChartType');
+  updateEmaButtons();
   updateActionTvLines();
   updateActionNewAvgLine();
 }
@@ -9990,6 +10174,130 @@ function renderRiskPanel(model) {
   `;
 }
 
+// ── Stress Test / What-If ─────────────────────────────────────────────────────
+// Preset market moves + well-known historical S&P 500 drawdowns.
+const STRESS_SCENARIOS = [
+  { label: '+10%',       move:  0.10 },
+  { label: '−10%',       move: -0.10 },
+  { label: '−20%',       move: -0.20 },
+  { label: '−30%',       move: -0.30 },
+];
+const STRESS_HISTORICAL = [
+  { label: 'COVID −34%', move: -0.34, title: 'Feb–Mar 2020 crash' },
+  { label: '2022 −25%',  move: -0.25, title: '2022 bear market' },
+  { label: 'GFC −55%',   move: -0.55, title: '2007–09 financial crisis' },
+];
+let _stressMove = -0.20;               // active scenario (fraction)
+let _betaMemo = { key: null, betas: null };
+
+// Per-holding beta vs SPY from historyCache daily returns (same math as the correlation
+// matrix). Memoized on view + SPY-day count + symbol set — beta doesn't move intraday.
+function perHoldingBetas(model) {
+  const spy = historyCache?.prices?.['SPY'];
+  const spyDays = spy ? Object.keys(spy).length : 0;
+  const syms = (model.positions || []).map(p => p.symbol);
+  const key = `${activePortfolio}:${spyDays}:${syms.join(',')}`;
+  if (_betaMemo.key === key) return _betaMemo.betas;
+  const betas = {};
+  if (spy && spyDays >= 31) {
+    const sd = Object.keys(spy).sort();
+    const sret = {};
+    for (let i = 1; i < sd.length; i++) { const a = spy[sd[i-1]], b = spy[sd[i]]; if (a > 0 && b > 0) sret[sd[i]] = b/a - 1; }
+    for (const p of (model.positions || [])) {
+      const pr = historyCache?.prices?.[p.symbol];
+      if (!pr) continue;
+      const pd = Object.keys(pr).sort();
+      const pairs = [];
+      for (let i = 1; i < pd.length; i++) {
+        const a = pr[pd[i-1]], b = pr[pd[i]];
+        if (a > 0 && b > 0 && sret[pd[i]] !== undefined) pairs.push([sret[pd[i]], b/a - 1]);
+      }
+      if (pairs.length < 30) continue;
+      const n = pairs.length;
+      let mx = 0, my = 0; for (const [x,y] of pairs) { mx += x; my += y; } mx /= n; my /= n;
+      let cov = 0, vx = 0;
+      for (const [x,y] of pairs) { const dx = x - mx; cov += dx * (y - my); vx += dx * dx; }
+      if (vx > 0) betas[p.symbol] = cov / vx;
+    }
+  }
+  _betaMemo = { key, betas };
+  return betas;
+}
+
+window.setStressMove = function(m) { _stressMove = m; if (currentModel) renderStressTest(currentModel); };
+
+function renderStressTest(model) {
+  const card = document.getElementById('stressTestCard');
+  const body = document.getElementById('stressTestBody');
+  if (!card || !body || !model) return;
+  const pos = (model.positions || []).filter(p => (p.currentValue || 0) > 0);
+  const ra = riskAdjusted();
+  const betas = perHoldingBetas(model);
+  const hasPerHolding = Object.keys(betas).length > 0;
+  const fallbackBeta = ra && ra.beta != null ? ra.beta : 1;
+  // Need either per-holding betas or a portfolio beta to say anything meaningful.
+  if (!pos.length || (!hasPerHolding && (!ra || ra.beta == null))) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const move = _stressMove;
+  let equity = 0, totalImpact = 0, betaWtd = 0, fallbackCount = 0;
+  const rows = [];
+  for (const p of pos) {
+    const v = p.currentValue || 0;
+    equity += v;
+    const covered = betas[p.symbol] !== undefined;
+    const b = covered ? betas[p.symbol] : fallbackBeta;
+    if (!covered) fallbackCount++;
+    const impact = v * b * move;
+    totalImpact += impact; betaWtd += b * v;
+    rows.push({ sym: p.symbol, beta: b, impact });
+  }
+  const effBeta = equity > 0 ? betaWtd / equity : null;
+  const nw = model.totalCurrent || 0;
+  const newNw = nw + totalImpact;
+  const nwPct = nw > 0 ? totalImpact / nw * 100 : 0;
+  const tone = totalImpact >= 0 ? 'var(--gain)' : 'var(--loss)';
+  const sign = totalImpact < 0 ? '−' : '+';
+
+  const chip = s =>
+    `<button class="stress-chip${Math.abs(s.move - move) < 1e-9 ? ' active' : ''}"${s.title ? ` title="${s.title}"` : ''} onclick="setStressMove(${s.move})">${s.label}</button>`;
+  const chipsHtml =
+    `<div style="font-size:9px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">${t('stress_scenario_label')}</div>
+     <div class="stress-chips">${STRESS_SCENARIOS.map(chip).join('')}</div>
+     <div style="font-size:9px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">${t('stress_hist_label')}</div>
+     <div class="stress-chips">${STRESS_HISTORICAL.map(chip).join('')}</div>`;
+
+  const headHtml =
+    `<div class="stress-headline">
+       <div style="font-size:9px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.6px;color:var(--muted)">${t('stress_impact_label')}</div>
+       <div class="stress-big" style="color:${tone}">${sign}${fmtCurr(Math.abs(totalImpact))}</div>
+       <div class="stress-sub" style="color:${tone}">${sign}${Math.abs(nwPct).toFixed(1)}%</div>
+       <div class="stress-sub">${t('stress_net_worth')}: ${fmtCurr(nw)} → <span style="color:var(--ink);font-weight:600">${fmtCurr(newNw)}</span></div>
+       ${effBeta != null ? `<div class="stress-sub">${t('stress_eff_beta')}: <span style="color:var(--ink);font-weight:600">${effBeta.toFixed(2)}</span></div>` : ''}
+     </div>`;
+
+  const movers = rows.slice().sort((a,b) => Math.abs(b.impact) - Math.abs(a.impact)).slice(0, 8);
+  const maxImp = movers.reduce((m,r) => Math.max(m, Math.abs(r.impact)), 0) || 1;
+  const moversHtml = movers.length ? `
+    <div class="risk-divider"></div>
+    <div style="font-size:9px;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px">${t('stress_movers_label')}</div>
+    ${movers.map(r => {
+      const rtone = r.impact >= 0 ? 'var(--gain)' : 'var(--loss)';
+      const rsign = r.impact < 0 ? '−' : '+';
+      return `<div class="stress-mover">
+        <span class="stress-mover-sym">${r.sym} <span class="stress-mover-beta">β${r.beta.toFixed(2)}</span></span>
+        <span class="stress-mover-bar"><span class="stress-mover-fill" style="transform:scaleX(${(Math.abs(r.impact)/maxImp).toFixed(4)});background:${rtone}"></span></span>
+        <span class="stress-mover-val" style="color:${rtone}">${rsign}${fmtCurr(Math.abs(r.impact))}</span>
+      </div>`;
+    }).join('')}` : '';
+
+  const noteHtml = fallbackCount > 0
+    ? `<div style="font-size:10px;color:var(--muted);margin-top:8px">${fallbackCount} ${fallbackCount === 1 ? 'holding' : 'holdings'} ${t('stress_fallback_note')}</div>`
+    : '';
+
+  body.innerHTML = chipsHtml + headHtml + moversHtml + noteHtml;
+}
+
 // Forward-looking income: trailing-12-month per-share dividends × current shares.
 // Yields use current equity value / cost basis of all held positions (excl. cash).
 function computeForwardIncome(model) {
@@ -10166,14 +10474,22 @@ function netContributedForView(){
   return { depositTHB, withdrawUSD };
 }
 
+// ── Calendar: monthly grid ────────────────────────────────────────────────────
+// Month grid (Sunday-first) with type-colored dots per day; clicking a day fills
+// a detail strip below with that day's events. Prev/next page the month.
+let _calEvents = [];        // filtered events with a Bangkok-display date (`bkk`)
+let _calMonthOffset = 0;    // 0 = current month, +1 next, -1 prev
+let _calSelectedDay = null; // 'YYYY-MM-DD' of the day whose events fill the strip
+
+const _calBkkToday = () => new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
+const _calEvBadge = isE => isE
+  ? `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(138,90,126,.15);color:var(--plum);white-space:nowrap">${t('earnings_badge')}</span>`
+  : `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(107,142,90,.15);color:var(--sage);white-space:nowrap">${t('exdiv_badge')}</span>`;
+
 function renderCalendarFromEvents(events) {
   const el = document.getElementById('calendarPanel');
   if (!el) return;
-  const today     = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-  const tomorrow  = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-  const cap       = new Date(Date.now() + 30*86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
-  // AMC events happen after midnight Bangkok time → shift +1 day for Bangkok display
+  // AMC earnings happen after midnight Bangkok time → show on the next BKK day.
   const bkkDate = e => {
     if (e.type === 'Earnings' && e.time === t('after_market_close')) {
       const d = new Date(e.date + 'T12:00:00Z');
@@ -10182,28 +10498,44 @@ function renderCalendarFromEvents(events) {
     }
     return e.date;
   };
-  const upcoming = events
-    .map(e => ({ ...e, bkk: bkkDate(e) }))
-    .filter(e => e.bkk >= yesterday && e.bkk <= cap)
-    .sort((a, b) => a.bkk.localeCompare(b.bkk));
-  if (!upcoming.length) {
-    el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('no_upcoming_events')}</div>`;
-    return;
-  }
-  const dateLabel = d => d === today ? t('today_label') : d === tomorrow ? t('tomorrow_label') : fmtDate(d);
-  el.innerHTML = upcoming.map(e => {
-    const isE  = e.type === 'Earnings';
-    const badge = isE
-      ? `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(138,90,126,.15);color:var(--plum);white-space:nowrap">${t('earnings_badge')}</span>`
-      : `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(107,142,90,.15);color:var(--sage);white-space:nowrap">${t('exdiv_badge')}</span>`;
-    // Most earnings dates are exact (dateEnd === date); only show a range when Yahoo's estimate
-    // spans multiple days.
-    const dateText = (isE && e.dateEnd && e.dateEnd !== e.date)
-      ? `${dateLabel(e.bkk)}–${fmtDate(e.dateEnd)}`
-      : dateLabel(e.bkk);
-    const subLabel = isE && e.time
-      ? `${dateText} · ${e.time}`
-      : dateText;
+  _calEvents = events.map(e => ({ ...e, bkk: bkkDate(e) }));
+  _calMonthOffset = 0;
+  // Default selection: nearest day with an event at/after today.
+  const today  = _calBkkToday();
+  const future = _calEvents.filter(e => e.bkk >= today).map(e => e.bkk).sort();
+  _calSelectedDay = future[0] || null;
+  renderCalendarGrid();
+}
+
+function _calVisibleMonth() {
+  const now  = new Date(_calBkkToday() + 'T00:00:00');
+  const base = new Date(now.getFullYear(), now.getMonth() + _calMonthOffset, 1);
+  return { y: base.getFullYear(), m: base.getMonth() };
+}
+
+function calShiftMonth(delta) {
+  _calMonthOffset += delta;
+  const { y, m } = _calVisibleMonth();
+  const prefix = `${y}-${String(m + 1).padStart(2, '0')}`;
+  const inMonth = _calEvents.filter(e => e.bkk.startsWith(prefix)).map(e => e.bkk).sort();
+  _calSelectedDay = inMonth[0] || null;   // first day with events in the newly shown month
+  renderCalendarGrid();
+}
+
+function calSelectDay(d) { _calSelectedDay = d; renderCalendarGrid(); }
+
+function _renderCalDayStrip() {
+  const day = _calSelectedDay;
+  if (!day) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
+  const evs = _calEvents.filter(e => e.bkk === day).sort((a, b) => a.type.localeCompare(b.type));
+  if (!evs.length) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
+  const today    = _calBkkToday();
+  const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
+  const dateLabel = day === today ? t('today_label') : day === tomorrow ? t('tomorrow_label') : fmtDate(day);
+  const rows = evs.map(e => {
+    const isE = e.type === 'Earnings';
+    const dateText = (isE && e.dateEnd && e.dateEnd !== e.date) ? `${dateLabel}–${fmtDate(e.dateEnd)}` : dateLabel;
+    const subLabel = isE && e.time ? `${dateText} · ${e.time}` : dateText;
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">
       <div style="display:flex;align-items:center;gap:7px;min-width:0">
         ${logoCell(e.symbol, colorFor(e.symbol))}
@@ -10211,9 +10543,78 @@ function renderCalendarFromEvents(events) {
           <div style="font-weight:600;font-size:12px">${e.symbol}</div>
           <div style="font-size:10px;color:var(--muted)">${subLabel}</div>
         </div>
-      </div>${badge}
+      </div>${_calEvBadge(isE)}
     </div>`;
   }).join('');
+  return `<div class="cal-strip">${rows}</div>`;
+}
+
+function renderCalendarGrid() {
+  const el = document.getElementById('calendarPanel');
+  if (!el) return;
+  const locale = currentLang === 'TH' ? 'th-TH' : 'en-US';
+  const today  = _calBkkToday();
+  const { y, m } = _calVisibleMonth();
+  const first  = new Date(y, m, 1);
+  const monthPrefix = `${y}-${String(m + 1).padStart(2, '0')}`;
+
+  // Events grouped by day, current month only (paging next reveals later months).
+  const byDay = {};
+  for (const e of _calEvents) {
+    if (!e.bkk.startsWith(monthPrefix)) continue;
+    (byDay[e.bkk] || (byDay[e.bkk] = [])).push(e);
+  }
+
+  // Weekday headers, Sunday-first (2023-01-01 was a Sunday).
+  let wd = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(2023, 0, 1 + i);
+    wd += `<div class="cal-wd">${d.toLocaleDateString(locale, {weekday:'narrow'})}</div>`;
+  }
+
+  // 6 weeks × 7 cells, starting from the Sunday on/before the 1st.
+  let cells = '';
+  const start = new Date(y, m, 1 - first.getDay());
+  for (let i = 0; i < 42; i++) {
+    const d  = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const ds = d.toLocaleDateString('en-CA');
+    const inMonth = d.getMonth() === m;
+    const evs = byDay[ds] || [];
+    let cls = 'cal-cell';
+    if (!inMonth) cls += ' cal-out';
+    else {
+      if (ds === today) cls += ' cal-today';
+      else if (ds < today) cls += ' cal-past';
+      if (ds === _calSelectedDay) cls += ' cal-sel';
+    }
+    let chips = '';
+    if (evs.length && inMonth) {
+      chips = `<div class="cal-chips">` + evs.map(e => {
+        const isE = e.type === 'Earnings';
+        const tag = isE ? (e.time === t('after_market_close') ? 'AMC' : 'BMO') : '';
+        return `<span class="cal-chip ${isE ? 'cal-chip-e' : 'cal-chip-d'}">`
+          + `<span class="cal-chip-sym">${e.symbol}</span>`
+          + (tag ? `<span class="cal-chip-tag">${tag}</span>` : '')
+          + `</span>`;
+      }).join('') + `</div>`;
+    }
+    const click = inMonth ? ` onclick="calSelectDay('${ds}')"` : '';
+    cells += `<div class="${cls}"${click}><span class="cal-num">${d.getDate()}</span>${chips}</div>`;
+  }
+
+  const monthLabel = first.toLocaleDateString(locale, {month:'long', year:'numeric'});
+  const strip = Object.keys(byDay).length
+    ? _renderCalDayStrip()
+    : `<div class="cal-strip cal-strip-empty">${t('no_events_month')}</div>`;
+
+  el.innerHTML =
+    `<div class="cal-nav">
+       <button onclick="calShiftMonth(-1)" aria-label="Previous month">‹</button>
+       <span class="cal-month">${monthLabel}</span>
+       <button onclick="calShiftMonth(1)" aria-label="Next month">›</button>
+     </div>
+     <div class="cal-grid">${wd}${cells}</div>
+     ${strip}`;
 }
 
 function renderCalendar(model) {} // stub — actual load via loadCalendar()
@@ -10412,7 +10813,35 @@ function drawClock() {
   ctx.strokeStyle = statusColor; ctx.lineWidth = 1.8; ctx.lineCap = 'butt'; ctx.stroke();
 }
 
+// On desktop the clock and refresh button live in the sidebar (clock in its own
+// slot above the foot, refresh beside the gear in the foot). On mobile the
+// sidebar is an off-canvas drawer, so both move back into the topbar. Single
+// node each, moved on the 900px breakpoint (matches where .sidebar goes
+// off-canvas) so #marketClock / #refreshBtn stay unique.
+let _clockMq = null;
+function placeClock() {
+  const pill = document.querySelector('.market-clock-pill');
+  const refresh = document.getElementById('refreshBtn');
+  if (_clockMq.matches) {
+    // Mobile: refresh last in the topbar, clock just before it.
+    const right = document.querySelector('.topbar-right');
+    if (right && refresh && refresh.parentElement !== right) right.appendChild(refresh);
+    if (right && pill && pill.parentElement !== right) right.insertBefore(pill, refresh);
+  } else {
+    // Desktop: clock in the sidebar slot, refresh in the foot beside the gear.
+    const slot = document.getElementById('clockSlotSidebar');
+    if (slot && pill && pill.parentElement !== slot) slot.appendChild(pill);
+    const foot = document.querySelector('.sidebar-foot');
+    if (foot && refresh && refresh.parentElement !== foot) foot.appendChild(refresh);
+  }
+}
+
 function initMarketClock() {
+  if (!_clockMq) {
+    _clockMq = window.matchMedia('(max-width:900px)');
+    _clockMq.addEventListener('change', placeClock);
+  }
+  placeClock();
   if (_clockTimer) clearInterval(_clockTimer);
   drawClock();
   _clockTimer = setInterval(drawClock, 1000);
@@ -10577,6 +11006,7 @@ window.toggleCurrency = function() {
     if (txCache?.length) renderDividendBreakdown(txCache);
     if (_journalTrades.length) renderTradeJournal(_journalTrades);
     renderRiskPanel(currentModel);
+    renderStressTest(currentModel);
     renderPosList(currentModel);
     renderGauge(currentModel);
     renderHoldingsPerformance();
@@ -10865,6 +11295,7 @@ async function loadBenchmark(retry = 0) {
         if (card && dividends.gross > 0) card.style.display = '';
         renderHoldingsPerformance();
         renderRiskPanel(currentModel);
+        renderStressTest(currentModel);
         renderCorrelationMatrix(currentModel);
         renderMonthlyReturns(currentModel);
       }
@@ -11468,6 +11899,16 @@ function buildShell() {
           <span>${NAV_LABELS.activity}</span>
         </button>
       </nav>
+      <div id="clockSlotSidebar">
+        <div class="market-clock-pill">
+          <canvas id="marketClock"></canvas>
+          <div>
+            <div id="marketStatusText" class="mc-status">—</div>
+            <div id="marketClockTime" class="mc-et">—</div>
+            <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
+          </div>
+        </div>
+      </div>
       <div class="sidebar-foot">
         <div class="settings-gear-wrap">
           <button class="settings-gear-btn" onclick="toggleSettingsDropdown(event)" title="Settings">
@@ -11516,15 +11957,7 @@ function buildShell() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             </a>
           ${portfolioToggleHtml()}
-          <div class="market-clock-pill">
-            <canvas id="marketClock"></canvas>
-            <div>
-              <div id="marketStatusText" class="mc-status">—</div>
-              <div id="marketClockTime" class="mc-et">—</div>
-              <div id="marketClockDate" class="mc-et" style="margin-top:1px">—</div>
-            </div>
-          </div>
-          <button class="refresh-btn" onclick="init()">
+          <button class="refresh-btn" id="refreshBtn" onclick="init()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
             ${t('refresh')}
           </button>
@@ -11691,6 +12124,11 @@ function buildShell() {
             <div class="card">
               <div class="card-title">${t('risk_concentration_title')}</div>
               <div class="risk-panel" id="riskPanel"><div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_msg')}</div></div>
+            </div>
+            <!-- Stress Test / What-If -->
+            <div class="card" id="stressTestCard" style="display:none">
+              <div class="card-title">${t('stress_test_title')}</div>
+              <div id="stressTestBody"></div>
             </div>
             <!-- True Exposure (look-through) -->
             <div class="card" id="trueExposureCard" style="display:none">
@@ -12102,11 +12540,11 @@ window.openAllocMgmt = function() {
   const allPos  = [...currentModel.positions, ...(currentModel.sgovPos ? [currentModel.sgovPos] : [])];
   const wlItems = (currentModel.watchlist || []).filter(w => !allPos.find(p => p.symbol === w.symbol));
   allPos.forEach(p => {
-    allocMgmtState.targets[p.symbol]     = { target: p.target ?? 0, category: p.category || 'Other', sector: p.sector || 'Other', name: p.name || p.symbol, isPos: true };
+    allocMgmtState.targets[p.symbol]     = { target: p.target ?? 0, category: p.category || 'Other', sector: p.sector || 'Other', custom: p.custom || '', myGroup: p.myGroup || '', name: p.name || p.symbol, isPos: true };
     allocMgmtState.origTargets[p.symbol] = p.target ?? 0;
   });
   wlItems.forEach(w => {
-    allocMgmtState.targets[w.symbol]     = { target: w.target ?? 0, category: w.category || 'Other', sector: w.sector || 'Other', name: w.name || w.symbol, isPos: false };
+    allocMgmtState.targets[w.symbol]     = { target: w.target ?? 0, category: w.category || 'Other', sector: w.sector || 'Other', custom: w.custom || '', myGroup: w.myGroup || '', name: w.name || w.symbol, isPos: false };
     allocMgmtState.origTargets[w.symbol] = w.target ?? 0;
   });
   allocMgmtState.selectedSym = allPos[0]?.symbol || null;
@@ -12160,9 +12598,9 @@ window.openAllocMgmt = function() {
           <div class="tx-status" id="allocSaveStatus"></div>
         </div>
       </div>
-      <!-- RIGHT: 4 donuts -->
+      <!-- RIGHT: 6 donuts (3-column) -->
       <div class="alloc-donuts-panel" style="display:grid;grid-template-rows:1fr 1fr;gap:12px;min-height:0;overflow:hidden">
-        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:0">
+        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;min-height:0">
           <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
             <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">Category Breakdown</div>
             <div style="flex:1;position:relative;min-height:0"><canvas id="allocCatChart"></canvas></div>
@@ -12173,8 +12611,13 @@ window.openAllocMgmt = function() {
             <div style="flex:1;position:relative;min-height:0"><canvas id="allocSecChart"></canvas></div>
             <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_sec" style="font-size:9px;font-weight:700;display:none"></span></div>
           </div>
+          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">Custom Breakdown</div>
+            <div style="flex:1;position:relative;min-height:0"><canvas id="allocCustomChart"></canvas></div>
+            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_cus" style="font-size:9px;font-weight:700;display:none"></span></div>
+          </div>
         </div>
-        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:0">
+        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;min-height:0">
           <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
             <div id="allocAllTitle" style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0"></div>
             <div style="flex:1;position:relative;min-height:0"><canvas id="allocAllChart"></canvas></div>
@@ -12184,6 +12627,11 @@ window.openAllocMgmt = function() {
             <div id="allocCatSymTitle" style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0"></div>
             <div style="flex:1;position:relative;min-height:0"><canvas id="allocCatSymChart"></canvas></div>
             <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_sym" style="font-size:9px;font-weight:700;display:none"></span></div>
+          </div>
+          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">My Group Breakdown</div>
+            <div style="flex:1;position:relative;min-height:0"><canvas id="allocMyGroupChart"></canvas></div>
+            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_myg" style="font-size:9px;font-weight:700;display:none"></span></div>
           </div>
         </div>
       </div>
@@ -12762,12 +13210,36 @@ function renderAllocDonuts() {
     if (chart4 && fresh4) attachAllocDrag(chart4, catSyms);
   })();
 
+  // Charts 5 & 6: Custom / My Group tag breakdowns — grouped by target %, mirroring
+  // the Category/Sector donuts (untagged rolls into an "Untagged" slice, muted).
+  const mkTagDonut = (id, field, sel) => {
+    const groups = {};
+    Object.values(allocMgmtState.targets).forEach(x => {
+      const k = x[field] || 'Untagged';
+      groups[k] = (groups[k] || 0) + x.target * 100;
+    });
+    const labels = Object.keys(groups);
+    const data   = labels.map(k => groups[k]);
+    const selK   = sel || 'Untagged';
+    const colors = labels.map((k, i) => { const b = k === 'Untagged' ? css('--muted') : SEC_PALETTE[i % SEC_PALETTE.length]; return k === selK ? b : b + '55'; });
+    const bw = labels.map(k => k === selK ? 2 : 0);
+    const bc = labels.map(k => k === selK ? css('--card') : 'transparent');
+    mkDonut(id, labels, data, colors, bw, bc, (_, els) => {
+      if (!els.length) return;
+      const k = labels[els[0].index];
+      const first = Object.entries(allocMgmtState.targets).find(([, x]) => (x[field] || 'Untagged') === k);
+      if (first) setTimeout(() => selectAllocSym(first[0]), 0);
+    });
+  };
+  mkTagDonut('allocCustomChart',  'custom',  t?.custom);
+  mkTagDonut('allocMyGroupChart', 'myGroup', t?.myGroup);
+
   // Flash labels
   const totalPct = Object.values(allocMgmtState.targets).reduce((s, x) => s + x.target * 100, 0);
   const diff = 100 - totalPct;
   const isOver  = diff < -0.05;
   const isAvail = diff >  0.05;
-  ['cat','sec','all','sym'].forEach(id => {
+  ['cat','sec','all','sym','cus','myg'].forEach(id => {
     const el = document.getElementById(`allocFL_${id}`);
     if (!el) return;
     if (isOver || isAvail) {
@@ -12929,6 +13401,7 @@ function renderModelViews(model) {
   renderMyGroupDonut(model);
   renderPnLBySector(model);
   renderRiskPanel(model);
+  renderStressTest(model);
   renderTopHoldings(model);
   renderTrueExposure(model);
   renderCorrelationMatrix(model);
@@ -13037,7 +13510,7 @@ async function init() {
         if (!currentModel) return;
         // Attach to the live view (currentModel may have changed via a portfolio toggle during load).
         const m = currentModel;
-        attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderPnLBySector(m);
+        attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderStressTest(m); renderPnLBySector(m);
         fetchEtfData(_quoteSyms);
         fetchStockReturns();
         recordFetch({ action: 'backfillMetadata' });
