@@ -278,10 +278,11 @@ function _fetchYahooChartReturns_(sym) {
 // Full OHLC series for the Heikin Ashi chart toggle (see index.html fetchYahooOHLC). v8/finance/chart
 // needs no crumb, so this can run server-side and return browser-readable JSON — the client's direct
 // Yahoo/corsproxy fetch is production-dead (see Known Limitations in CLAUDE.md).
-function _fetchYahooOHLCMap_(sym) {
+function _fetchYahooOHLCMap_(sym, range) {
   try {
+    const r = ({ '3mo': 1, '6mo': 1, '1y': 1, '2y': 1 })[range] ? range : '2y';
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/'
-      + encodeURIComponent(sym.replace(/\./g, '-')) + '?range=2y&interval=1d';
+      + encodeURIComponent(sym.replace(/\./g, '-')) + '?range=' + r + '&interval=1d';
     const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (resp.getResponseCode() !== 200) return null;
     const result = JSON.parse(resp.getContentText())?.chart?.result?.[0];
@@ -301,7 +302,8 @@ function _fetchYahooOHLCMap_(sym) {
 function fetchOHLCAction(p) {
   const sym = String(p.symbol || '').trim();
   if (!sym) return jsonResp({ ok: false, error: 'no symbol' });
-  const ohlc = _fetchYahooOHLCMap_(sym);
+  const range = String(p.range || '2y');
+  const ohlc = _fetchYahooOHLCMap_(sym, range);
   return jsonResp({ ok: true, ohlc: ohlc || {} });
 }
 

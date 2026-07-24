@@ -3211,21 +3211,23 @@ async function buildSdTvChart(sym) {
     priceMap = await fetchYahooPrices(sym, p1, p2);
   }
 
-  // Fetch OHLC lazily when HA mode is requested and not already cached this session
-  let ohlcMap = null, haFailed = false;
+  // HA mode: render immediately from the in-memory OHLC cache if present; otherwise paint
+  // the area chart now and upgrade to HA in the background once ensureOhlc() resolves.
+  let ohlcMap = null, haLoading = false, loadingNoteEl = null;
   if (chartType === 'heikin') {
     ohlcMap = _ohlcCache[sym];
-    if (!ohlcMap) {
-      const p2 = Math.floor(Date.now() / 1000);
-      const p1 = p2 - 2 * 365 * 86400;
-      ohlcMap = await fetchYahooOHLC(sym, p1, p2);
-      if (ohlcMap) _ohlcCache[sym] = ohlcMap;
+    if (!ohlcMap || !Object.keys(ohlcMap).length) {
+      ohlcMap = null;
+      haLoading = true;
+      ensureOhlc(sym).then(m => {
+        if (seq !== _sdTvBuildSeq || chartType !== 'heikin') return;
+        if (m && Object.keys(m).length) buildSdTvChart(sym);
+        else if (loadingNoteEl) loadingNoteEl.textContent = 'candles unavailable';
+      });
     }
-    haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
   }
-  // A newer build superseded this one while we were awaiting — don't touch DOM/globals.
   if (seq !== _sdTvBuildSeq) return;
-  const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
+  const effectiveType = (chartType === 'heikin' && !haLoading) ? 'heikin' : 'area';
 
   const clrInk = css('--ink'), clrTrack = css('--track'),
         clrMuted = css('--ink-soft');
@@ -3240,11 +3242,12 @@ async function buildSdTvChart(sym) {
   legend.innerHTML = `<span style="font-size:13px;font-weight:700;color:${symColor}">${sym}</span>`;
   tvEl.appendChild(legend);
 
-  if (chartType === 'heikin' && haFailed) {
+  if (chartType === 'heikin' && haLoading) {
     const note = document.createElement('div');
     note.style.cssText = 'position:absolute;top:9px;right:10px;z-index:10;pointer-events:none;font-size:9px;color:var(--muted)';
-    note.textContent = 'candles unavailable';
+    note.textContent = 'loading candles…';
     tvEl.appendChild(note);
+    loadingNoteEl = note;
   }
 
   // createTvAreaChart reads the global `chartType` to pick the series type — force it to
@@ -3261,7 +3264,7 @@ async function buildSdTvChart(sym) {
   let lastReal = null;
   if (hasData) {
     if (effectiveType === 'heikin') {
-      tvSeries.setData(computeHeikinAshi(ohlcMap));
+      tvSeries.setData(computeHeikinAshi(_spliceLiveHa(ohlcMap, sym)));
       tvChart.timeScale().fitContent();
       const dates = Object.keys(ohlcMap).sort();
       // Use the real live/current price, not the synthetic HA close
@@ -3618,8 +3621,9 @@ window.sdSetRange = async function(range) {
         if (yahooOhlc) {
           const merged = Object.assign({}, yahooOhlc, ohlcMap);
           _ohlcCache[sym] = merged;
+          const _st = _loadHaStore(); _st[sym] = { d: _haToday(), ohlc: merged }; _saveHaStore(_st);
           window._sdTvOhlcMap = merged;
-          series.setData(computeHeikinAshi(merged));
+          series.setData(computeHeikinAshi(_spliceLiveHa(merged, sym)));
           dates   = Object.keys(merged).sort();
           clipped = dates.filter(d => d >= fromStr && d <= toStr);
         }
@@ -3980,6 +3984,20 @@ function buildTvSeriesData(sym, priceMap) {
   return seriesData;
 }
 
+// Override the last (today's) HA-source bar's close with the live quote, expanding
+// high/low to contain it, so the current candle derives from the same live price as
+// the dashed price line (mirrors buildTvSeriesData for the area chart). open untouched.
+function _spliceLiveHa(map, sym) {
+  if (!map) return map;
+  const price = findPos(sym)?.price;
+  if (!price) return map;
+  const dates = Object.keys(map).sort();
+  const lastKey = dates[dates.length - 1];
+  if (!lastKey) return map;
+  const b = map[lastKey];
+  return Object.assign({}, map, { [lastKey]: { o: b.o, h: Math.max(b.h, price), l: Math.min(b.l, price), c: price } });
+}
+
 // Build a Lightweight-Charts candlestick data array from a date→{o,h,l,c} map,
 // transformed into Heikin Ashi bars (ascending by date).
 function computeHeikinAshi(ohlcMap) {
@@ -4050,18 +4068,21 @@ async function buildActionTvChart(sym) {
     historyCache.prices[sym] = priceMap;
   }
 
-  let ohlcMap = null, haFailed = false;
+  let ohlcMap = null, haLoading = false, loadingNoteEl = null;
   if (chartType === 'heikin') {
     ohlcMap = _ohlcCache[sym];
-    if (!ohlcMap) {
-      ohlcMap = await fetchYahooOHLC(sym, p1, p2);
-      if (ohlcMap) _ohlcCache[sym] = ohlcMap;
+    if (!ohlcMap || !Object.keys(ohlcMap).length) {
+      ohlcMap = null;
+      haLoading = true;
+      ensureOhlc(sym).then(m => {
+        if (seq !== _actionTvBuildSeq || chartType !== 'heikin') return;
+        if (m && Object.keys(m).length) buildActionTvChart(sym);
+        else if (loadingNoteEl) loadingNoteEl.textContent = 'candles unavailable';
+      });
     }
-    haFailed = !ohlcMap || !Object.keys(ohlcMap).length;
   }
-  // A newer build superseded this one while we were awaiting — don't touch DOM/globals.
   if (seq !== _actionTvBuildSeq) return;
-  const effectiveType = (chartType === 'heikin' && !haFailed) ? 'heikin' : 'area';
+  const effectiveType = (chartType === 'heikin' && !haLoading) ? 'heikin' : 'area';
 
   el.style.position = 'relative';
   el.style.touchAction = 'none';
@@ -4074,11 +4095,12 @@ async function buildActionTvChart(sym) {
   legend.style.cssText = 'position:absolute;top:8px;left:10px;z-index:10;pointer-events:none';
   el.appendChild(legend);
 
-  if (chartType === 'heikin' && haFailed) {
+  if (chartType === 'heikin' && haLoading) {
     const note = document.createElement('div');
     note.style.cssText = 'position:absolute;top:9px;right:64px;z-index:10;pointer-events:none;font-size:9px;color:var(--muted)';
-    note.textContent = 'candles unavailable';
+    note.textContent = 'loading candles…';
     el.appendChild(note);
+    loadingNoteEl = note;
   }
 
   // Area/HA toggle pills — top-right, clear of the top-left legend
@@ -4095,7 +4117,7 @@ async function buildActionTvChart(sym) {
   if (hasData) {
     let lastReal;
     if (effectiveType === 'heikin') {
-      actionTvSeries.setData(computeHeikinAshi(ohlcMap));
+      actionTvSeries.setData(computeHeikinAshi(_spliceLiveHa(ohlcMap, sym)));
       const dates = Object.keys(ohlcMap).sort();
       const fromStr = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
       const clipped = dates.filter(d => d >= fromStr);
@@ -10600,16 +10622,50 @@ async function fetchYahooPrices(ticker, p1, p2) {
   return null;
 }
 
+const HA_STORE_KEY = 'haOhlcCache.v1';
+function _loadHaStore() { try { return JSON.parse(localStorage.getItem(HA_STORE_KEY)) || {}; } catch { return {}; } }
+function _saveHaStore(store) { try { localStorage.setItem(HA_STORE_KEY, JSON.stringify(store)); } catch (_) {} }
+function _haToday() { return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); }
+
+// Returns the OHLC map for sym, hydrating from localStorage + a cheap 3mo refresh when
+// the cached history is recent, else a full 2y fetch. Persists the merged map per day.
+async function ensureOhlc(sym) {
+  if (_ohlcCache[sym]) return _ohlcCache[sym];
+  const store = _loadHaStore();
+  const entry = store[sym];
+  const today = _haToday();
+  const p2 = Math.floor(Date.now() / 1000);
+  let map = null;
+  if (entry && entry.ohlc && Object.keys(entry.ohlc).length) {
+    const last = Object.keys(entry.ohlc).sort().pop();
+    const gap = (Date.parse(today) - Date.parse(last)) / 86400000;
+    if (gap <= 14) {
+      const fresh = await fetchYahooOHLC(sym, p2 - 95 * 86400, p2, '3mo');
+      map = fresh ? Object.assign({}, entry.ohlc, fresh) : entry.ohlc;
+    } else {
+      map = await fetchYahooOHLC(sym, p2 - 730 * 86400, p2, '2y') || entry.ohlc;
+    }
+  } else {
+    map = await fetchYahooOHLC(sym, p2 - 730 * 86400, p2, '2y');
+  }
+  if (map && Object.keys(map).length) {
+    _ohlcCache[sym] = map;
+    store[sym] = { d: today, ohlc: map };
+    _saveHaStore(store);
+  }
+  return _ohlcCache[sym] || null;
+}
+
 // Mirrors fetchYahooPrices but keeps full OHLC (needed for Heikin Ashi). Returns
 // { dateStr: {o,h,l,c} } or null. Populates the caller-side _ohlcCache.
-async function fetchYahooOHLC(ticker, p1, p2) {
+async function fetchYahooOHLC(ticker, p1, p2, range = '2y') {
   // Prefer the server-side Apps Script path (v8/chart needs no crumb server-side and returns
   // browser-readable JSON, so this works in production where the direct/corsproxy paths don't).
   // Skipped on read-only profiles: recordFetch() surfaces a "read-only — enable saving" banner,
   // which is wrong for a pure chart read, and it can't return data there anyway.
   if (!isReadOnly()) {
     try {
-      const resp = await recordFetch({ action: 'fetchOHLC', symbol: ticker }, true);
+      const resp = await recordFetch({ action: 'fetchOHLC', symbol: ticker, range }, true);
       if (resp?.ohlc && Object.keys(resp.ohlc).length) return resp.ohlc;
     } catch (_) {}
   }
