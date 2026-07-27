@@ -3453,7 +3453,7 @@ async function buildSdTvChart(sym) {
   window._sdTvSym       = sym;
   updateChartTypeButtons('sdChartType');
   updateEmaButtons();
-  sdSetRange('3M');
+  sdSetRange('1Y');
 
   symbolDetailCharts.push({ _isTv: true, destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
 }
@@ -4193,7 +4193,7 @@ function emaKeyHtml() {
 }
 
 // Toggles the EMA overlay pref and rebuilds whichever TV chart(s) are open
-// (mirrors setChartType; the detail chart's range resets to 3M on rebuild).
+// (mirrors setChartType; the detail chart's range resets to 1Y on rebuild).
 window.toggleEma = function() {
   emaOn = !emaOn;
   localStorage.setItem('emaOn.v1', emaOn ? '1' : '0');
@@ -4292,7 +4292,7 @@ async function buildActionTvChart(sym) {
     if (effectiveType === 'heikin') {
       actionTvSeries.setData(computeHeikinAshi(_spliceLiveHa(ohlcMap, sym)));
       const dates = Object.keys(ohlcMap).sort();
-      const fromStr = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+      const fromStr = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
       const clipped = dates.filter(d => d >= fromStr);
       if (clipped.length > 1) actionTvChart.timeScale().setVisibleRange({ from: clipped[0], to: clipped[clipped.length-1] });
       else actionTvChart.timeScale().fitContent();
@@ -4300,7 +4300,7 @@ async function buildActionTvChart(sym) {
     } else {
       const seriesData = buildTvSeriesData(sym, priceMap);
       actionTvSeries.setData(seriesData);
-      const fromStr = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
+      const fromStr = new Date(Date.now() - 365*86400000).toISOString().slice(0,10);
       const clipped = seriesData.filter(d => d.time >= fromStr);
       if (clipped.length > 1) actionTvChart.timeScale().setVisibleRange({ from: clipped[0].time, to: clipped[clipped.length-1].time });
       else actionTvChart.timeScale().fitContent();
