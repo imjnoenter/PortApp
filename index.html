@@ -7287,33 +7287,63 @@ async function fetchYahooBatch(syms) {
 }
 
 // ── Live quotes (day change + pre/post market) ────────────────────────────────
-// Volume source for stocks AND ETFs — CNBC batch quote (CORS-open, no key, no proxy, no Apps Script).
-async function fetchCnbcVolumes(symbols) {
+// Volume + regular/extended-hours quote source for stocks AND ETFs — CNBC batch quote
+// (CORS-open, no key, no proxy, no Apps Script). `exthrs=1` adds the ExtendedMktQuote block:
+// the only pre/post-market price source still reachable from a browser, since both Yahoo
+// paths are dead client-side in production (see Known Limitations).
+async function fetchCnbcQuotes(symbols) {
   const syms = [...new Set(symbols.filter(s => s && !s.startsWith('^')))];
   if (!syms.length) return {};
-  const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=${encodeURIComponent(syms.join('|'))}&output=json`;
+  const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=${encodeURIComponent(syms.join('|'))}&exthrs=1&output=json`;
   try {
     const r = await fetch(url);
     if (!r.ok) return {};
     const j = await r.json();
     let arr = j?.QuickQuoteResult?.QuickQuote ?? j?.FormattedQuoteResult?.FormattedQuote ?? [];
     if (!Array.isArray(arr)) arr = [arr];
+    // CNBC sends numbers as strings, thousands-separated, and "UNCH" for a flat change.
+    const num = v => { const n = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : null; };
     const out = {};
     arr.forEach(q => {
-      const v = Number(q.fullVolume ?? q.volume);
-      if (q.symbol && Number.isFinite(v)) out[q.symbol] = v;
+      if (!q.symbol) return;
+      const ext  = q.ExtendedMktQuote;
+      const type = ext?.type === 'POST_MKT' ? 'POST' : ext?.type === 'PRE_MKT' ? 'PRE' : null;
+      out[q.symbol] = {
+        volume:    num(q.fullVolume ?? q.volume),
+        price:     num(q.last),
+        change:    num(q.change),
+        changePct: num(q.change_pct),
+        high52:    num(q.FundamentalData?.yrhiprice),
+        low52:     num(q.FundamentalData?.yrloprice),
+        extType:   type,
+        extPrice:  type ? num(ext.last) : null,
+      };
     });
     return out;
   } catch { return {}; }
 }
 
-// Thin wrapper: merges CNBC volume into every quote-source path of _fetchQuotesBase.
+// Thin wrapper: merges CNBC volume into every quote-source path of _fetchQuotesBase, and
+// backfills the fields the Yahoo paths can no longer supply. Only fills what's missing, so
+// during market hours the Finnhub-backed Quotes sheet stays authoritative; outside them the
+// base result is empty and CNBC becomes the whole quote (incl. pre/post-market price).
 async function fetchQuotes(symbols) {
   const out = await _fetchQuotesBase(symbols);
   try {
-    const vols = await fetchCnbcVolumes(symbols);
-    for (const s of Object.keys(vols)) {
-      (out[s] || (out[s] = {})).regularMarketVolume = vols[s];
+    const cnbc = await fetchCnbcQuotes(symbols);
+    for (const [s, c] of Object.entries(cnbc)) {
+      const q = out[s] || (out[s] = {});
+      if (c.volume != null) q.regularMarketVolume = c.volume;
+      if (q.regularMarketPrice         == null && c.price     != null) q.regularMarketPrice         = c.price;
+      if (q.regularMarketChange        == null && c.change    != null) q.regularMarketChange        = c.change;
+      if (q.regularMarketChangePercent == null && c.changePct != null) q.regularMarketChangePercent = c.changePct;
+      if (q.fiftyTwoWeekHigh == null && c.high52 != null) q.fiftyTwoWeekHigh = c.high52;
+      if (q.fiftyTwoWeekLow  == null && c.low52  != null) q.fiftyTwoWeekLow  = c.low52;
+      if (c.extType) {
+        q.marketState = c.extType;
+        if (c.extType === 'POST') q.postMarketPrice = c.extPrice;
+        else                      q.preMarketPrice  = c.extPrice;
+      }
     }
   } catch (_) {}
   return out;
