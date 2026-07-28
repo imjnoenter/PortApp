@@ -3559,7 +3559,7 @@ window.openSymbolDetail = function(sym) {
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('')}
           <button id="sdEma" onclick="toggleEma()"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">EMA</button>
-          ${['1M','3M','6M','YTD','1Y','ALL'].map(r=>`<button id="sdRange_${r}" onclick="sdSetRange('${r}')"
+          ${['1M','3M','6M','YTD','1Y','2Y','ALL'].map(r=>`<button id="sdRange_${r}" onclick="sdSetRange('${r}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${r}</button>`).join('')}
         </div>
       </div>
@@ -3661,6 +3661,40 @@ window.closeSymbolDetail = function() {
   document.getElementById('symbolDetailModal')?.classList.remove('open');
 };
 
+// ALL range: lazily pull a 10y daily series into memory for the open symbol. Deliberately NOT
+// persisted — a 10y map is ~250KB/symbol and would crowd the 2y localStorage cache out of quota.
+// 10y is also the deepest range that stays daily: Yahoo silently downgrades range=max&interval=1d
+// to quarterly bars. Memoised per symbol+mode, so ALL costs one fetch per page load.
+const _sdDeepLoaded = new Set();
+async function _sdDeepenHistory() {
+  const sym    = window._sdTvSym;
+  const series = window._sdTvSeries;
+  const chart  = window._sdTvChart;
+  const mode   = window._sdTvMode || 'area';
+  if (!sym || !series || !chart) return;
+  const key = sym + ':' + mode;
+  if (_sdDeepLoaded.has(key)) return;
+  const p2 = Math.floor(Date.now() / 1000);
+  const deep = await fetchYahooOHLC(sym, p2 - 3650 * 86400, p2, '10y');
+  if (!deep) return;
+  _sdDeepLoaded.add(key);
+  if (mode === 'heikin') {
+    const merged = Object.assign({}, deep, window._sdTvOhlcMap || {});
+    _ohlcCache[sym] = merged;
+    window._sdTvOhlcMap = merged;
+    series.setData(computeHeikinAshi(_spliceLiveHa(merged, sym)));
+    window._sdTvEma = applyEmaLines(chart, _closesFromOhlc(merged), window._sdTvEma);
+  } else {
+    const merged = Object.assign({}, _closesFromOhlc(deep), window._sdTvPriceMap || {});
+    if (!historyCache) historyCache = { prices: {}, dividends: {} };
+    if (!historyCache.prices) historyCache.prices = {};
+    historyCache.prices[sym] = merged;
+    window._sdTvPriceMap = merged;
+    series.setData(buildTvSeriesData(sym, merged));
+    window._sdTvEma = applyEmaLines(chart, merged, window._sdTvEma);
+  }
+}
+
 window.sdSetRange = async function(range) {
   const chart = window._sdTvChart;
   const mode  = window._sdTvMode || 'area';
@@ -3670,7 +3704,7 @@ window.sdSetRange = async function(range) {
   if (mode === 'heikin' ? !ohlcMap : !priceMap) return;
 
   // Highlight active button
-  ['1M','3M','6M','YTD','1Y','ALL'].forEach(r => {
+  ['1M','3M','6M','YTD','1Y','2Y','ALL'].forEach(r => {
     const btn = document.getElementById('sdRange_' + r);
     if (!btn) return;
     const active = r === range;
@@ -3679,14 +3713,14 @@ window.sdSetRange = async function(range) {
     btn.style.borderColor = active ? 'var(--ink)'  : 'var(--line)';
   });
 
-  if (range === 'ALL') { chart.timeScale().fitContent(); return; }
+  if (range === 'ALL') { await _sdDeepenHistory(); chart.timeScale().fitContent(); return; }
 
   const now   = new Date();
   let   from;
   if (range === 'YTD') {
     from = new Date(now.getFullYear(), 0, 1);
   } else {
-    const months = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 };
+    const months = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12, '2Y': 24 };
     from = new Date(now);
     from.setMonth(from.getMonth() - months[range]);
   }
@@ -7331,6 +7365,9 @@ async function fetchQuotes(symbols) {
   const out = await _fetchQuotesBase(symbols);
   try {
     const cnbc = await fetchCnbcQuotes(symbols);
+    // CNBC keeps the previous session's ExtendedMktQuote block alive during regular hours,
+    // so its extType/extPrice are stale once the market opens — ignore them until the close.
+    const open = isMarketOpen();
     for (const [s, c] of Object.entries(cnbc)) {
       const q = out[s] || (out[s] = {});
       if (c.volume != null) q.regularMarketVolume = c.volume;
@@ -7339,7 +7376,7 @@ async function fetchQuotes(symbols) {
       if (q.regularMarketChangePercent == null && c.changePct != null) q.regularMarketChangePercent = c.changePct;
       if (q.fiftyTwoWeekHigh == null && c.high52 != null) q.fiftyTwoWeekHigh = c.high52;
       if (q.fiftyTwoWeekLow  == null && c.low52  != null) q.fiftyTwoWeekLow  = c.low52;
-      if (c.extType) {
+      if (c.extType && !open) {
         q.marketState = c.extType;
         if (c.extType === 'POST') q.postMarketPrice = c.extPrice;
         else                      q.preMarketPrice  = c.extPrice;
@@ -11084,7 +11121,30 @@ async function fetchYahooPrices(ticker, p1, p2) {
 
 const HA_STORE_KEY = 'haOhlcCache.v1';
 function _loadHaStore() { try { return JSON.parse(localStorage.getItem(HA_STORE_KEY)) || {}; } catch { return {}; } }
-function _saveHaStore(store) { try { localStorage.setItem(HA_STORE_KEY, JSON.stringify(store)); } catch (_) {} }
+// Keeps a little more than the 2Y button needs, so every range except ALL is served from cache
+// without a refetch. Bounds the store: ensureOhlc's daily 3mo refresh merges new bars in and never
+// drops old ones, so an untrimmed map grows without limit. Rounding strips Yahoo's float noise
+// (323.29998779296875 → 323.3) for ~43% of the serialized size at no visible precision cost.
+// Applied to the whole store on every save, so pre-existing oversized entries self-heal.
+const HA_KEEP_DAYS = 760;
+function _trimHaStore(store) {
+  const cutoff = new Date(Date.now() - HA_KEEP_DAYS * 86400000).toISOString().slice(0, 10);
+  const r = v => (v == null ? v : Math.round(v * 1e4) / 1e4);
+  const out = {};
+  for (const sym in store) {
+    const e = store[sym];
+    if (!e || !e.ohlc) continue;
+    const ohlc = {};
+    for (const d in e.ohlc) {
+      if (d < cutoff) continue;
+      const b = e.ohlc[d];
+      ohlc[d] = { o: r(b.o), h: r(b.h), l: r(b.l), c: r(b.c) };
+    }
+    out[sym] = { d: e.d, ohlc };
+  }
+  return out;
+}
+function _saveHaStore(store) { try { localStorage.setItem(HA_STORE_KEY, JSON.stringify(_trimHaStore(store))); } catch (_) {} }
 function _haToday() { return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); }
 
 // Returns the OHLC map for sym, hydrating from localStorage + a cheap 3mo refresh when

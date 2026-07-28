@@ -280,7 +280,9 @@ function _fetchYahooChartReturns_(sym) {
 // Yahoo/corsproxy fetch is production-dead (see Known Limitations in CLAUDE.md).
 function _fetchYahooOHLCMap_(sym, range) {
   try {
-    const r = ({ '3mo': 1, '6mo': 1, '1y': 1, '2y': 1 })[range] ? range : '2y';
+    // NB: 'max' is deliberately absent — Yahoo silently downgrades range=max&interval=1d to
+    // quarterly bars (dataGranularity '3mo'). '10y' is the deepest range that stays daily.
+    const r = ({ '3mo': 1, '6mo': 1, '1y': 1, '2y': 1, '5y': 1, '10y': 1 })[range] ? range : '2y';
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/'
       + encodeURIComponent(sym.replace(/\./g, '-')) + '?range=' + r + '&interval=1d';
     const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
