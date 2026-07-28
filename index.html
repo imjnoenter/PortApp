@@ -7998,6 +7998,7 @@ function tpBadge(sym, price) {
 
 // ── Render: positions table ───────────────────────────────────────────────────
 let sortKey = 'currentValue', sortDir = -1, searchTerm = '', categoryFilter = 'All', sectorFilter = 'All';
+let _watchTblSort = 'dayChangePct', _watchTblDir = -1; // watchlist table (Positions tab, category filter = Watchlist) sort — separate from the side-panel pill's _watchSort
 
 function weekRange52Bar(p) {
   const hi = p.week52High, lo = p.week52Low, cur = p.price;
@@ -8115,10 +8116,32 @@ function renderTable(model) {
     filtered = model.watchlist.filter(w => !q || w.symbol.toUpperCase().includes(q));
     if (titleEl) titleEl.textContent = `${filtered.length} ${t('Watchlist')}`;
     renderWeightBar([]);
+    const wSorted = [...filtered].sort((a, b) => {
+      if (_watchTblSort === 'symbol') return _watchTblDir * a.symbol.localeCompare(b.symbol);
+      const av = a[_watchTblSort], bv = b[_watchTblSort];
+      if (av == null) return bv == null ? 0 : 1;
+      if (bv == null) return -1;
+      return (av - bv) * _watchTblDir;
+    });
+    const wArrow = key => _watchTblSort === key ? (_watchTblDir === -1 ? ' ▼' : ' ▲') : '';
+    const wHeaders = [
+      { key: 'symbol',       label: t('th_symbol'),        sort: true  },
+      { key: 'price',        label: t('th_last_price'),    sort: true  },
+      { key: 'dayChangePct', label: t('th_day_change'),    sort: true  },
+      { key: null,           label: t('th_day_return'),    sort: false },
+      { key: null,           label: t('total_ret'),        sort: false },
+      { key: null,           label: t('th_quantity'),      sort: false },
+      { key: null,           label: t('th_avg_cost'),      sort: false },
+      { key: null,           label: t('th_total_cost'),    sort: false },
+      { key: null,           label: t('th_current_value'), sort: false },
+      { key: 'target',       label: t('allocation'),       sort: true  },
+    ];
+    const wThHTML = wHeaders.map(h => h.sort
+      ? `<th onclick="setWatchTblSort('${h.key}')">${h.label}${wArrow(h.key)}</th>`
+      : `<th style="cursor:default">${h.label}</th>`
+    ).join('');
     document.getElementById('posTable').innerHTML =
-      `<table class="pos-table"><thead><tr>${
-        [t('th_symbol'),t('th_last_price'),t('th_day_change'),t('th_day_return'),t('total_ret'),t('th_quantity'),t('th_avg_cost'),t('th_total_cost'),t('th_current_value'),t('allocation')].map(l=>`<th style="cursor:default">${l}</th>`).join('')
-      }</tr></thead><tbody>${filtered.map(watchlistRow).join('')}</tbody></table>`;
+      `<table class="pos-table"><thead><tr>${wThHTML}</tr></thead><tbody>${wSorted.map(watchlistRow).join('')}</tbody></table>`;
     return;
   }
   filtered = model.positions;
@@ -8366,6 +8389,10 @@ function renderPerformanceTable(model) {
 
 window.sortTable = function(key) {
   if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+  renderTable(currentModel);
+};
+window.setWatchTblSort = function(key) {
+  if (_watchTblSort === key) _watchTblDir *= -1; else { _watchTblSort = key; _watchTblDir = -1; }
   renderTable(currentModel);
 };
 window.clearSearch = function() { searchTerm = ''; const el = document.getElementById('symbolSearch'); if (el) el.value = ''; };
@@ -10698,11 +10725,39 @@ async function loadCalendar(model) {
 }
 
 // ── Render: watchlist ─────────────────────────────────────────────────────────
+let _watchSort = null; // null | 'desc' | 'asc' — sort-by-day-change-% state, in-memory only
+
+window.toggleWatchSort = function() {
+  _watchSort = _watchSort === null ? 'desc' : _watchSort === 'desc' ? 'asc' : null;
+  renderWatchlist(currentModel);
+};
+
 function renderWatchlist(model) {
   const el = document.getElementById('watchlist');
+  const btn = document.getElementById('watchSortBtn');
+  if (btn) {
+    btn.style.display = model.watchlist.length ? '' : 'none'; // nothing to sort on an empty watchlist
+    const arrow = _watchSort === 'desc' ? ' ↓' : _watchSort === 'asc' ? ' ↑' : '';
+    btn.textContent = t('th_day_change') + arrow;
+    btn.style.background = _watchSort ? 'var(--ink)' : 'transparent';
+    btn.style.color = _watchSort ? 'var(--card)' : 'var(--muted)';
+    btn.style.borderColor = _watchSort ? 'var(--ink)' : 'var(--line)';
+  }
   if (!model.watchlist.length) { el.innerHTML = `<div style="color:var(--muted);font-size:12px">${t('no_entries')}</div>`; return; }
-  el.innerHTML = model.watchlist.map(w => {
+  let list = model.watchlist;
+  if (_watchSort) {
+    const dir = _watchSort === 'desc' ? -1 : 1;
+    list = [...model.watchlist].sort((a, b) => {
+      if (a.dayChangePct == null) return b.dayChangePct == null ? 0 : 1;
+      if (b.dayChangePct == null) return -1;
+      return (a.dayChangePct - b.dayChangePct) * dir;
+    });
+  }
+  el.innerHTML = list.map(w => {
     const color = colorFor(w.symbol);
+    const chgHtml = w.dayChangePct != null
+      ? `<div style="font-size:10px;font-weight:600;font-family:var(--font-mono);color:${w.dayChangePct >= 0 ? 'var(--gain)' : 'var(--loss)'}">${fmtPct(w.dayChangePct)}</div>`
+      : '';
     return `<div class="watch-row">
       <div class="watch-info">
         ${logoCell(w.symbol, color)}
@@ -10713,6 +10768,7 @@ function renderWatchlist(model) {
       </div>
       <div class="watch-price">
         <div class="price">${fmtCurr(w.price)}</div>
+        ${chgHtml}
         <div class="wtarget">${w.target != null ? t('target')+': '+fmtPct(w.target*100,false) : (w.sector ? t(w.sector) : '')}</div>
       </div>
     </div>`;
@@ -12177,7 +12233,11 @@ function buildShell() {
           </div>
           <!-- Watchlist -->
           <div class="card">
-            <div class="card-title">${t('Watchlist')}</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div class="card-title" style="margin-bottom:0">${t('Watchlist')}</div>
+              <button id="watchSortBtn" onclick="toggleWatchSort()"
+                style="padding:4px 9px;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;font-family:var(--font-mono);cursor:pointer;transition:all .15s">${t('th_day_change')}</button>
+            </div>
             <div id="watchlist"></div>
           </div>
         </section>
