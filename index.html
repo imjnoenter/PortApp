@@ -8118,6 +8118,11 @@ function renderTable(model) {
     renderWeightBar([]);
     const wSorted = [...filtered].sort((a, b) => {
       if (_watchTblSort === 'symbol') return _watchTblDir * a.symbol.localeCompare(b.symbol);
+      if (_watchTblSort === 'price') {
+        const aPct = a.preMarketPct ?? a.postMarketPct ?? null;
+        const bPct = b.preMarketPct ?? b.postMarketPct ?? null;
+        if (aPct != null || bPct != null) return _watchTblDir * ((aPct ?? 0) - (bPct ?? 0));
+      }
       const av = a[_watchTblSort], bv = b[_watchTblSort];
       if (av == null) return bv == null ? 0 : 1;
       if (bv == null) return -1;
