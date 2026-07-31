@@ -8034,23 +8034,28 @@ function tpBadge(sym, price) {
 
 // ── Render: positions table ───────────────────────────────────────────────────
 let sortKey = 'currentValue', sortDir = -1, searchTerm = '';
-let filterState = { category: 'All', sector: 'All', industry: 'All', custom: 'All', myGroup: 'All' };
-let _filtersOpen = false; // session-only; deliberately not persisted — resets to collapsed on reload
+// Multi-select: each group holds an array of chosen values; empty === "All".
+// Filters drive the Holdings table only — the Breakdowns donuts are independent.
+let filterState = { category: [], sector: [], industry: [], custom: [], myGroup: [] };
+let _filtersOpen = false;   // session-only; deliberately not persisted — resets to collapsed on reload
+let _watchlistMode = false; // swaps the table to watchlist rows; not a category value
 const FILTER_GROUPS = [
-  { key: 'category', field: 'category', label: 'category_label', donut: () => CATEGORY_DONUT, render: () => renderCategoryDonut(currentModel) },
-  { key: 'sector',   field: 'sector',   label: 'sector_label',   donut: () => SECTOR_DONUT,   render: () => renderSectorDonut(currentModel) },
-  { key: 'industry', field: 'industry', label: 'industry_label', donut: () => INDUSTRY_DONUT, render: () => renderIndustryDonut(currentModel) },
-  { key: 'custom',   field: 'custom',   label: 'custom_breakdown_title', donut: () => CUSTOM_DONUT, render: () => renderCustomDonut(currentModel) },
-  { key: 'myGroup',  field: 'myGroup',  label: 'mygroup_breakdown_title', donut: () => MYGROUP_DONUT, render: () => renderMyGroupDonut(currentModel) },
+  { key: 'category', field: 'category', label: 'category_label' },
+  { key: 'sector',   field: 'sector',   label: 'sector_label' },
+  { key: 'industry', field: 'industry', label: 'industry_label' },
+  { key: 'custom',   field: 'custom',   label: 'custom_breakdown_title' },
+  { key: 'myGroup',  field: 'myGroup',  label: 'mygroup_breakdown_title' },
 ];
+// OR within a group, AND across groups.
 function applyFilters(positions) {
   return FILTER_GROUPS.reduce((acc, g) => {
-    const val = filterState[g.key];
-    return val !== 'All' ? acc.filter(p => (p[g.field] || 'Other') === val) : acc;
+    const vals = filterState[g.key];
+    return vals.length ? acc.filter(p => vals.includes(p[g.field] || 'Other')) : acc;
   }, positions);
 }
+// One entry per selected (group, value) pair.
 function activeFilters() {
-  return FILTER_GROUPS.filter(g => filterState[g.key] !== 'All').map(g => ({ ...g, value: filterState[g.key] }));
+  return FILTER_GROUPS.flatMap(g => filterState[g.key].map(value => ({ ...g, value })));
 }
 // Spanning "no results" row shown when filters (not search) empty out a table.
 function emptyFilterRowHtml(colspan) {
@@ -8168,7 +8173,7 @@ function renderTable(model) {
     }
   }
   const q = searchTerm.trim().toUpperCase();
-  const showWatchlist = filterState.category === t('Watchlist');
+  const showWatchlist = _watchlistMode;
   let filtered;
   if (showWatchlist) {
     filtered = model.watchlist.filter(w => !q || w.symbol.toUpperCase().includes(q));
@@ -8307,7 +8312,7 @@ function renderTable(model) {
 
 function renderPerformanceTable(model) {
   const titleEl = document.getElementById('posTitle');
-  const showWatchlist = filterState.category === t('Watchlist');
+  const showWatchlist = _watchlistMode;
   if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
   const drEl = document.getElementById('posDayReturn');
   if (drEl && !showWatchlist) {
@@ -8622,9 +8627,8 @@ const donutOuterLabels = {
 };
 
 function _netWorthDonutData(model) {
-  let positions = applyFilters(model.positions);
-  const noFilter = activeFilters().length === 0;
-  const items = (noFilter && _nwDonutInclCash) ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
+  const positions = model.positions;
+  const items = _nwDonutInclCash ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
   const total  = items.reduce((s, p) => s + p.currentValue, 0);
   const labels = items.map(p => p.symbol);
   const data   = items.map(p => p.currentValue);
@@ -8661,11 +8665,9 @@ function renderDonut(model) {
   const { labels, data, colors, total } = _netWorthDonutData(model);
   const labelEl = document.getElementById('donut-label');
   const valueEl = document.getElementById('donut-value');
-  const filterLabel = activeFilters().map(f => t(f.value)).join(' · ');
-  if (labelEl) labelEl.textContent = filterLabel || 'Total Net Worth';
-  // Unfiltered: center is pinned to full net worth (holdings + cash) regardless of
-  // the cash toggle. Filtered: keep showing the filtered subtotal as before.
-  if (valueEl) valueEl.textContent = fmtCurr(filterLabel ? total : model.totalCurrent);
+  if (labelEl) labelEl.textContent = t('total_net_worth_label');
+  // Center is always pinned to full net worth (holdings + cash) regardless of the cash toggle.
+  if (valueEl) valueEl.textContent = fmtCurr(model.totalCurrent);
   donutChartInst = new Chart(document.getElementById('donutChart').getContext('2d'), {
     type: 'doughnut',
     data: { labels, datasets: donutDataset(data, colors) },
@@ -8799,11 +8801,12 @@ function renderFilterRows(model) {
   const el = document.getElementById('posFilters');
   if (!el) return;
   const toggle = `<button onclick="window.toggleFilters()" style="padding:4px 12px;border-radius:20px;border:1px solid var(--line);background:var(--track);color:var(--ink);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('filters_label')} ${_filtersOpen ? '▴' : '▾'}</button>`;
+  const watchBtn = !model.watchlist?.length ? '' : `<button onclick="window.toggleWatchlistMode()" style="padding:4px 12px;border-radius:20px;border:1px solid #6b7eb8;background:${_watchlistMode ? '#6b7eb8' : 'transparent'};color:${_watchlistMode ? 'var(--card)' : '#6b7eb8'};font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('Watchlist')} (${model.watchlist.length})</button>`;
   const activePills = _filtersOpen ? '' : activeFilters().map(f =>
-    filterBtn(`${t(f.label)} · ${t(f.value)}<span style="opacity:.6;margin-left:2px"> ×</span>`, true, `window.setFilter('${f.key}','All')`)
+    filterBtn(`${t(f.label)} · ${t(f.value)}<span style="opacity:.6;margin-left:2px"> ×</span>`, true, `window.setFilter('${f.key}','${String(f.value).replace(/'/g,"\\'")}')`)
   ).join('');
-  const clearAll = activeFilters().length ? `<button onclick="window.clearAllFilters()" style="padding:4px 10px;border-radius:20px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('clear_all_filters')}</button>` : '';
-  const strip = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;${_filtersOpen ? 'margin-bottom:8px' : ''}">${toggle}${activePills}${clearAll}</div>`;
+  const clearAll = (activeFilters().length || _watchlistMode) ? `<button onclick="window.clearAllFilters()" style="padding:4px 10px;border-radius:20px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('clear_all_filters')}</button>` : '';
+  const strip = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;${_filtersOpen ? 'margin-bottom:8px' : ''}">${toggle}${watchBtn}${activePills}${clearAll}</div>`;
   const rows = !_filtersOpen ? '' : FILTER_GROUPS.map(g => {
     if ((g.key === 'sector' || g.key === 'industry') && activePortfolio === 'ETF') return '';
     if ((g.key === 'custom' || g.key === 'myGroup') && !model.positions.some(p => String(p[g.field] || '').trim())) return '';
@@ -8812,16 +8815,11 @@ function renderFilterRows(model) {
       const ORDER = ['All', 'Big Name', 'Wait for sell', 'Medium Cap', 'Small Cap', 'Growth', 'Dividend', 'ETF'];
       const present = new Set(model.positions.map(p => p.category || 'Other').filter(Boolean));
       const cats = [...ORDER.filter(c => c === 'All' || present.has(c)), ...[...present].filter(c => !ORDER.includes(c)).sort()];
-      if (model.watchlist?.length) cats.push(t('Watchlist'));
-      pills = cats.map(c => {
-        const isWatch = c === t('Watchlist');
-        const active = c === filterState.category;
-        return `<button onclick="window.setFilter('category','${c.replace(/'/g,"\\'")}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${active ? (isWatch?'#6b7eb8':'var(--ink)') : (isWatch?'#6b7eb8':'var(--line)')};background:${active ? (isWatch?'#6b7eb8':'var(--ink)') : 'transparent'};color:${active ? 'var(--card)' : (isWatch?'#6b7eb8':'var(--muted)')};font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t(c)}${isWatch&&model.watchlist.length?` (${model.watchlist.length})`:''}</button>`;
-      }).join('');
+      pills = cats.map(c => filterBtn(t(c), c === 'All' ? filterState.category.length === 0 : filterState.category.includes(c), `window.setFilter('category','${c.replace(/'/g,"\\'")}')`)).join('');
     } else {
       const vals = [...new Set(model.positions.map(p => p[g.field] || 'Other').filter(Boolean))].sort();
       pills = ['All', ...vals].map(v =>
-        filterBtn(t(v), v === filterState[g.key], `window.setFilter('${g.key}','${v.replace(/'/g,"\\'")}')`)
+        filterBtn(t(v), v === 'All' ? filterState[g.key].length === 0 : filterState[g.key].includes(v), `window.setFilter('${g.key}','${v.replace(/'/g,"\\'")}')`)
       ).join('');
     }
     return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px"><span style="font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);min-width:62px;flex-shrink:0">${t(g.label)}</span>${pills}</div>`;
@@ -8832,33 +8830,31 @@ window.toggleFilters = function() {
   _filtersOpen = !_filtersOpen;
   renderFilterRows(currentModel);
 };
-window.setFilter = function(key, value) {
-  filterState[key] = value;
-  const g = FILTER_GROUPS.find(x => x.key === key);
-  const isWatch = key === 'category' && value === t('Watchlist');
-  g.donut().setDrill(value !== 'All' && !isWatch ? value : null);
-  if (isWatch) _clearFilters(FILTER_GROUPS.filter(x => x.key !== key).map(x => x.key));
+window.toggleWatchlistMode = function() {
+  _watchlistMode = !_watchlistMode;
   renderFilterRows(currentModel);
   renderTable(currentModel);
-  renderDonut(currentModel);
-  // Watchlist cleared the other four, so their donuts must repaint too — a chart left
-  // drawn drilled while its drilldown is null mis-maps the next click.
-  if (isWatch) FILTER_GROUPS.forEach(x => x.render()); else g.render();
 };
-// Clear filters + their donut drilldowns without re-rendering (callers re-render).
-function _clearFilters(keys) {
-  for (const k of keys) {
-    filterState[k] = 'All';
-    const g = FILTER_GROUPS.find(x => x.key === k);
-    if (g) g.donut().setDrill(null);
+window.setFilter = function(key, value) {
+  if (value === 'All') {
+    filterState[key] = [];
+  } else {
+    const arr = filterState[key];
+    const i = arr.indexOf(value);
+    if (i >= 0) arr.splice(i, 1); else arr.push(value);
   }
+  renderFilterRows(currentModel);
+  renderTable(currentModel);
+};
+// Clear filters without re-rendering (callers re-render).
+function _clearFilters(keys) {
+  for (const k of keys) filterState[k] = [];
 }
 window.clearAllFilters = function() {
   _clearFilters(FILTER_GROUPS.map(g => g.key));
+  _watchlistMode = false;
   renderFilterRows(currentModel);
   renderTable(currentModel);
-  renderDonut(currentModel);
-  FILTER_GROUPS.forEach(g => g.render());
 };
 
 // ── Shared floating-tooltip mechanics (weight bar + holdings perf) ────────────
@@ -8924,8 +8920,8 @@ let etfSectorDonutInst = null, etfHoldingDonutInst = null;
 // One config-driven renderer backs three near-identical donuts (sector,
 // industry, category). Each config supplies the grouping field, element id,
 // drilldown-state accessors, and the post-drill side effects. The drilldown/
-// instance state stays in module-level vars (read by setFilter,
-// rerenderDonuts, rerenderAllCharts).
+// instance state stays in module-level vars (read by rerenderDonuts,
+// rerenderAllCharts).
 function renderGroupedDonut(cfg, model) {
   const el = document.getElementById(cfg.elId);
   if (!el) return;
@@ -9023,26 +9019,12 @@ function renderGroupedDonut(cfg, model) {
   return { labels, data, colors, rets, total: drilled ? drillTotal : grandTotal, drilled: !!drilled };
 }
 
-// Shared post-drill sync for the filter-coupled donuts (all five groups).
-function _syncDonutFilters() {
-  renderFilterRows(currentModel);
-  renderTable(currentModel); renderDonut(currentModel);
-}
-
-// Sync a group's table filter from its donut drilldown, then re-render the coupled views.
-function _drillToFilter(key) {
-  const g = FILTER_GROUPS.find(x => x.key === key);
-  filterState[key] = g.donut().getDrill() || 'All';
-  g.render();
-  _syncDonutFilters();
-}
-
 const SECTOR_DONUT = {
   elId: 'sectorDonutChart', field: 'sector', noun: 'sector',
   topPadding: 65, translateCenter: true, color: colorFor,
   getInst: () => sectorDonutInst, setInst: v => { sectorDonutInst = v; },
   getDrill: () => sectorDrilldown, setDrill: v => { sectorDrilldown = v; },
-  afterChange() { _drillToFilter('sector'); }
+  afterChange() { renderSectorDonut(currentModel); }
 };
 function renderSectorDonut(model) {
   if (activePortfolio === 'ETF') { renderEtfSectorDonut(model); return; }
@@ -9057,7 +9039,7 @@ const INDUSTRY_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => industryDonutInst, setInst: v => { industryDonutInst = v; },
   getDrill: () => industryDrilldown, setDrill: v => { industryDrilldown = v; },
-  afterChange() { _drillToFilter('industry'); }
+  afterChange() { renderIndustryDonut(currentModel); }
 };
 function renderIndustryDonut(model) {
   // Update only the text span, not the whole title (siblings = expand button + collapse chevron).
@@ -9085,7 +9067,7 @@ const CUSTOM_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => customDonutInst, setInst: v => { customDonutInst = v; },
   getDrill: () => customDrilldown, setDrill: v => { customDrilldown = v; },
-  afterChange() { _drillToFilter('custom'); }
+  afterChange() { renderCustomDonut(currentModel); }
 };
 function renderCustomDonut(model) { _renderTagDonut(model, CUSTOM_DONUT, 'customDonutCard'); }
 
@@ -9095,7 +9077,7 @@ const MYGROUP_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => myGroupDonutInst, setInst: v => { myGroupDonutInst = v; },
   getDrill: () => myGroupDrilldown, setDrill: v => { myGroupDrilldown = v; },
-  afterChange() { _drillToFilter('myGroup'); }
+  afterChange() { renderMyGroupDonut(currentModel); }
 };
 function renderMyGroupDonut(model) { _renderTagDonut(model, MYGROUP_DONUT, 'myGroupDonutCard'); }
 
@@ -9274,9 +9256,8 @@ function renderDonutModal() {
   let res, showResidual = false;
   if (kind === 'networth') {
     res = _netWorthDonutData(model);
-    const noFilter = activeFilters().length === 0;
     _renderEtfStaticDonut('donutModalCanvas', () => _donutModalInst, v => { _donutModalInst = v; },
-      res.labels, res.data, res.colors, 'portfolio', res.total, noFilter ? model.totalCurrent : null);
+      res.labels, res.data, res.colors, 'portfolio', res.total, model.totalCurrent);
   } else if (isEtf) {
     res = kind === 'sector' ? _etfSectorDonutData(model) : _etfHoldingDonutData(model);
     showResidual = true;
@@ -9974,7 +9955,7 @@ const CATEGORY_DONUT = {
   beforeRender() { const el = document.getElementById('catDonutLegend'); if (el) el.innerHTML = ''; },
   getInst: () => catDonutInst, setInst: v => { catDonutInst = v; },
   getDrill: () => catDrilldown, setDrill: v => { catDrilldown = v; },
-  afterChange() { _drillToFilter('category'); }
+  afterChange() { renderCategoryDonut(currentModel); }
 };
 function renderCategoryDonut(model) { renderGroupedDonut(CATEGORY_DONUT, model); }
 
