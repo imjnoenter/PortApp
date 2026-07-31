@@ -1178,11 +1178,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   padding: var(--sp-5) max(var(--sp-5), env(safe-area-inset-right)) max(var(--sp-5), env(safe-area-inset-bottom)) max(var(--sp-5), env(safe-area-inset-left));
 }
 .page { display: none; }
-.app-shell[data-page="dashboard"]  .page[data-page="dashboard"],
-.app-shell[data-page="holdings"]   .page[data-page="holdings"],
-.app-shell[data-page="allocation"] .page[data-page="allocation"],
-.app-shell[data-page="plans"]      .page[data-page="plans"],
-.app-shell[data-page="activity"]   .page[data-page="activity"] {
+.app-shell[data-page="dashboard"]   .page[data-page="dashboard"],
+.app-shell[data-page="holdings"]    .page[data-page="holdings"],
+.app-shell[data-page="allocation"]  .page[data-page="allocation"],
+.app-shell[data-page="breakdowns"]  .page[data-page="breakdowns"],
+.app-shell[data-page="plans"]       .page[data-page="plans"],
+.app-shell[data-page="activity"]    .page[data-page="activity"] {
   display: flex; flex-direction: column; gap: var(--sp-5);
   animation: pageFadeIn .15s var(--ease-out-quint);
 }
@@ -2100,7 +2101,7 @@ let RETURNS_URL     = _u.RETURNS_URL     || '';
 let PORTFOLIOS_URL  = _u.PORTFOLIOS_URL  || '';
 let CONTRIBUTIONS_URL = _u.CONTRIBUTIONS_URL || '';
 let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, earningsTimestamp, ... } }
-let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo', updatedAt?: unixSec }
+let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo'|'cnbc', updatedAt?: unixSec }
 let _etfDataCache = {};
 let _stockReturnsCache = {};
 let _contribCache = {}; // { [portfolio]: { depositTHB, withdrawUSD } }
@@ -2171,6 +2172,8 @@ const I18N = {
     th_current_value: "Current Value",
     last_price_short: "Last", qty_short: "Qty", avg_short: "Avg",
     sector_label: "Sector", industry_label: "Industry", category_label: "Category", sl_label: "SL",
+    filters_label: "Filters",
+    no_match_filters: "No positions match these filters", clear_all_filters: "Clear all",
     realized_pnl_label: "Realized P/L", entry_price_label: "Entry",
     cum_pct_label: "Cum %", amount_label: "Amount",
     charts_tab: "Charts", transactions_tab: "Transactions",
@@ -2357,7 +2360,7 @@ const I18N = {
     spin_duration_label: "Spin duration",
     sl_reached_tooltip: "Stop Loss Reached!", actions_tooltip: "Actions",
     manage_label: "Manage",
-    language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", portfolios_label: "Portfolios",
+    language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", price_source_label: "Prices", portfolios_label: "Portfolios",
     overview_label: "Overview", performance_label: "Performance",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "Fund", rebalfund_target_label: "Target",
@@ -2385,6 +2388,8 @@ const I18N = {
     th_total_cost: "ราคาทุนรวม", th_current_value: "มูลค่าปัจจุบัน",
     last_price_short: "ล่าสุด", qty_short: "จำนวน", avg_short: "เฉลี่ย",
     sector_label: "กลุ่ม", industry_label: "อุตสาหกรรม", category_label: "หมวดหมู่", sl_label: "SL",
+    filters_label: "ตัวกรอง",
+    no_match_filters: "ไม่มีหุ้นที่ตรงกับตัวกรอง", clear_all_filters: "ล้างทั้งหมด",
     realized_pnl_label: "กำไรเมื่อขาย", entry_price_label: "ราคาเข้า",
     cum_pct_label: "สะสม %", amount_label: "จำนวนเงิน",
     charts_tab: "กราฟ", transactions_tab: "รายการซื้อขาย",
@@ -2605,7 +2610,7 @@ const I18N = {
     actions_tooltip: "เครื่องมือจัดการ",
     // Additional
     manage_label: "จัดการ",
-    language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", portfolios_label: "พอร์ตโฟลิโอ",
+    language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", price_source_label: "แหล่งราคา", portfolios_label: "พอร์ตโฟลิโอ",
     overview_label: "ภาพรวม", performance_label: "ผลงาน",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "เติมเงิน", rebalfund_target_label: "เป้าหมาย",
@@ -2646,6 +2651,7 @@ let _lastQuotes        = null; // cached quote map, re-attached on toggle (no re
 let actionModalPort    = 'Long-Term'; // portfolio governing the action modal tabs
 let currency = localStorage.getItem('currency') || 'USD';
 let fxRate   = 1;
+let priceSource = localStorage.getItem('priceSource.v1') === 'CNBC' ? 'CNBC' : 'FINNHUB';
 let donutChartInst = null;
 const _sectorExpanded   = new Set();
 const _industryExpanded = new Set();
@@ -6072,6 +6078,14 @@ window.setRebalFundActive = function(idx) {
   renderRebalFundPanel();
 };
 
+// Hide the fund panel without discarding entered values — only resetRebalFund() clears state.
+window.hideRebalFund = function() {
+  if (rebalFundActiveIdx == null) return;
+  rebalFundActiveIdx = null;
+  document.querySelectorAll('#planTranches .tranche-row').forEach(row => row.classList.remove('rebalfund-active'));
+  renderRebalFundPanel();
+};
+
 function rebalFundTarget() {
   const { symbol, tranches, model } = planState;
   if (rebalFundActiveIdx == null || !model) return null;
@@ -6656,6 +6670,29 @@ function rowsForView(portId) {
   return merged;
 }
 
+// Recompute everything derived from p.price. Shared by buildModel and attachQuotes so the
+// valuation math exists in exactly one place. Reads cashResPct/totalCash/totalInvested from the
+// model (they don't depend on price) rather than recomputing them.
+function recomputeValuation(model) {
+  const { positions, totalCash, totalInvested } = model;
+  positions.forEach(p => {
+    p.currentValue = p.qty * p.price;
+    p.pnl          = p.currentValue - p.costBasis;
+    p.pnlPct       = p.costBasis ? p.pnl / p.costBasis * 100 : 0;
+  });
+  const totalCurrent = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
+  const stockTotal   = positions.reduce((s, p) => s + p.currentValue, 0);
+  positions.forEach(p => {
+    p.weightPct      = totalCurrent > 0 ? p.currentValue / totalCurrent * 100 : 0;
+    p.stockWeightPct = stockTotal  > 0 ? p.currentValue / stockTotal   * 100 : 0;
+  });
+  model.totalCurrent = totalCurrent;
+  model.investable   = totalCurrent * (1 - model.cashResPct);
+  model.totalPnl     = totalCurrent - totalInvested;
+  model.totalPnlPct  = totalInvested ? (totalCurrent - totalInvested) / totalInvested * 100 : 0;
+  return model;
+}
+
 // `rows` are already the active-portfolio slice (see rowsForView). Cash comes from cashCtx (registry),
 // not rows[0] — falls back to rows[0] only when cashCtx is omitted (defensive).
 function buildModel(rows, cashCtx) {
@@ -6668,31 +6705,22 @@ function buildModel(rows, cashCtx) {
   for (const r of rows) {
     const held = r.qty != null && r.qty > 0 && r.avgPrice != null && r.avgPrice > 0 && r.price != null;
     if (!held) { if (r.price != null || (!(r.qty > 0) && !(r.avgPrice > 0))) watchlist.push(r); continue; }
-    const currentValue = r.qty * r.price;
-    const costBasis    = r.qty * r.avgPrice;
-    const pnl          = currentValue - costBasis;
-    const pnlPct       = costBasis ? pnl / costBasis * 100 : 0;
-    positions.push({ ...r, currentValue, costBasis, pnl, pnlPct });
+    const costBasis = r.qty * r.avgPrice;
+    positions.push({ ...r, costBasis });
   }
 
   const totalCash     = rawCash;
-  const totalCurrent  = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
-  const totalInvested  = positions.reduce((s, p) => s + p.costBasis,    0) + rawCash;
-  const investable    = totalCurrent * (1 - cashResPct);
-  const stockTotal = positions.reduce((s,p) => s + p.currentValue, 0);
-  positions.forEach(p => {
-    p.weightPct      = totalCurrent > 0 ? p.currentValue / totalCurrent * 100 : 0;
-    p.stockWeightPct = stockTotal  > 0 ? p.currentValue / stockTotal   * 100 : 0;
-  });
+  const totalInvested = positions.reduce((s, p) => s + p.costBasis, 0) + rawCash;
+
+  const model = {
+    positions, watchlist, sgovPos: null, rawCash, rawFcd, rawUsd, cashResPct,
+    totalCash, totalInvested,
+  };
+  recomputeValuation(model);
   positions.sort((a, b) => b.currentValue - a.currentValue);
   positions.forEach((p, i) => p.rowNum = i + 1);
 
-  return {
-    positions, watchlist, sgovPos: null, rawCash, rawFcd, rawUsd, cashResPct,
-    totalCash, totalCurrent, investable, totalInvested,
-    totalPnl:    totalCurrent - totalInvested,
-    totalPnlPct: totalInvested ? (totalCurrent - totalInvested) / totalInvested * 100 : 0,
-  };
+  return model;
 }
 
 // ── Stat helpers ──────────────────────────────────────────────────────────────
@@ -7368,12 +7396,17 @@ async function fetchQuotes(symbols) {
     // CNBC keeps the previous session's ExtendedMktQuote block alive during regular hours,
     // so its extType/extPrice are stale once the market opens — ignore them until the close.
     const open = isMarketOpen();
+    const cnbcWins = priceSource === 'CNBC';
+    // CNBC now owns the price, so the sheet's write time no longer describes what's shown —
+    // drop the 'sheet' source or the freshness badge would claim a timestamp that isn't the data's.
+    if (cnbcWins && Object.keys(cnbc).length) _lastQuoteSource = { type: 'cnbc' };
     for (const [s, c] of Object.entries(cnbc)) {
       const q = out[s] || (out[s] = {});
       if (c.volume != null) q.regularMarketVolume = c.volume;
-      if (q.regularMarketPrice         == null && c.price     != null) q.regularMarketPrice         = c.price;
-      if (q.regularMarketChange        == null && c.change    != null) q.regularMarketChange        = c.change;
-      if (q.regularMarketChangePercent == null && c.changePct != null) q.regularMarketChangePercent = c.changePct;
+      const put = (k, v) => { if (v != null && (cnbcWins || q[k] == null)) q[k] = v; };
+      put('regularMarketPrice', c.price);
+      put('regularMarketChange', c.change);
+      put('regularMarketChangePercent', c.changePct);
       if (q.fiftyTwoWeekHigh == null && c.high52 != null) q.fiftyTwoWeekHigh = c.high52;
       if (q.fiftyTwoWeekLow  == null && c.low52  != null) q.fiftyTwoWeekLow  = c.low52;
       if (c.extType && !open) {
@@ -7512,7 +7545,8 @@ function attachQuotes(model, quotes) {
     p.dayChange    = q.regularMarketChange        ?? null;
     p.dayChangePct = q.regularMarketChangePercent ?? null;
     p.marketState  = q.marketState ?? 'REGULAR';
-    const reg      = q.regularMarketPrice ?? p.price;
+    const reg      = q.regularMarketPrice > 0 ? q.regularMarketPrice : p.price;
+    p.price        = reg;
     p.preMarketPrice  = q.preMarketPrice  ?? null;
     p.postMarketPrice = q.postMarketPrice ?? null;
     p.preMarketPct  = p.preMarketPrice  && reg ? (p.preMarketPrice  - reg) / reg * 100 : null;
@@ -7528,7 +7562,8 @@ function attachQuotes(model, quotes) {
   // Quotes + calendar for watchlist
   model.watchlist.forEach(w => {
     const q = quotes[w.symbol]; if (!q) return;
-    const reg = q.regularMarketPrice ?? w.price;
+    const reg = q.regularMarketPrice > 0 ? q.regularMarketPrice : w.price;
+    w.price = reg;
     w.dayChange    = q.regularMarketChange        ?? null;
     w.dayChangePct = q.regularMarketChangePercent ?? null;
     w.marketState  = q.marketState ?? 'REGULAR';
@@ -7541,6 +7576,7 @@ function attachQuotes(model, quotes) {
     w.netAssets        = q.netAssets                    ?? null;
     w.ytdReturnQ       = q.ytdReturn                    ?? null;
   });
+  recomputeValuation(model);
 }
 
 const ETF_DATA_TTL = 24 * 60 * 60 * 1000;
@@ -7997,7 +8033,29 @@ function tpBadge(sym, price) {
 }
 
 // ── Render: positions table ───────────────────────────────────────────────────
-let sortKey = 'currentValue', sortDir = -1, searchTerm = '', categoryFilter = 'All', sectorFilter = 'All';
+let sortKey = 'currentValue', sortDir = -1, searchTerm = '';
+let filterState = { category: 'All', sector: 'All', industry: 'All', custom: 'All', myGroup: 'All' };
+let _filtersOpen = false; // session-only; deliberately not persisted — resets to collapsed on reload
+const FILTER_GROUPS = [
+  { key: 'category', field: 'category', label: 'category_label', donut: () => CATEGORY_DONUT, render: () => renderCategoryDonut(currentModel) },
+  { key: 'sector',   field: 'sector',   label: 'sector_label',   donut: () => SECTOR_DONUT,   render: () => renderSectorDonut(currentModel) },
+  { key: 'industry', field: 'industry', label: 'industry_label', donut: () => INDUSTRY_DONUT, render: () => renderIndustryDonut(currentModel) },
+  { key: 'custom',   field: 'custom',   label: 'custom_breakdown_title', donut: () => CUSTOM_DONUT, render: () => renderCustomDonut(currentModel) },
+  { key: 'myGroup',  field: 'myGroup',  label: 'mygroup_breakdown_title', donut: () => MYGROUP_DONUT, render: () => renderMyGroupDonut(currentModel) },
+];
+function applyFilters(positions) {
+  return FILTER_GROUPS.reduce((acc, g) => {
+    const val = filterState[g.key];
+    return val !== 'All' ? acc.filter(p => (p[g.field] || 'Other') === val) : acc;
+  }, positions);
+}
+function activeFilters() {
+  return FILTER_GROUPS.filter(g => filterState[g.key] !== 'All').map(g => ({ ...g, value: filterState[g.key] }));
+}
+// Spanning "no results" row shown when filters (not search) empty out a table.
+function emptyFilterRowHtml(colspan) {
+  return `<tr><td colspan="${colspan}" style="color:var(--muted);font-size:12px;font-style:italic;text-align:center;padding:16px 0">${t('no_match_filters')} · <a href="#" onclick="window.clearAllFilters();return false" style="color:var(--muted);text-decoration:underline">${t('clear_all_filters')}</a></td></tr>`;
+}
 let _watchTblSort = 'dayChangePct', _watchTblDir = -1; // watchlist table (Positions tab, category filter = Watchlist) sort — separate from the side-panel pill's _watchSort
 
 function weekRange52Bar(p) {
@@ -8110,7 +8168,7 @@ function renderTable(model) {
     }
   }
   const q = searchTerm.trim().toUpperCase();
-  const showWatchlist = categoryFilter === t('Watchlist');
+  const showWatchlist = filterState.category === t('Watchlist');
   let filtered;
   if (showWatchlist) {
     filtered = model.watchlist.filter(w => !q || w.symbol.toUpperCase().includes(q));
@@ -8149,9 +8207,7 @@ function renderTable(model) {
       `<table class="pos-table"><thead><tr>${wThHTML}</tr></thead><tbody>${wSorted.map(watchlistRow).join('')}</tbody></table>`;
     return;
   }
-  filtered = model.positions;
-  if (categoryFilter !== 'All') filtered = filtered.filter(p => (p.category || 'Other') === categoryFilter);
-  if (sectorFilter   !== 'All') filtered = filtered.filter(p => (p.sector   || 'Other') === sectorFilter);
+  filtered = applyFilters(model.positions);
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
   const sorted = [...filtered].sort((a, b) => {
     if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
@@ -8244,13 +8300,14 @@ function renderTable(model) {
     <td></td>
   </tr>`;
 
+  const emptyRow = sorted.length === 0 && activeFilters().length > 0 ? emptyFilterRowHtml(headers.length) : '';
   document.getElementById('posTable').innerHTML =
-    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map((p,i) => stockRow(p,i+1)).join('')}${cashRow}</tbody></table>`;
+    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${emptyRow || sorted.map((p,i) => stockRow(p,i+1)).join('')}${cashRow}</tbody></table>`;
 }
 
 function renderPerformanceTable(model) {
   const titleEl = document.getElementById('posTitle');
-  const showWatchlist = categoryFilter === t('Watchlist');
+  const showWatchlist = filterState.category === t('Watchlist');
   if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
   const drEl = document.getElementById('posDayReturn');
   if (drEl && !showWatchlist) {
@@ -8273,8 +8330,7 @@ function renderPerformanceTable(model) {
   const q = searchTerm.trim().toUpperCase();
   let filtered = showWatchlist ? model.watchlist : model.positions;
   if (!showWatchlist) {
-    if (categoryFilter !== 'All') filtered = filtered.filter(p => (p.category || 'Other') === categoryFilter);
-    if (sectorFilter !== 'All') filtered = filtered.filter(p => (p.sector || 'Other') === sectorFilter);
+    filtered = applyFilters(filtered);
   }
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
   const sorted = [...filtered].sort((a, b) => {
@@ -8388,8 +8444,9 @@ function renderPerformanceTable(model) {
     <td colspan="${colCount - 1}"></td>
   </tr>`;
 
+  const emptyRow = sorted.length === 0 && !showWatchlist && activeFilters().length > 0 ? emptyFilterRowHtml(colCount) : '';
   document.getElementById('posTable').innerHTML =
-    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : cashRow}</tbody></table>`;
+    `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${emptyRow || sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : cashRow}</tbody></table>`;
 }
 
 window.sortTable = function(key) {
@@ -8565,10 +8622,8 @@ const donutOuterLabels = {
 };
 
 function _netWorthDonutData(model) {
-  let positions = model.positions;
-  if (categoryFilter !== 'All') positions = positions.filter(p => (p.category || 'Other') === categoryFilter);
-  if (sectorFilter   !== 'All') positions = positions.filter(p => (p.sector   || 'Other') === sectorFilter);
-  const noFilter = categoryFilter === 'All' && sectorFilter === 'All';
+  let positions = applyFilters(model.positions);
+  const noFilter = activeFilters().length === 0;
   const items = (noFilter && _nwDonutInclCash) ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
   const total  = items.reduce((s, p) => s + p.currentValue, 0);
   const labels = items.map(p => p.symbol);
@@ -8606,7 +8661,7 @@ function renderDonut(model) {
   const { labels, data, colors, total } = _netWorthDonutData(model);
   const labelEl = document.getElementById('donut-label');
   const valueEl = document.getElementById('donut-value');
-  const filterLabel = [categoryFilter !== 'All' ? t(categoryFilter) : '', sectorFilter !== 'All' ? t(sectorFilter) : ''].filter(Boolean).join(' · ');
+  const filterLabel = activeFilters().map(f => t(f.value)).join(' · ');
   if (labelEl) labelEl.textContent = filterLabel || 'Total Net Worth';
   // Unfiltered: center is pinned to full net worth (holdings + cash) regardless of
   // the cash toggle. Filtered: keep showing the filtered subtotal as before.
@@ -8736,49 +8791,75 @@ window.submitAddSymbol = async function() {
   }
 };
 
-// ── Render: category filter buttons ──────────────────────────────────────────
-function renderCategoryFilters(model) {
-  const el = document.getElementById('catFilters');
-  if (!el) return;
-  const ORDER = ['All', 'Big Name', 'Wait for sell', 'Medium Cap', 'Small Cap', 'Growth', 'Dividend', 'ETF'];
-  const present = new Set(model.positions.map(p => p.category || 'Other').filter(Boolean));
-  const cats = [...ORDER.filter(c => c === 'All' || present.has(c)), ...[...present].filter(c => !ORDER.includes(c)).sort()];
-  if (model.watchlist?.length) cats.push(t('Watchlist'));
-  el.innerHTML = cats.map(c => {
-    const isWatch = c === t('Watchlist');
-    const active = c === categoryFilter;
-    return `<button onclick="window.setCategoryFilter('${c}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${active ? (isWatch?'#6b7eb8':'var(--ink)') : (isWatch?'#6b7eb8':'var(--line)')};background:${active ? (isWatch?'#6b7eb8':'var(--ink)') : 'transparent'};color:${active ? 'var(--card)' : (isWatch?'#6b7eb8':'var(--muted)')};font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t(c)}${isWatch&&model.watchlist.length?` (${model.watchlist.length})`:''}</button>`;
-  }).join('');
-}
+// ── Render: filter rows (category/sector/industry/custom/myGroup) ────────────
 function filterBtn(label, active, onclick) {
   return `<button onclick="${onclick}" style="padding:4px 12px;border-radius:20px;border:1px solid ${active ? 'var(--ink)' : 'var(--line)'};background:${active ? 'var(--ink)' : 'transparent'};color:${active ? 'var(--card)' : 'var(--muted)'};font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${label}</button>`;
 }
-window.setCategoryFilter = function(cat) {
-  categoryFilter = cat;
-  catDrilldown = (cat !== 'All' && cat !== t('Watchlist')) ? cat : null;
-  renderCategoryFilters(currentModel);
-  renderSectorFilters(currentModel);
-  renderTable(currentModel);
-  renderDonut(currentModel);
-  renderCategoryDonut(currentModel);
-};
-window.setSectorFilter = function(sec) {
-  sectorFilter = sec;
-  sectorDrilldown = sec !== 'All' ? sec : null;
-  renderCategoryFilters(currentModel);
-  renderSectorFilters(currentModel);
-  renderTable(currentModel);
-  renderDonut(currentModel);
-  renderSectorDonut(currentModel);
-};
-function renderSectorFilters(model) {
-  const el = document.getElementById('sectorFilters');
+function renderFilterRows(model) {
+  const el = document.getElementById('posFilters');
   if (!el) return;
-  const sectors = [...new Set(model.positions.map(p => p.sector || 'Other').filter(Boolean))].sort();
-  el.innerHTML = ['All', ...sectors].map(s =>
-    filterBtn(t(s), s === sectorFilter, `window.setSectorFilter('${s.replace(/'/g,"\\'")}')`)
+  const toggle = `<button onclick="window.toggleFilters()" style="padding:4px 12px;border-radius:20px;border:1px solid var(--line);background:var(--track);color:var(--ink);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('filters_label')} ${_filtersOpen ? '▴' : '▾'}</button>`;
+  const activePills = _filtersOpen ? '' : activeFilters().map(f =>
+    filterBtn(`${t(f.label)} · ${t(f.value)}<span style="opacity:.6;margin-left:2px"> ×</span>`, true, `window.setFilter('${f.key}','All')`)
   ).join('');
+  const clearAll = activeFilters().length ? `<button onclick="window.clearAllFilters()" style="padding:4px 10px;border-radius:20px;border:1px dashed var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t('clear_all_filters')}</button>` : '';
+  const strip = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;${_filtersOpen ? 'margin-bottom:8px' : ''}">${toggle}${activePills}${clearAll}</div>`;
+  const rows = !_filtersOpen ? '' : FILTER_GROUPS.map(g => {
+    if ((g.key === 'sector' || g.key === 'industry') && activePortfolio === 'ETF') return '';
+    if ((g.key === 'custom' || g.key === 'myGroup') && !model.positions.some(p => String(p[g.field] || '').trim())) return '';
+    let pills;
+    if (g.key === 'category') {
+      const ORDER = ['All', 'Big Name', 'Wait for sell', 'Medium Cap', 'Small Cap', 'Growth', 'Dividend', 'ETF'];
+      const present = new Set(model.positions.map(p => p.category || 'Other').filter(Boolean));
+      const cats = [...ORDER.filter(c => c === 'All' || present.has(c)), ...[...present].filter(c => !ORDER.includes(c)).sort()];
+      if (model.watchlist?.length) cats.push(t('Watchlist'));
+      pills = cats.map(c => {
+        const isWatch = c === t('Watchlist');
+        const active = c === filterState.category;
+        return `<button onclick="window.setFilter('category','${c.replace(/'/g,"\\'")}')" style="padding:4px 12px;border-radius:20px;border:1px solid ${active ? (isWatch?'#6b7eb8':'var(--ink)') : (isWatch?'#6b7eb8':'var(--line)')};background:${active ? (isWatch?'#6b7eb8':'var(--ink)') : 'transparent'};color:${active ? 'var(--card)' : (isWatch?'#6b7eb8':'var(--muted)')};font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap">${t(c)}${isWatch&&model.watchlist.length?` (${model.watchlist.length})`:''}</button>`;
+      }).join('');
+    } else {
+      const vals = [...new Set(model.positions.map(p => p[g.field] || 'Other').filter(Boolean))].sort();
+      pills = ['All', ...vals].map(v =>
+        filterBtn(t(v), v === filterState[g.key], `window.setFilter('${g.key}','${v.replace(/'/g,"\\'")}')`)
+      ).join('');
+    }
+    return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px"><span style="font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);min-width:62px;flex-shrink:0">${t(g.label)}</span>${pills}</div>`;
+  }).join('');
+  el.innerHTML = strip + rows;
 }
+window.toggleFilters = function() {
+  _filtersOpen = !_filtersOpen;
+  renderFilterRows(currentModel);
+};
+window.setFilter = function(key, value) {
+  filterState[key] = value;
+  const g = FILTER_GROUPS.find(x => x.key === key);
+  const isWatch = key === 'category' && value === t('Watchlist');
+  g.donut().setDrill(value !== 'All' && !isWatch ? value : null);
+  if (isWatch) _clearFilters(FILTER_GROUPS.filter(x => x.key !== key).map(x => x.key));
+  renderFilterRows(currentModel);
+  renderTable(currentModel);
+  renderDonut(currentModel);
+  // Watchlist cleared the other four, so their donuts must repaint too — a chart left
+  // drawn drilled while its drilldown is null mis-maps the next click.
+  if (isWatch) FILTER_GROUPS.forEach(x => x.render()); else g.render();
+};
+// Clear filters + their donut drilldowns without re-rendering (callers re-render).
+function _clearFilters(keys) {
+  for (const k of keys) {
+    filterState[k] = 'All';
+    const g = FILTER_GROUPS.find(x => x.key === k);
+    if (g) g.donut().setDrill(null);
+  }
+}
+window.clearAllFilters = function() {
+  _clearFilters(FILTER_GROUPS.map(g => g.key));
+  renderFilterRows(currentModel);
+  renderTable(currentModel);
+  renderDonut(currentModel);
+  FILTER_GROUPS.forEach(g => g.render());
+};
 
 // ── Shared floating-tooltip mechanics (weight bar + holdings perf) ────────────
 // Lazily create a body-level tip element styled by the .float-tip CSS class.
@@ -8843,8 +8924,8 @@ let etfSectorDonutInst = null, etfHoldingDonutInst = null;
 // One config-driven renderer backs three near-identical donuts (sector,
 // industry, category). Each config supplies the grouping field, element id,
 // drilldown-state accessors, and the post-drill side effects. The drilldown/
-// instance state stays in module-level vars (read by setSectorFilter,
-// setCategoryFilter, rerenderDonuts, rerenderAllCharts).
+// instance state stays in module-level vars (read by setFilter,
+// rerenderDonuts, rerenderAllCharts).
 function renderGroupedDonut(cfg, model) {
   const el = document.getElementById(cfg.elId);
   if (!el) return;
@@ -8942,10 +9023,18 @@ function renderGroupedDonut(cfg, model) {
   return { labels, data, colors, rets, total: drilled ? drillTotal : grandTotal, drilled: !!drilled };
 }
 
-// Shared post-drill sync for the filter-coupled donuts (sector + category).
+// Shared post-drill sync for the filter-coupled donuts (all five groups).
 function _syncDonutFilters() {
-  renderCategoryFilters(currentModel); renderSectorFilters(currentModel);
+  renderFilterRows(currentModel);
   renderTable(currentModel); renderDonut(currentModel);
+}
+
+// Sync a group's table filter from its donut drilldown, then re-render the coupled views.
+function _drillToFilter(key) {
+  const g = FILTER_GROUPS.find(x => x.key === key);
+  filterState[key] = g.donut().getDrill() || 'All';
+  g.render();
+  _syncDonutFilters();
 }
 
 const SECTOR_DONUT = {
@@ -8953,11 +9042,7 @@ const SECTOR_DONUT = {
   topPadding: 65, translateCenter: true, color: colorFor,
   getInst: () => sectorDonutInst, setInst: v => { sectorDonutInst = v; },
   getDrill: () => sectorDrilldown, setDrill: v => { sectorDrilldown = v; },
-  afterChange() {
-    sectorFilter = sectorDrilldown || 'All';
-    renderSectorDonut(currentModel);
-    _syncDonutFilters();
-  }
+  afterChange() { _drillToFilter('sector'); }
 };
 function renderSectorDonut(model) {
   if (activePortfolio === 'ETF') { renderEtfSectorDonut(model); return; }
@@ -8972,7 +9057,7 @@ const INDUSTRY_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => industryDonutInst, setInst: v => { industryDonutInst = v; },
   getDrill: () => industryDrilldown, setDrill: v => { industryDrilldown = v; },
-  afterChange() { renderIndustryDonut(currentModel); }
+  afterChange() { _drillToFilter('industry'); }
 };
 function renderIndustryDonut(model) {
   // Update only the text span, not the whole title (siblings = expand button + collapse chevron).
@@ -9000,7 +9085,7 @@ const CUSTOM_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => customDonutInst, setInst: v => { customDonutInst = v; },
   getDrill: () => customDrilldown, setDrill: v => { customDrilldown = v; },
-  afterChange() { renderCustomDonut(currentModel); }
+  afterChange() { _drillToFilter('custom'); }
 };
 function renderCustomDonut(model) { _renderTagDonut(model, CUSTOM_DONUT, 'customDonutCard'); }
 
@@ -9010,7 +9095,7 @@ const MYGROUP_DONUT = {
   topPadding: 65, translateCenter: false, color: colorFor,
   getInst: () => myGroupDonutInst, setInst: v => { myGroupDonutInst = v; },
   getDrill: () => myGroupDrilldown, setDrill: v => { myGroupDrilldown = v; },
-  afterChange() { renderMyGroupDonut(currentModel); }
+  afterChange() { _drillToFilter('myGroup'); }
 };
 function renderMyGroupDonut(model) { _renderTagDonut(model, MYGROUP_DONUT, 'myGroupDonutCard'); }
 
@@ -9189,7 +9274,7 @@ function renderDonutModal() {
   let res, showResidual = false;
   if (kind === 'networth') {
     res = _netWorthDonutData(model);
-    const noFilter = categoryFilter === 'All' && sectorFilter === 'All';
+    const noFilter = activeFilters().length === 0;
     _renderEtfStaticDonut('donutModalCanvas', () => _donutModalInst, v => { _donutModalInst = v; },
       res.labels, res.data, res.colors, 'portfolio', res.total, noFilter ? model.totalCurrent : null);
   } else if (isEtf) {
@@ -9889,11 +9974,7 @@ const CATEGORY_DONUT = {
   beforeRender() { const el = document.getElementById('catDonutLegend'); if (el) el.innerHTML = ''; },
   getInst: () => catDonutInst, setInst: v => { catDonutInst = v; },
   getDrill: () => catDrilldown, setDrill: v => { catDrilldown = v; },
-  afterChange() {
-    categoryFilter = catDrilldown || 'All';
-    renderCategoryDonut(currentModel);
-    _syncDonutFilters();
-  }
+  afterChange() { _drillToFilter('category'); }
 };
 function renderCategoryDonut(model) { renderGroupedDonut(CATEGORY_DONUT, model); }
 
@@ -11042,6 +11123,14 @@ document.addEventListener('click', function(e) {
   const bd = document.getElementById('irrBreakdown');
   if (bd?.classList.contains('open') && !e.target.closest('.irr-info-wrap') && !e.target.closest('#irrBreakdown')) bd.classList.remove('open');
 });
+// Capture phase: the action modal calls event.stopPropagation() on its own container, so a
+// bubble-phase listener never sees clicks inside it. Capture runs on the way down, before that.
+document.addEventListener('click', function(e) {
+  if (rebalFundActiveIdx == null) return;
+  const el = e.target;
+  if (!el?.closest || el.closest('#rebalFundPanel') || el.closest('input[data-role="dollar"]')) return;
+  window.hideRebalFund();
+}, true);
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') document.getElementById('irrBreakdown')?.classList.remove('open');
 });
@@ -11140,6 +11229,16 @@ window.toggleCurrency = function() {
     renderHoldingsPerformance();
     if (nwData) renderNetWorthChart(nwData);
   }
+};
+
+window.setPriceSource = function(src) {
+  priceSource = src === 'CNBC' ? 'CNBC' : 'FINNHUB';
+  localStorage.setItem('priceSource.v1', priceSource);
+  const finBtn = document.getElementById('priceSourceFinnhubBtn');
+  const cnbcBtn = document.getElementById('priceSourceCnbcBtn');
+  if (finBtn) finBtn.classList.toggle('active', priceSource === 'FINNHUB');
+  if (cnbcBtn) cnbcBtn.classList.toggle('active', priceSource === 'CNBC');
+  init();
 };
 
 // ── Benchmark ─────────────────────────────────────────────────────────────────
@@ -11965,7 +12064,7 @@ function initCollapsibleCards() {
 }
 
 // ── Page switching (sidebar nav) ────────────────────────────────────────────
-const NAV_LABELS = { dashboard: 'Dashboard', holdings: 'Holdings', allocation: 'Allocation', plans: 'Plans', activity: 'Activity' };
+const NAV_LABELS = { dashboard: 'Dashboard', holdings: 'Holdings', allocation: 'Allocation', breakdowns: 'Breakdowns', plans: 'Plans', activity: 'Activity' };
 
 function setPage(page) {
   const shell = document.querySelector('.app-shell');
@@ -11977,11 +12076,16 @@ function setPage(page) {
   closeSidebar(); // mobile: close drawer after choosing
   requestAnimationFrame(() => {
     window.dispatchEvent(new Event('resize')); // let Chart.js responsive charts re-fit now they're visible
+    if (page === 'breakdowns') {
+      requestAnimationFrame(() => {
+        if (typeof currentModel !== 'undefined' && currentModel
+            && typeof rerenderDonuts === 'function') rerenderDonuts();
+      });
+    }
     if (page === 'allocation') {
       requestAnimationFrame(() => {
         if (typeof currentModel !== 'undefined' && currentModel) {
           if (typeof renderGauge === 'function') renderGauge(currentModel);
-          if (typeof rerenderDonuts === 'function') rerenderDonuts();
         }
         document.querySelectorAll('.pos-bar').forEach((bar, i) => {
           bar.classList.remove('bar-anim');
@@ -12041,6 +12145,10 @@ function buildShell() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
           <span>${NAV_LABELS.allocation}</span>
         </button>
+        <button class="nav-item" data-page="breakdowns" onclick="setPage('breakdowns')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.5 6.5"/></svg>
+          <span>${NAV_LABELS.breakdowns}</span>
+        </button>
         <button class="nav-item" data-page="plans" onclick="setPage('plans')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
           <span>${NAV_LABELS.plans}</span>
@@ -12084,6 +12192,13 @@ function buildShell() {
             <div class="settings-row">
               <span class="settings-row-label">${t('tone_label') || 'Tone'}</span>
               <button class="theme-btn" id="toneBtn" onclick="toggleTone()" title="Toggle warm/cool tone"></button>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">${t('price_source_label') || 'Prices'}</span>
+              <div class="lang-toggle" title="Choose live-price source">
+                <button class="lang-seg${priceSource==='FINNHUB'?' active':''}" id="priceSourceFinnhubBtn" onclick="setPriceSource('FINNHUB')">Finnhub</button>
+                <button class="lang-seg${priceSource==='CNBC'?' active':''}" id="priceSourceCnbcBtn" onclick="setPriceSource('CNBC')">CNBC</button>
+              </div>
             </div>
             <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px">
               <span class="settings-row-label">${t('portfolios_label') || 'Portfolios'}</span>
@@ -12212,8 +12327,7 @@ function buildShell() {
               <button class="pos-sub-tab active" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
               <button class="pos-sub-tab" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
             </div>
-            <div id="catFilters" style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap"></div>
-            <div id="sectorFilters" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap"></div>
+            <div id="posFilters" style="margin-bottom:10px"></div>
             <div id="weightBar" style="margin-bottom:12px"></div>
             <div class="table-scroll" id="posTable"></div>
           </div>
@@ -12299,6 +12413,9 @@ function buildShell() {
             <div id="correlationBody"></div>
             <div id="correlationNote" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
           </div>
+        </section>
+
+        <section class="page" data-page="breakdowns">
           <div class="alloc-donuts">
             <!-- Total Net Worth -->
             <div class="card">
@@ -13545,8 +13662,7 @@ function renderModelViews(model) {
   renderStatCards(model, lastTxData);
   renderGauge(model);
   renderPosList(model);
-  renderCategoryFilters(model);
-  renderSectorFilters(model);
+  renderFilterRows(model);
   renderTable(model);
   renderDonut(model);
   renderCategoryDonut(model);
@@ -13589,6 +13705,7 @@ function renderTxAnalytics(model, txs) {
 // No network — operates entirely on the in-memory master caches → instant switch.
 function applyPortfolioView() {
   if (typeof Chart !== 'undefined' && Chart.instances) Chart.helpers.each(Chart.instances, c => c.destroy());
+  if (activePortfolio === 'ETF') _clearFilters(['sector', 'industry']);
   currentModel = buildModel(rowsForView(activePortfolio), cashCtxFor(activePortfolio));
   if (_lastQuotes) attachQuotes(currentModel, _lastQuotes);
   txCache = _allTxCache ? filterTxForView(_allTxCache, activePortfolio) : null;
