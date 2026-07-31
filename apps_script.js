@@ -782,10 +782,13 @@ function updateSymbolAction(ss, p) {
   if (p.target   !== undefined) sh.getRange(row, findColIdx(headers, 'Target Allocation')).setValue(Number(p.target));
   if (p.category !== undefined && categoryCol > 0) sh.getRange(row, categoryCol).setValue(p.category);
 
-  // Custom / My Group are symbol-level tags, not per-portfolio — when the user edits them,
-  // propagate to every row for this symbol across ALL portfolios, not just the resolved `row`.
-  // Empty strings are written intentionally (clearing a tag), so gate on `!== undefined`, not truthiness.
-  if (p.custom !== undefined || p.myGroup !== undefined) {
+  // Custom / My Group / Sector / Industry are symbol-level tags, not per-portfolio — when the
+  // user edits them, propagate to every row for this symbol across ALL portfolios, not just the
+  // resolved `row`. Empty strings are written intentionally (clearing a tag), so gate on
+  // `!== undefined`, not truthiness. Sector/Industry are core columns expected to already exist
+  // in the header row (unlike Custom/My Group, which are optional tag columns) — don't auto-create
+  // them; a missing Sector/Industry header means a malformed sheet, not a first-time tag.
+  if (p.custom !== undefined || p.myGroup !== undefined || p.sector !== undefined || p.industry !== undefined) {
     let customCol = findColIdx(headers, 'Custom');
     if (!customCol && p.custom !== undefined) {
       customCol = sh.getLastColumn() + 1;
@@ -798,15 +801,19 @@ function updateSymbolAction(ss, p) {
       sh.getRange(1, myGroupCol).setValue('My Group');
       headers.push('My Group');
     }
+    const sectorCol   = findColIdx(headers, 'Sector');
+    const industryCol = findColIdx(headers, 'Industry');
 
     const lastRow = sh.getLastRow();
-    if ((customCol > 0 || myGroupCol > 0) && lastRow >= 2) {
+    if ((customCol > 0 || myGroupCol > 0 || sectorCol > 0 || industryCol > 0) && lastRow >= 2) {
       const syms = sh.getRange(2, symCol, lastRow - 1, 1).getValues().flat();
       syms.forEach((raw, i) => {
         if (normSym(raw) !== sym) return;
         const r = i + 2;
-        if (customCol  > 0 && p.custom  !== undefined) sh.getRange(r, customCol).setValue(p.custom);
-        if (myGroupCol > 0 && p.myGroup !== undefined) sh.getRange(r, myGroupCol).setValue(p.myGroup);
+        if (customCol   > 0 && p.custom   !== undefined) sh.getRange(r, customCol).setValue(p.custom);
+        if (myGroupCol  > 0 && p.myGroup  !== undefined) sh.getRange(r, myGroupCol).setValue(p.myGroup);
+        if (sectorCol   > 0 && p.sector   !== undefined) sh.getRange(r, sectorCol).setValue(p.sector);
+        if (industryCol > 0 && p.industry !== undefined) sh.getRange(r, industryCol).setValue(p.industry);
       });
     }
   }
