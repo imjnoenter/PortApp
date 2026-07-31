@@ -1,4 +1,16 @@
-# Both contain live Finnhub API keys (KEY1/KEY2) — never commit.
+# This repo tracks the web app only: index.html, manifest.json, sw.js, icons,
+# images, and the docs. Everything else in the working folder stays local.
+
+# Google Apps Script backend — pasted into the Apps Script editor by hand.
+# Both files hardcode live Finnhub API keys (KEY1/KEY2), so neither is ever committed.
 # apps-script.gs is the stale pre-multi-portfolio copy; apps_script.js is canonical.
 apps_script.js
 apps-script.gs
+
+# Local tooling
+.claude/
+.impeccable/
+
+# Stray shell artifacts
+git push origin main.txt
+*.tmp
