@@ -1,5 +1,10 @@
-# This repo tracks the web app only: index.html, manifest.json, sw.js, icons,
-# images, and the docs. Everything else in the working folder stays local.
+# This repo tracks the runtime web app only: index.html, manifest.json, sw.js,
+# icons and images. Everything else in the working folder stays local.
+
+# Docs — reference material, not served by the app. Local only.
+CLAUDE.md
+PRODUCT.md
+APPS_SCRIPT_CHANGES.md
 
 # Google Apps Script backend — pasted into the Apps Script editor by hand.
 # Both files hardcode live Finnhub API keys (KEY1/KEY2), so neither is ever committed.
