@@ -1,2 +1,4 @@
-# Contains live Finnhub API keys (KEY1/KEY2) — never commit.
+# Both contain live Finnhub API keys (KEY1/KEY2) — never commit.
+# apps-script.gs is the stale pre-multi-portfolio copy; apps_script.js is canonical.
 apps_script.js
+apps-script.gs
