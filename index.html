@@ -5458,7 +5458,8 @@ function _trimCalcData() {
   const target = (planState.pendingTarget ?? pos?.target) || 0;
   const targetDollar = target * invest;
   const curPctOfTarget = targetDollar > 0 ? qty * curPx / targetDollar * 100 : 0;
-  let totalSharesSold = 0, totalNetPnL = 0, anyValid = false;
+  let totalSharesSold = 0, totalNetPnL = 0, anyValid = false, totalProceeds = 0;
+  const otherValue = (model?.totalCurrent || 0) - qty * curPx;
   const rows = trimTranches.map((t, i) => {
     const P = t.price || 0, trimPct = t.pct || 0;
     const qtyRemaining = Math.max(0, qty - totalSharesSold);
@@ -5469,8 +5470,13 @@ function _trimCalcData() {
     const gross = shares > 0 && avg > 0 ? (P - avg) * shares : 0;
     const net = gross - fees;
     const hasData = P > 0 && trimPct > 0;
-    if (hasData) { totalSharesSold += shares; totalNetPnL += net; anyValid = true; }
-    return { net, tv, hasData, pctAtP, afterPct, sellPct, shares };
+    const posValAt = qtyRemaining * P;
+    const totalAt = otherValue + totalProceeds + posValAt;
+    const investAt = totalAt * (1 - (model?.cashResPct || 0));
+    const wBefore = investAt > 0 ? posValAt / investAt * 100 : 0;
+    const wAfter = investAt > 0 ? (qtyRemaining - shares) * P / investAt * 100 : 0;
+    if (hasData) { totalSharesSold += shares; totalNetPnL += net; anyValid = true; totalProceeds += tv; }
+    return { net, tv, hasData, pctAtP, afterPct, sellPct, shares, wBefore, wAfter };
   });
   const remQty = Math.max(0, qty - totalSharesSold);
   const remVal = remQty * curPx;
@@ -5523,7 +5529,8 @@ function updateTrimCalcs() {
       ? `<div style="text-align:center">
            <span style="font-size:11px;font-weight:700;color:${r.net>=0?'var(--gain)':'var(--loss)'}">${r.net>=0?'+':''}${fmtUSD(r.net)}</span>
            <span style="font-size:11px;color:var(--muted)"> ($${Math.round(r.tv).toLocaleString()})</span>
-           <div style="font-size:9px;color:var(--muted)">${r.pctAtP.toFixed(2)}% → ${r.afterPct.toFixed(2)}%</div>
+           <div style="font-size:9px;color:var(--muted)">target: ${r.pctAtP.toFixed(2)}% → ${r.afterPct.toFixed(2)}%</div>
+           <div style="font-size:9px;color:var(--muted)">weight: ${r.wBefore.toFixed(2)}% → ${r.wAfter.toFixed(2)}%</div>
          </div>`
       : '<span style="color:var(--muted)">—</span>';
     const qEl = document.getElementById(`trimQty_${i}`);
@@ -6692,9 +6699,15 @@ function recomputeValuation(model) {
   });
   const totalCurrent = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
   const stockTotal   = positions.reduce((s, p) => s + p.currentValue, 0);
+  // Three weight bases, easy to mix up: weightPct divides by totalCurrent (incl. cash reserve),
+  // stockWeightPct divides by stockTotal (equity only, no cash), investWeightPct divides by
+  // investable (totalCurrent minus the reserved cash %) — use investWeightPct wherever a weight
+  // is compared against a plan target, since targets are stored as a fraction of investable.
+  const investable = totalCurrent * (1 - (model.cashResPct || 0));
   positions.forEach(p => {
-    p.weightPct      = totalCurrent > 0 ? p.currentValue / totalCurrent * 100 : 0;
-    p.stockWeightPct = stockTotal  > 0 ? p.currentValue / stockTotal   * 100 : 0;
+    p.weightPct       = totalCurrent > 0 ? p.currentValue / totalCurrent * 100 : 0;
+    p.stockWeightPct  = stockTotal  > 0 ? p.currentValue / stockTotal   * 100 : 0;
+    p.investWeightPct = investable > 0 ? p.currentValue / investable  * 100 : 0;
   });
   model.totalCurrent = totalCurrent;
   model.investable   = totalCurrent * (1 - model.cashResPct);
@@ -8097,7 +8110,7 @@ function weekRange52Bar(p) {
 }
 
 function allocSparkline(p, investable) {
-  const curr = p.weightPct;
+  const curr = p.investWeightPct;
   const tgt  = p.target != null ? p.target * 100 : null;
   const targetAmt = p.target != null ? p.target * investable : null;
   const percentToTarget = (targetAmt && targetAmt > 0) ? (p.currentValue / targetAmt) * 100 : 0;
@@ -8296,7 +8309,7 @@ function renderTable(model) {
       <td>${dc(p.qty?.toFixed(4)||'—', null)}</td>
       <td>${dc(fmtCurr(p.avgPrice), null)}</td>
       <td>${dc(fmtCurr(p.costBasis), null)}</td>
-      <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.stockWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(0)+'%' : p.stockWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
+      <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.investWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(1)+'%' : p.investWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
       <td>${allocSparkline(p, model.investable)}</td>
       <td>${weekRange52Bar(p)}</td>
       <td><span style="font-size:11px;color:var(--muted)">${p.category||'—'}</span></td>
@@ -13023,14 +13036,14 @@ function updateAllocTarget(sym, newTarget, skipInput) {
   if (skipInput !== 'sec') { const el = document.getElementById('allocInSec'); if (el) el.value = sec.toFixed(1); }
   // Update bar in-place
   const _pos = [...(currentModel?.positions||[]), ...(currentModel?.sgovPos?[currentModel.sgovPos]:[])].find(p=>p.symbol===sym);
-  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, _pos?.weightPct||0, currentModel?.investable||0, _pos?.currentValue||0);
+  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, _pos?.investWeightPct||0, currentModel?.investable||0, _pos?.currentValue||0);
   const wf = document.getElementById('allocWeightFill');
   const wk = document.getElementById('allocWeightTick');
   const wl = document.getElementById('allocWeightLeft');
   const wr = document.getElementById('allocWeightRight');
   if (wf) { wf.style.width = barFillW + '%'; wf.style.background = barOverWeight ? 'var(--loss)' : colorFor(sym); }
   if (wk) wk.style.left = barTickL + '%';
-  if (wl) wl.textContent = `${(_pos?.weightPct||0).toFixed(1)}% / ${all.toFixed(1)}%`;
+  if (wl) wl.textContent = `${(_pos?.investWeightPct||0).toFixed(1)}% / ${all.toFixed(1)}%`;
   if (wr) wr.textContent = `${fmtCurr(_pos?.currentValue||0)} / ${fmtCurr(barTargetDollar)}`;
   // Keep drag overlay in sync with latest state
   if (window._allocDragInfo?.sym === sym) {
@@ -13088,7 +13101,7 @@ function renderAllocInfoArea() {
   const color = colorFor(sym);
   // Actual position data
   const pos = [...(currentModel?.positions||[]), ...(currentModel?.sgovPos?[currentModel.sgovPos]:[])].find(p=>p.symbol===sym);
-  const actualPct    = pos?.weightPct || 0;
+  const actualPct    = pos?.investWeightPct || 0;
   const investable   = currentModel?.investable || 0;
   const currentVal   = pos?.currentValue || 0;
   const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, actualPct, investable, currentVal);
