@@ -51,6 +51,8 @@
   --honey: #c79038;
   --peri: #6b7eb8;
   --plum: #8a5a7e;
+  --cal-bmo: color-mix(in oklab, var(--honey) 65%, var(--ink));
+  --cal-amc: color-mix(in oklab, var(--peri) 65%, var(--ink));
 
   --gain: #6b8e5a;
   --loss: #bb4d3c;
@@ -154,6 +156,8 @@
   --honey: #d6b87a;
   --peri: #9aa8d0;
   --plum: #a89bbf;
+  --cal-bmo: var(--honey);
+  --cal-amc: var(--peri);
 
   --gain: #9ab8a3;
   --loss: #d08a90;
@@ -191,6 +195,8 @@
   --honey: #d8a84b;
   --peri: #8a9bcb;
   --plum: #a3759a;
+  --cal-bmo: var(--honey);
+  --cal-amc: var(--peri);
 
   --gain: #8aa978;
   --loss: #d56b58;
@@ -398,6 +404,8 @@ body {
 .cal-chip-e .cal-chip-sym { color: var(--plum); }
 .cal-chip-d .cal-chip-sym { color: var(--sage); }
 .cal-chip-tag { font-size: 7.5px; font-weight: 700; color: var(--muted); letter-spacing: .3px; }
+.cal-chip-bmo .cal-chip-tag { color: var(--cal-bmo); }
+.cal-chip-amc .cal-chip-tag { color: var(--cal-amc); }
 .cal-strip { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .cal-strip-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0; }
 .mc-status {
@@ -2271,6 +2279,7 @@ const I18N = {
     earnings_badge: "EARNINGS", exdiv_badge: "EX-DIV",
     today_label: "Today", tomorrow_label: "Tomorrow",
     before_market_open: "Before Market Open", after_market_close: "After Market Close",
+    bmo_tag: "BMO", amc_tag: "AMC",
     no_upcoming_events: "No upcoming events in 30 days",
     no_events_month: "No events this month", nothing_this_day: "Nothing on this day",
     loading_calendar_msg: "Loading calendar…", no_calendar_data: "No calendar data",
@@ -2507,6 +2516,7 @@ const I18N = {
     earnings_badge: "รายงานงบ", exdiv_badge: "ปันผล",
     today_label: "วันนี้", tomorrow_label: "พรุ่งนี้",
     before_market_open: "ก่อนตลาดเปิด", after_market_close: "หลังตลาดปิด",
+    bmo_tag: "ก่อน", amc_tag: "หลัง",
     no_upcoming_events: "ไม่มีกิจกรรมในอีก 30 วันข้างหน้า",
     no_events_month: "ไม่มีกิจกรรมในเดือนนี้", nothing_this_day: "ไม่มีกิจกรรมในวันนี้",
     loading_calendar_msg: "กำลังโหลดปฏิทิน…", no_calendar_data: "ไม่มีข้อมูลปฏิทิน",
@@ -10650,13 +10660,29 @@ const _calEvBadge = isE => isE
   ? `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(138,90,126,.15);color:var(--plum);white-space:nowrap">${t('earnings_badge')}</span>`
   : `<span style="padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;background:rgba(107,142,90,.15);color:var(--sage);white-space:nowrap">${t('exdiv_badge')}</span>`;
 
+// 0 = before market open, 1 = after market close, 2 = ex-dividend. Drives both the
+// chip order and the tag colour, so grid and strip can never disagree.
+const _calSlot = e => e.type !== 'Earnings' ? 2 : (e.time === t('after_market_close') ? 1 : 0);
+
 function renderCalendarFromEvents(events) {
   const el = document.getElementById('calendarPanel');
   if (!el) return;
   // Events sit on their ET market date — the date Yahoo/brokers quote — for every type.
   // AMC earnings are not re-dated into Bangkok wall-clock time; that shifted only AMC rows
   // and left BMO/ex-div rows unshifted, so the calendar disagreed with itself.
-  _calEvents = events;
+  // Sort once here (not per-render): BMO before AMC before ex-div, then by all-portfolio
+  // position value descending (biggest holding first; watchlist sinks to the bottom), then
+  // symbol as a final tiebreak. Uses the sheet's `price` column (not live quotes) so the
+  // order stays stable across the 60s quote-refresh cadence.
+  const valBySym = {};
+  for (const r of rowsForView('ALL')) valBySym[r.symbol] = (Number(r.qty) || 0) * (Number(r.price) || 0);
+  _calEvents = [...events].sort((a, b) => {
+    const sa = _calSlot(a), sb = _calSlot(b);
+    if (sa !== sb) return sa - sb;
+    const va = valBySym[a.symbol] || 0, vb = valBySym[b.symbol] || 0;
+    if (va !== vb) return vb - va;
+    return a.symbol.localeCompare(b.symbol);
+  });
   _calMonthOffset = 0;
   // Default selection: nearest day with an event at/after today.
   const today  = _calBkkToday();
@@ -10685,7 +10711,7 @@ function calSelectDay(d) { _calSelectedDay = d; renderCalendarGrid(); }
 function _renderCalDayStrip() {
   const day = _calSelectedDay;
   if (!day) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
-  const evs = _calEvents.filter(e => e.date === day).sort((a, b) => a.type.localeCompare(b.type));
+  const evs = _calEvents.filter(e => e.date === day); // pre-sorted (BMO, AMC, ex-div) by renderCalendarFromEvents
   if (!evs.length) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
   const today    = _calBkkToday();
   const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
@@ -10693,7 +10719,8 @@ function _renderCalDayStrip() {
   const rows = evs.map(e => {
     const isE = e.type === 'Earnings';
     const dateText = (isE && e.dateEnd && e.dateEnd !== e.date) ? `${dateLabel}–${fmtDate(e.dateEnd)}` : dateLabel;
-    const subLabel = isE && e.time ? `${dateText} · ${e.time}` : dateText;
+    const timeColor = _calSlot(e) === 1 ? 'var(--cal-amc)' : 'var(--cal-bmo)';
+    const subLabel = isE && e.time ? `${dateText} · <span style="color:${timeColor}">${e.time}</span>` : dateText;
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);gap:8px">
       <div style="display:flex;align-items:center;gap:7px;min-width:0">
         ${logoCell(e.symbol, colorFor(e.symbol))}
@@ -10749,8 +10776,10 @@ function renderCalendarGrid() {
     if (evs.length && inMonth) {
       chips = `<div class="cal-chips">` + evs.map(e => {
         const isE = e.type === 'Earnings';
-        const tag = isE ? (e.time === t('after_market_close') ? 'AMC' : 'BMO') : '';
-        return `<span class="cal-chip ${isE ? 'cal-chip-e' : 'cal-chip-d'}">`
+        const slot = _calSlot(e);
+        const tag = isE ? (slot === 1 ? t('amc_tag') : t('bmo_tag')) : '';
+        const slotCls = isE ? (slot === 1 ? ' cal-chip-amc' : ' cal-chip-bmo') : '';
+        return `<span class="cal-chip ${isE ? 'cal-chip-e' : 'cal-chip-d'}${slotCls}">`
           + `<span class="cal-chip-sym">${e.symbol}</span>`
           + (tag ? `<span class="cal-chip-tag">${tag}</span>` : '')
           + `</span>`;
