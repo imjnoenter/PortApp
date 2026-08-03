@@ -10641,7 +10641,7 @@ function netContributedForView(){
 // ── Calendar: monthly grid ────────────────────────────────────────────────────
 // Month grid (Sunday-first) with type-colored dots per day; clicking a day fills
 // a detail strip below with that day's events. Prev/next page the month.
-let _calEvents = [];        // filtered events with a Bangkok-display date (`bkk`)
+let _calEvents = [];        // filtered events, dated by their ET market date (`date`)
 let _calMonthOffset = 0;    // 0 = current month, +1 next, -1 prev
 let _calSelectedDay = null; // 'YYYY-MM-DD' of the day whose events fill the strip
 
@@ -10653,20 +10653,14 @@ const _calEvBadge = isE => isE
 function renderCalendarFromEvents(events) {
   const el = document.getElementById('calendarPanel');
   if (!el) return;
-  // AMC earnings happen after midnight Bangkok time → show on the next BKK day.
-  const bkkDate = e => {
-    if (e.type === 'Earnings' && e.time === t('after_market_close')) {
-      const d = new Date(e.date + 'T12:00:00Z');
-      d.setUTCDate(d.getUTCDate() + 1);
-      return d.toISOString().slice(0, 10);
-    }
-    return e.date;
-  };
-  _calEvents = events.map(e => ({ ...e, bkk: bkkDate(e) }));
+  // Events sit on their ET market date — the date Yahoo/brokers quote — for every type.
+  // AMC earnings are not re-dated into Bangkok wall-clock time; that shifted only AMC rows
+  // and left BMO/ex-div rows unshifted, so the calendar disagreed with itself.
+  _calEvents = events;
   _calMonthOffset = 0;
   // Default selection: nearest day with an event at/after today.
   const today  = _calBkkToday();
-  const future = _calEvents.filter(e => e.bkk >= today).map(e => e.bkk).sort();
+  const future = _calEvents.filter(e => e.date >= today).map(e => e.date).sort();
   _calSelectedDay = future[0] || null;
   renderCalendarGrid();
 }
@@ -10681,7 +10675,7 @@ function calShiftMonth(delta) {
   _calMonthOffset += delta;
   const { y, m } = _calVisibleMonth();
   const prefix = `${y}-${String(m + 1).padStart(2, '0')}`;
-  const inMonth = _calEvents.filter(e => e.bkk.startsWith(prefix)).map(e => e.bkk).sort();
+  const inMonth = _calEvents.filter(e => e.date.startsWith(prefix)).map(e => e.date).sort();
   _calSelectedDay = inMonth[0] || null;   // first day with events in the newly shown month
   renderCalendarGrid();
 }
@@ -10691,7 +10685,7 @@ function calSelectDay(d) { _calSelectedDay = d; renderCalendarGrid(); }
 function _renderCalDayStrip() {
   const day = _calSelectedDay;
   if (!day) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
-  const evs = _calEvents.filter(e => e.bkk === day).sort((a, b) => a.type.localeCompare(b.type));
+  const evs = _calEvents.filter(e => e.date === day).sort((a, b) => a.type.localeCompare(b.type));
   if (!evs.length) return `<div class="cal-strip cal-strip-empty">${t('nothing_this_day')}</div>`;
   const today    = _calBkkToday();
   const tomorrow = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'});
@@ -10725,8 +10719,8 @@ function renderCalendarGrid() {
   // Events grouped by day, current month only (paging next reveals later months).
   const byDay = {};
   for (const e of _calEvents) {
-    if (!e.bkk.startsWith(monthPrefix)) continue;
-    (byDay[e.bkk] || (byDay[e.bkk] = [])).push(e);
+    if (!e.date.startsWith(monthPrefix)) continue;
+    (byDay[e.date] || (byDay[e.date] = [])).push(e);
   }
 
   // Weekday headers, Sunday-first (2023-01-01 was a Sunday).
