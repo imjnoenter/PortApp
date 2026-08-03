@@ -7393,9 +7393,10 @@ async function fetchQuotes(symbols) {
   const out = await _fetchQuotesBase(symbols);
   try {
     const cnbc = await fetchCnbcQuotes(symbols);
-    // CNBC keeps the previous session's ExtendedMktQuote block alive during regular hours,
-    // so its extType/extPrice are stale once the market opens — ignore them until the close.
-    const open = isMarketOpen();
+    // CNBC keeps the previous session's ExtendedMktQuote block alive outside that session —
+    // during regular hours and all through the overnight/weekend gap — so extType/extPrice are
+    // stale unless a pre/post session is actually running right now.
+    const extLive = isExtendedHours();
     const cnbcWins = priceSource === 'CNBC';
     // CNBC now owns the price, so the sheet's write time no longer describes what's shown —
     // drop the 'sheet' source or the freshness badge would claim a timestamp that isn't the data's.
@@ -7409,7 +7410,7 @@ async function fetchQuotes(symbols) {
       put('regularMarketChangePercent', c.changePct);
       if (q.fiftyTwoWeekHigh == null && c.high52 != null) q.fiftyTwoWeekHigh = c.high52;
       if (q.fiftyTwoWeekLow  == null && c.low52  != null) q.fiftyTwoWeekLow  = c.low52;
-      if (c.extType && !open) {
+      if (c.extType && extLive) {
         q.marketState = c.extType;
         if (c.extType === 'POST') q.postMarketPrice = c.extPrice;
         else                      q.preMarketPrice  = c.extPrice;
@@ -7510,7 +7511,9 @@ async function fetchSingleQuoteFromChart(symbol, yahooSym = yahooTicker(symbol))
   let preMarketPrice = null, preMarketChangePercent = null;
   let postMarketPrice = null, postMarketChangePercent = null;
 
-  if (regStart && regEnd) {
+  // Same session gate as the CNBC path: past regEnd stays true all overnight and all weekend,
+  // so without this the last extended candle would keep rendering days after the session ended.
+  if (regStart && regEnd && isExtendedHours()) {
     if (nowSec < regStart) {
       marketState = 'PRE';
       for (let i = timestamps.length - 1; i >= 0; i--) {
