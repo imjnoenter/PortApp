@@ -9347,7 +9347,7 @@ window._highlightDonutSlice = function(rowEl, idx) {
 };
 
 // ── Render: holdings performance ─────────────────────────────────────────────
-let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = false;
+let _hpData = [], _hpDivData = [], _hpTab = 'all', _hpShowDollar = true;
 let _hpTouchSym = null, _hpTouchStartX = 0, _hpTouchStartY = 0,
     _hpTouchLastX = 0, _hpTouchLastY = 0, _hpTouchMoved = false, _hpTipTimer = null;
 const HP_TOUCH_THRESHOLD = 8;
@@ -12355,7 +12355,7 @@ function buildShell() {
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
               <div class="card-title" style="margin-bottom:0">${t('holdings_performance_title')}</div>
-              <button id="hpModeToggle" class="add-tx-btn" onclick="toggleHpMode()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center;font-size:11px;font-weight:700;font-family:var(--font-mono);letter-spacing:.3px">%</button>
+              <button id="hpModeToggle" class="add-tx-btn" onclick="toggleHpMode()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center;font-size:11px;font-weight:700;font-family:var(--font-mono);letter-spacing:.3px">$</button>
             </div>
             <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
               <button class="hp-tab active" data-tab="all"       onclick="setHpTab('all')">${t('All')}</button>
