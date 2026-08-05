@@ -2206,6 +2206,11 @@ const I18N = {
     add_tranche_btn: "+ Add Tranche", stop_loss_label: "Stop Loss ($)",
     note_label: "Note", comm_free_label: "Commission-free",
     deduct_from_label: "Deduct from", save_sheet_btn: "Save to Google Sheet",
+    tx_row_changed: "This transaction changed — refresh and try again.",
+    tx_type_locked: "Only Buy and Sell rows can be edited here.",
+    tx_avg_kept: "Qty updated — avg cost left as-is (partial history).",
+    tx_transfer_hint: "Reverse this with Move shares",
+    tx_dividend_hint: "Edit dividend rows in the sheet",
     buy_label: "Buy", sell_label: "Sell", time_label: "Time",
     current_label: "Current", record_tx_btn: "Record Transaction",
     trade_value_label: "Trade Value", allocation_preview_label: "Allocation Preview",
@@ -2253,6 +2258,7 @@ const I18N = {
     fcd_label: "FCD", usd_label: "USD",
     add_contribution: "Add Contribution", deposit: "Deposit", withdraw: "Withdraw",
     contrib_note: "Note", contrib_amount: "Amount",
+    contrib_rate_label: "Rate", contrib_amount_error: "Enter a valid amount.",
     target_alloc_label: "Target Allocation", set_pct_hint: "— set % to calculate",
     take_profit_trim_label: "Take Profit / Trim", exit_price_label: "Exit Price",
     no_position_data: "No position data", optional_placeholder: "optional",
@@ -2423,6 +2429,11 @@ const I18N = {
     add_tranche_btn: "+ เพิ่มไม้", stop_loss_label: "จุดตัดขาดทุน (SL)",
     note_label: "บันทึกเพิ่มเติม", comm_free_label: "ฟรีค่าธรรมเนียม",
     deduct_from_label: "ตัดเงินจาก", save_sheet_btn: "บันทึกลง Google Sheet",
+    tx_row_changed: "รายการนี้มีการเปลี่ยนแปลง — กรุณารีเฟรชแล้วลองใหม่",
+    tx_type_locked: "แก้ไขได้เฉพาะรายการซื้อและขายเท่านั้น",
+    tx_avg_kept: "อัปเดตจำนวนหุ้นแล้ว — ต้นทุนเฉลี่ยคงเดิม (ประวัติไม่ครบ)",
+    tx_transfer_hint: "ย้อนรายการนี้ด้วยการย้ายหุ้น",
+    tx_dividend_hint: "แก้ไขรายการปันผลในชีต",
     buy_label: "ซื้อ", sell_label: "ขาย", time_label: "เวลา",
     current_label: "ปัจจุบัน", record_tx_btn: "บันทึกการเทรด",
     trade_value_label: "มูลค่าการเทรด",
@@ -2481,6 +2492,7 @@ const I18N = {
     fcd_label: "FCD", usd_label: "USD",
     add_contribution: "เพิ่มเงินเข้า/ออก", deposit: "ฝากเงิน", withdraw: "ถอนเงิน",
     contrib_note: "หมายเหตุ", contrib_amount: "จำนวนเงิน",
+    contrib_rate_label: "อัตราแลกเปลี่ยน", contrib_amount_error: "กรุณากรอกจำนวนเงินให้ถูกต้อง",
     // Action Modal — Plan Tab
     target_alloc_label: "สัดส่วนเป้าหมาย", set_pct_hint: "— กำหนด % เพื่อคำนวณ",
     take_profit_trim_label: "ขายทำกำไร / แบ่งขาย", exit_price_label: "ราคาขายออก",
@@ -2674,6 +2686,7 @@ let _nwDonutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Tot
 let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
+let _editOrigTx = null;   // the row as it was when the edit modal opened, for the impact line
 let actionModalSym = null, actionModalTab = 'edit';
 let tabDraft = {};
 let chartTimeFilter = 'ALL';
@@ -2693,6 +2706,7 @@ let txType = 'Buy';
 
 window.openAddTx = function(symbol) {
   editingRow = null;
+  _editOrigTx = null;
   txType = 'Buy';
   // Clear the trade modal to avoid duplicate ID conflicts (txShares/txPrice/txNoCommission/...)
   const tradeOverlay = document.getElementById('tradeModal');
@@ -2714,6 +2728,7 @@ window.setTxType = function(t) {
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
+  updateTxEditImpact(shares, price);
   updateActionNewAvgLine();
   updateActionTxSummary();
 };
@@ -2848,6 +2863,7 @@ window.updateTxCalc = function() {
   if (el) el.textContent = fmtCurr(shares * price);
   updateTxAllocationBars(shares, price);
   updateTxCashPreview();
+  updateTxEditImpact(shares, price);
   updateActionNewAvgLine();
   updateActionTxSummary();
 };
@@ -2862,6 +2878,24 @@ window.selectTxCash = function(src) {
   });
   updateTxCashPreview();
 };
+
+// Live "what this edit will move" line in the edit modal. The share delta is exact; the cash
+// figure is a calcFees estimate, since the authoritative Trade_Value+Fee is a sheet formula the
+// server can only read after writing. Cash always settles against USD (see cashPortFor_).
+function updateTxEditImpact(shares, price) {
+  const el = document.getElementById('txEditImpact');
+  if (!el) return;
+  const o = _editOrigTx;
+  if (!o) { el.textContent = ''; return; }
+  const ticker = document.getElementById('txTicker')?.value.trim().toUpperCase() || o.ticker;
+  const { buyTotal, sellNet } = calcFees(shares * price);
+  const newTotal = txType === 'Buy' ? buyTotal : sellNet;
+  const dq = (txType === 'Buy' ? shares : -shares) - (o.type === 'Buy' ? o.shares : -o.shares);
+  const dc = (o.type === 'Buy' ? o.total : -o.total) + (txType === 'Buy' ? -newTotal : newTotal);
+  if (!dq && Math.abs(dc) < 0.005) { el.textContent = ''; return; }
+  const sign = n => n >= 0 ? '+' : '−';
+  el.textContent = `${ticker} ${sign(dq)}${+Math.abs(dq).toFixed(6)} sh · USD ${sign(dc)}${fmtUSD(Math.abs(dc))}`;
+}
 
 function calcFees(tv) {
   const noComm = document.getElementById('txNoCommission')?.checked;
@@ -3052,6 +3086,7 @@ function buildTxModal(defaultSymbol, editData) {
       <span>Trade Value: <strong id="txTradeValue">$0.00</strong></span>
       <span style="color:var(--muted);font-size:10px">Commission &amp; tax calculated by sheet</span>
     </div>
+    ${isEdit ? `<div id="txEditImpact" style="font-size:11px;color:var(--muted);margin-bottom:12px;text-align:right"></div>` : ''}
     <button class="tx-submit" id="txSubmit" onclick="${submitCall}">${submitLabel}</button>
     <div class="tx-status" id="txStatus"></div>
   </div>`;
@@ -3140,6 +3175,34 @@ async function fetchTxList() {
 const EDIT_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
 
+// ── Editing / deleting a transaction ──────────────────────────────────────────
+// Editing or deleting a row now corrects the holding and the cash balance too, so both actions
+// carry a fingerprint of the row the panel rendered. The gviz read behind this panel is
+// CDN-cached for up to ~30s; without the check a stale row index would rewrite the wrong
+// symbol's qty and move the wrong cash. Must match txFingerprint_() in apps_script.js — note
+// Time is excluded there (a time-only cell round-trips through Local Mean Time).
+const TX_EDITABLE = t => t === 'Buy' || t === 'Sell';
+const txExpectSig = tx => [tx.date, tx.type, (tx.ticker || '').toUpperCase(),
+                           (Number(tx.shares) || 0).toFixed(6),
+                           (Number(tx.price) || 0).toFixed(6)].join('|');
+
+// What deleting this row would do: reverse its share and cash effect. `tx.total` is the sheet's
+// Trade_Value+Fee, so the cash figure is exact (the edit modal's equivalent is a calcFees estimate).
+function txDeleteImpact(tx) {
+  const dq = tx.type === 'Buy' ? -tx.shares : tx.shares;
+  const dc = tx.type === 'Buy' ?  tx.total  : -tx.total;
+  const sign = n => n >= 0 ? '+' : '−';
+  return `${tx.ticker} ${sign(dq)}${Math.abs(dq)} sh · USD ${sign(dc)}${fmtUSD(Math.abs(dc))}`;
+}
+
+// Maps a server refusal to a readable line; null when the write went through.
+function txWriteError(res) {
+  if (!res || res.ok !== false) return null;
+  if (res.error === 'row_changed')       return t('tx_row_changed');
+  if (res.error === 'type_not_editable') return t('tx_type_locked');
+  return res.error || 'Failed';
+}
+
 function renderTxPanel(fullList) {
   const body = document.getElementById('txPanelBody');
   const countEl = document.getElementById('txPanelCount');
@@ -3150,23 +3213,29 @@ function renderTxPanel(fullList) {
   if (!list.length) { body.innerHTML = '<div class="tx-panel-status">No transactions yet.</div>'; return; }
   const sorted = [...list].sort((a,b) => txSortDir * ((a.date+a.time).localeCompare(b.date+b.time)));
 
-  const rows = sorted.map(t => {
-    const time = (t.time || '').slice(0,5);
-    const badge = t.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy';
-    return `<tr data-row="${t.row}">
-      <td><div class="tx-date-main">${fmtDate(t.date)}</div><div class="tx-date-sub">${time}</div></td>
-      <td style="text-align:left"><span class="${badge}">${t.type}</span></td>
-      <td style="text-align:left"><strong>${t.ticker}</strong></td>
-      <td>${t.shares}</td>
-      <td>${fmtCurr(t.price)}</td>
-      <td>${fmtCurr(t.tradeValue)}</td>
-      <td>${fmtCurr(t.com)}</td>
-      <td>${fmtCurr(t.tax)}</td>
-      <td><strong>${fmtCurr(t.total)}</strong></td>
-      <td><div class="tx-actions">
-        <button class="tx-action-btn" title="Edit" onclick="openEditTx(${t.row})">${EDIT_ICON}</button>
-        <button class="tx-action-btn danger" title="Delete" onclick="deleteTxRow(${t.row},this)">${TRASH_ICON}</button>
-      </div></td>
+  const rows = sorted.map(tx => {
+    const time = (tx.time || '').slice(0,5);
+    const badge = tx.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy';
+    // Transfer legs come in pairs (reverse one with Move shares) and Dividend rows have no
+    // holdings or cash effect to correct — neither is editable from here.
+    const actions = TX_EDITABLE(tx.type)
+      ? `<div class="tx-actions">
+          <button class="tx-action-btn" title="Edit" onclick="openEditTx(${tx.row})">${EDIT_ICON}</button>
+          <button class="tx-action-btn danger" title="Delete" onclick="deleteTxRow(${tx.row},this)">${TRASH_ICON}</button>
+        </div>`
+      : `<span style="color:var(--muted);font-size:11px" title="${
+          tx.type === 'Dividend' ? t('tx_dividend_hint') : t('tx_transfer_hint')}">—</span>`;
+    return `<tr data-row="${tx.row}">
+      <td><div class="tx-date-main">${fmtDate(tx.date)}</div><div class="tx-date-sub">${time}</div></td>
+      <td style="text-align:left"><span class="${badge}">${tx.type}</span></td>
+      <td style="text-align:left"><strong>${tx.ticker}</strong></td>
+      <td>${tx.shares}</td>
+      <td>${fmtCurr(tx.price)}</td>
+      <td>${fmtCurr(tx.tradeValue)}</td>
+      <td>${fmtCurr(tx.com)}</td>
+      <td>${fmtCurr(tx.tax)}</td>
+      <td><strong>${fmtCurr(tx.total)}</strong></td>
+      <td>${actions}</td>
     </tr>`;
   }).join('');
 
@@ -3197,12 +3266,13 @@ async function refreshTxPanel() {
 }
 
 window.openEditTx = function(row) {
-  const t = txList.find(x => x.row === row);
-  if (!t) return;
+  const tx = txList.find(x => x.row === row);
+  if (!tx || !TX_EDITABLE(tx.type)) return;
   editingRow = row;
-  txType = t.type === 'Sell' ? 'Sell' : 'Buy';
+  _editOrigTx = tx;
+  txType = tx.type === 'Sell' ? 'Sell' : 'Buy';
   const overlay = document.getElementById('txModal');
-  overlay.innerHTML = buildTxModal(null, t);
+  overlay.innerHTML = buildTxModal(null, tx);
   overlay.classList.add('open');
   updateTxCalc();
 };
@@ -3226,10 +3296,19 @@ window.submitEditTx = async function(row) {
       type: txType, ticker, shares, price,
       tradeValue: tv.toFixed(4), commissionFree: noCommission,
       portfolio: document.getElementById('txPortfolio')?.value || DEFAULT_PORT,
+      expect: _editOrigTx ? txExpectSig(_editOrigTx) : '',
     });
-    await recordFetch(params);
-    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 800);
+    const res = await recordFetch(params, true);
+    const err = txWriteError(res);
+    if (err) {
+      statusEl.innerHTML = `<span style="color:var(--loss)">${err}</span>`;
+      document.getElementById('txSubmit').disabled = false;
+      return;
+    }
+    statusEl.innerHTML = res?.avgSkipped
+      ? `<span style="color:var(--gain)">✓ Saved</span> <span style="color:var(--muted);font-size:11px">${t('tx_avg_kept')}</span>`
+      : '<span style="color:var(--gain)">✓ Saved</span>';
+    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, res?.avgSkipped ? 2500 : 800);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
@@ -3239,11 +3318,15 @@ window.submitEditTx = async function(row) {
 window.deleteTxRow = function(row, btnEl) {
   const cell = btnEl.closest('td');
   if (!cell) return;
+  const tx = txList.find(x => x.row === row);
   if (!cell.dataset.original) cell.dataset.original = cell.innerHTML;
-  cell.innerHTML = `<div class="tx-confirm-row">
-    Delete?
-    <button class="tx-confirm-yes" onclick="confirmDeleteTx(${row},this)">Yes</button>
-    <button class="tx-confirm-no"  onclick="cancelDeleteTx(this)">No</button>
+  cell.innerHTML = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+    ${tx ? `<span style="font-size:10px;color:var(--muted);white-space:nowrap">${txDeleteImpact(tx)}</span>` : ''}
+    <div class="tx-confirm-row">
+      Delete?
+      <button class="tx-confirm-yes" onclick="confirmDeleteTx(${row},this)">Yes</button>
+      <button class="tx-confirm-no"  onclick="cancelDeleteTx(this)">No</button>
+    </div>
   </div>`;
 };
 window.cancelDeleteTx = function(btnEl) {
@@ -3252,11 +3335,25 @@ window.cancelDeleteTx = function(btnEl) {
 };
 window.confirmDeleteTx = async function(row, btnEl) {
   const cell = btnEl.closest('td');
+  const tx = txList.find(x => x.row === row);
   if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:11px">Deleting…</span>';
   try {
-    await recordFetch({ action: 'delete', row: String(row) });
-    _allTxCache = null;
-    setTimeout(refreshTxPanel, 700);
+    // needsResponse: the server can refuse (stale row / non-editable type) and can report that
+    // it kept the avg cost, and none of that is visible through a fire-and-forget write.
+    const res = await recordFetch(
+      { action: 'delete', row: String(row), expect: tx ? txExpectSig(tx) : '' }, true);
+    const err = txWriteError(res);
+    if (err) {
+      if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">${err}</span>`;
+      setTimeout(refreshTxPanel, 2500);
+      return;
+    }
+    txCache = null; _allTxCache = null;
+    // The holding and cash balance moved too, so the whole model has to be rebuilt — a panel
+    // refresh alone would leave the stat cards and positions showing the old numbers.
+    const notice = res?.avgSkipped ? t('tx_avg_kept') : '';
+    if (notice && cell) cell.innerHTML = `<span style="color:var(--muted);font-size:10px">${notice}</span>`;
+    setTimeout(() => { refreshTxPanel(); init(); }, notice ? 2500 : 700);
   } catch(e) {
     if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">Failed</span>`;
   }
@@ -3980,13 +4077,20 @@ window.submitEditCash = async function() {
 };
 
 // ── Add Contribution modal ─────────────────────────────────────────────────────
+// Deposit's "source" currency is THB (auto-fills USD); Withdraw's source is USD (auto-fills
+// THB). Once the user hand-edits the derived field, _contribDerivedDirty stops the auto-fill
+// from clobbering their correction (banks rarely give exactly fxRate) until the modal reopens
+// or the type is switched.
+let _contribDerivedDirty = false;
+
 window.openAddContribution = function() {
   const overlay = document.getElementById('contribModal');
   if (!overlay) return;
+  _contribDerivedDirty = false;
   const editPort = (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
   const portSel = _portfolioRegistry.length > 1
     ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
-        <select class="tx-input" id="contribPort">
+        <select class="tx-input" id="contribPort" onchange="updateContribPreview()">
           ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
         </select></div>` : `<input type="hidden" id="contribPort" value="${editPort}">`;
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
@@ -4006,39 +4110,103 @@ window.openAddContribution = function() {
       <label class="tx-label">Date</label>
       <input class="tx-input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}">
     </div>
-    <div class="tx-field">
-      <label class="tx-label">${t('contrib_amount')} (<span id="contribCurLabel">฿</span>)</label>
-      <input class="tx-input" id="contribAmount" type="number" step="any" min="0">
+    <div class="tx-row2">
+      <div class="tx-field">
+        <label class="tx-label">${t('contrib_amount')} (฿ THB)</label>
+        <input class="tx-input" id="contribThb" type="number" step="any" min="0" oninput="onContribAmountInput('thb')">
+      </div>
+      <div class="tx-field">
+        <label class="tx-label">${t('contrib_amount')} ($ USD)</label>
+        <input class="tx-input" id="contribUsd" type="number" step="any" min="0" oninput="onContribAmountInput('usd')">
+      </div>
+    </div>
+    <div id="contribRateLine" style="font-size:12px;color:var(--muted);margin:-6px 0 14px"></div>
+    <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
+      <div style="color:var(--muted);font-size:10px;margin-bottom:4px">${t('fcd_label')}</div>
+      <div id="contribFcdPreview"></div>
     </div>
     <div class="tx-field">
       <label class="tx-label">${t('contrib_note')}</label>
       <input class="tx-input" id="contribNote" type="text">
     </div>
-    <button class="tx-submit" onclick="saveContribution()">Save to Google Sheet</button>
+    <button class="tx-submit" onclick="saveContribution()">${t('save_sheet_btn')}</button>
     <div class="tx-status" id="contribStatus"></div>
   </div>`;
   overlay.classList.add('open');
+  updateContribPreview();
 };
 
 window.onContribTypeChange = function(){
-  const ty = document.getElementById('contribType')?.value;
-  const l = document.getElementById('contribCurLabel');
-  if (l) l.textContent = ty === 'Withdraw' ? '$' : '฿';
+  _contribDerivedDirty = false;
+  const type = document.getElementById('contribType')?.value || 'Deposit';
+  onContribAmountInput(type === 'Withdraw' ? 'usd' : 'thb');
+};
+
+// which ∈ 'thb'|'usd' — the field that just changed. Auto-fills the other field from fxRate
+// only while it's the derived (non-source) field and the user hasn't hand-edited it yet.
+window.onContribAmountInput = function(which){
+  const type = document.getElementById('contribType')?.value || 'Deposit';
+  const sourceField = type === 'Withdraw' ? 'usd' : 'thb';
+  const thbEl = document.getElementById('contribThb'), usdEl = document.getElementById('contribUsd');
+  if (which === sourceField) {
+    if (!_contribDerivedDirty && thbEl && usdEl) {
+      if (sourceField === 'usd') {
+        const usd = parseFloat(usdEl.value) || 0;
+        thbEl.value = usd > 0 && fxRate ? +(usd * fxRate).toFixed(2) : '';
+      } else {
+        const thb = parseFloat(thbEl.value) || 0;
+        usdEl.value = thb > 0 && fxRate ? +(thb / fxRate).toFixed(2) : '';
+      }
+    }
+  } else {
+    _contribDerivedDirty = true;
+  }
+  updateContribPreview();
+};
+
+window.updateContribPreview = function(){
+  const type = document.getElementById('contribType')?.value || 'Deposit';
+  const thb  = parseFloat(document.getElementById('contribThb')?.value) || 0;
+  const usd  = parseFloat(document.getElementById('contribUsd')?.value) || 0;
+  const rateEl = document.getElementById('contribRateLine');
+  if (rateEl) {
+    const rate = usd > 0 ? thb / usd : null;
+    rateEl.textContent = `${t('contrib_rate_label')}: ${rate != null ? rate.toFixed(2) + ' THB/USD' : '—'}`;
+  }
+  const fcdEl = document.getElementById('contribFcdPreview');
+  if (fcdEl) {
+    const rawPort = document.getElementById('contribPort')?.value || DEFAULT_PORT;
+    const r = _portRow(rawPort === 'ETF' ? DEFAULT_PORT : rawPort);
+    const before = Number(r?.fcd) || 0;
+    const after = before + (type === 'Withdraw' ? -usd : usd);
+    fcdEl.innerHTML = `<strong>${fmtUSD(before)} → ${fmtUSD(after)}</strong>`;
+  }
 };
 
 window.saveContribution = async function() {
   const rawPort = document.getElementById('contribPort')?.value || DEFAULT_PORT;
-  const type   = document.getElementById('contribType')?.value || 'Deposit';
-  const date   = document.getElementById('contribDate')?.value || '';
-  const amount = parseFloat(document.getElementById('contribAmount')?.value) || 0;
-  const note   = document.getElementById('contribNote')?.value || '';
-  const currency = type === 'Withdraw' ? 'USD' : 'THB';
+  const type = document.getElementById('contribType')?.value || 'Deposit';
+  const date = document.getElementById('contribDate')?.value || '';
+  const thb  = parseFloat(document.getElementById('contribThb')?.value) || 0;
+  const usd  = parseFloat(document.getElementById('contribUsd')?.value) || 0;
+  const note = document.getElementById('contribNote')?.value || '';
   const statusEl = document.getElementById('contribStatus');
-  statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
+  if (thb <= 0 || usd <= 0) {
+    statusEl.innerHTML = `<span style="color:var(--loss)">${t('contrib_amount_error')}</span>`;
+    return;
+  }
+  const rate = thb / usd;
+  const amount   = type === 'Withdraw' ? usd : thb;
+  const currency = type === 'Withdraw' ? 'USD' : 'THB';
+  statusEl.innerHTML = `<span style="color:var(--muted)">${t('saving_msg')}</span>`;
   try {
-    const params = new URLSearchParams({ action: 'addContribution', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort, date, type, amount, currency, note });
+    const params = new URLSearchParams({
+      action: 'addContribution', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort,
+      date, type, amount, currency, note,
+      amountTHB: thb, amountUSD: usd, rate,
+    });
     await recordFetch(params);
-    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
+    statusEl.innerHTML = `<span style="color:var(--gain)">${t('saved_sheet_msg')}</span>`;
     setTimeout(() => {
       document.getElementById('contribModal')?.classList.remove('open');
       init();
@@ -10646,11 +10814,19 @@ async function fetchContributions(){
       const c = row.c || [];
       const port = c[0]?.v; if(!port || port==='Portfolio') continue;
       const type = (c[2]?.v||'').toString();
-      const amt  = Number(c[3]?.v)||0;
-      const cur  = (c[4]?.v||'').toString().toUpperCase();
       const b = _contribCache[port] || (_contribCache[port]={depositTHB:0, withdrawUSD:0});
-      if(type.toLowerCase().startsWith('deposit') || cur==='THB') b.depositTHB += amt;
-      else b.withdrawUSD += amt;
+      const isDeposit = type.toLowerCase().startsWith('deposit');
+      // Explicit AmountTHB/AmountUSD (new rows carry both) take precedence; legacy rows only
+      // have Amount+Currency, so fall back to the old currency/type inference for those.
+      if(c[6]?.v != null && c[7]?.v != null){
+        if(isDeposit) b.depositTHB += Number(c[6].v)||0;
+        else b.withdrawUSD += Number(c[7].v)||0;
+      } else {
+        const amt = Number(c[3]?.v)||0;
+        const cur = (c[4]?.v||'').toString().toUpperCase();
+        if(isDeposit || cur==='THB') b.depositTHB += amt;
+        else b.withdrawUSD += amt;
+      }
     }
   }catch(e){ console.error('fetchContributions:', e); }
 }
