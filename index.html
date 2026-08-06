@@ -2212,7 +2212,7 @@ const I18N = {
     remove_btn: "Remove", save_plan_btn: "Save Plan", clear_btn: "Clear",
     clear_tranches_btn: "Clear Tranches", remove_plan_btn: "Remove Plan",
     add_tranche_btn: "+ Add Tranche", stop_loss_label: "Stop Loss ($)",
-    note_label: "Note", comm_free_label: "Commission-free",
+    note_label: "Note", comm_free_label: "No Commission",
     deduct_from_label: "Deduct from", save_sheet_btn: "Save to Google Sheet",
     tx_row_changed: "This transaction changed — refresh and try again.",
     tx_type_locked: "Only Buy and Sell rows can be edited here.",
@@ -2438,7 +2438,7 @@ const I18N = {
     remove_btn: "ลบออก", save_plan_btn: "บันทึกแผน", clear_btn: "ล้างค่า",
     clear_tranches_btn: "ล้างไม้ซื้อ", remove_plan_btn: "ลบแผน",
     add_tranche_btn: "+ เพิ่มไม้", stop_loss_label: "จุดตัดขาดทุน (SL)",
-    note_label: "บันทึกเพิ่มเติม", comm_free_label: "ฟรีค่าธรรมเนียม",
+    note_label: "บันทึกเพิ่มเติม", comm_free_label: "ไม่มีค่าคอมมิชชั่น",
     deduct_from_label: "ตัดเงินจาก", save_sheet_btn: "บันทึกลง Google Sheet",
     tx_row_changed: "รายการนี้มีการเปลี่ยนแปลง — กรุณารีเฟรชแล้วลองใหม่",
     tx_type_locked: "แก้ไขได้เฉพาะรายการซื้อและขายเท่านั้น",
@@ -2915,8 +2915,9 @@ function updateTxEditImpact(shares, price) {
 
 function calcFees(tv) {
   const noComm = document.getElementById('txNoCommission')?.checked;
-  const comm = noComm ? 0 : tv * 0.0015;
-  const tax  = comm * 0.07;
+  const gross  = tv * 0.0015;      // standard commission
+  const comm   = noComm ? 0 : gross;
+  const tax    = gross * 0.07;     // VAT is owed on the full commission even when it is waived
   return { comm, tax, buyTotal: tv + comm + tax, sellNet: tv - comm - tax };
 }
 
@@ -2986,12 +2987,15 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
   // 1. Recalculate Qty and Avg Cost (upsert — creates row if symbol is new)
   if (txTypeVal === 'Buy' || txTypeVal === 'Sell') {
     let newQty, newAvg;
+    const fifo = fifoAfterTrade(port, ticker, curQty, txTypeVal, shares, price);
     if (txTypeVal === 'Buy') {
       newQty = curQty + shares;
-      newAvg = newQty > 0 ? (curQty*curAvg + shares*price) / newQty : price;
+      // FIFO and weighted average agree on a buy, so the fallback is exact here
+      newAvg = fifo ? fifo.avg : (newQty > 0 ? (curQty*curAvg + shares*price) / newQty : price);
     } else {
       newQty = Math.max(0, curQty - shares);
-      newAvg = curAvg;
+      // Only FIFO moves the average on a sell; without a reconciled ledger, leave it
+      newAvg = fifo ? fifo.avg : curAvg;
     }
     // Sell All: if qty reaches 0, delete from Claude sheet
     if (txSellAll && txTypeVal === 'Sell' && newQty < 0.0001) {
@@ -3324,6 +3328,7 @@ window.submitEditTx = async function(row) {
     statusEl.innerHTML = res?.avgSkipped
       ? `<span style="color:var(--gain)">✓ Saved</span> <span style="color:var(--muted);font-size:11px">${t('tx_avg_kept')}</span>`
       : '<span style="color:var(--gain)">✓ Saved</span>';
+    _basisFixPending = true; // Apps Script replayed the holding with a rolling average — re-derive after reload
     setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, res?.avgSkipped ? 2500 : 800);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
@@ -3365,6 +3370,7 @@ window.confirmDeleteTx = async function(row, btnEl) {
       return;
     }
     txCache = null; _allTxCache = null;
+    _basisFixPending = true; // Apps Script replayed the holding with a rolling average — re-derive after reload
     // The holding and cash balance moved too, so the whole model has to be rebuilt — a panel
     // refresh alone would leave the stat cards and positions showing the old numbers.
     const notice = res?.avgSkipped ? t('tx_avg_kept') : '';
@@ -4656,8 +4662,10 @@ function updateActionNewAvgLine() {
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
   if (!shares || !price) return;
+  const fifo = fifoAfterTrade(actionModalPort, actionModalSym, curQty, txType, shares, price);
   let newAvg;
-  if (txType === 'Sell') { newAvg = curAvg; }
+  if (fifo) newAvg = fifo.avg;
+  else if (txType === 'Sell') newAvg = curAvg;
   else { const nq = curQty + shares; newAvg = nq > 0 ? (curQty * curAvg + shares * price) / nq : price; }
   if (newAvg > 0) {
     actionTvNewAvgLine = actionTvSeries.createPriceLine({
@@ -4678,7 +4686,8 @@ function destroyTradeTvChart() {
 }
 
 // Live "new avg" line — recomputed on every input change. Buy: weighted avg of held + new
-// shares (fees excluded, matches postTransactionUpdates). Sell: avg is unchanged.
+// shares (fees excluded, matches postTransactionUpdates). Sell: Compressed FIFO retires the
+// oldest lots first, so the average can move — see fifoAfterTrade.
 function updateTradeAvgLine() {
   updateActionNewAvgLine(); // transaction tab now shares the action chart (actionTvSeries)
   if (!tradeTvSeries) return;
@@ -4688,8 +4697,11 @@ function updateTradeAvgLine() {
   const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
+  const fifo = fifoAfterTrade(tradeModalPort, tradeModalSym, curQty, txType, shares, price);
   let newAvg;
-  if (txType === 'Sell') {
+  if (fifo) {
+    newAvg = fifo.avg;
+  } else if (txType === 'Sell') {
     newAvg = curAvg;
   } else {
     const newQty = curQty + shares;
@@ -4784,13 +4796,14 @@ function tradeSummaryRowsHtml(sym, port) {
   const pos    = findPosIn(model, sym);
   const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
   const isSell = txType === 'Sell';
+  const fifo = fifoAfterTrade(port, sym, curQty, txType, shares, price);
   let newQty, newAvgStr;
   if (isSell) {
     newQty = Math.max(0, curQty - shares);
-    newAvgStr = newQty < 0.0001 ? '—' : fmtUSD(curAvg);
+    newAvgStr = newQty < 0.0001 ? '—' : fmtUSD(fifo ? fifo.avg : curAvg);
   } else {
     newQty = curQty + shares;
-    newAvgStr = newQty > 0 ? fmtUSD((curQty * curAvg + shares * price) / newQty) : fmtUSD(price);
+    newAvgStr = newQty > 0 ? fmtUSD(fifo ? fifo.avg : (curQty * curAvg + shares * price) / newQty) : fmtUSD(price);
   }
 
   // Cash impact + cash weight (cash / total portfolio value). Buy drains cash by the all-in
@@ -6776,6 +6789,187 @@ function cashCtxFor(portId) {
 // Transfer-Out / Transfer-In rows move shares between portfolios with no realized P&L.
 function isTransfer(tx) { const ty = (tx?.type || '').toLowerCase(); return ty === 'transfer-out' || ty === 'transfer-in'; }
 
+// ---- Compressed FIFO cost basis -------------------------------------------
+// Lots are per (portfolio, symbol): a sell in one portfolio can never retire a
+// lot from another. Same-day BUYS are compressed into a single weighted-average
+// lot (Alpaca's "Compressed FIFO"), then SELLS retire lots oldest-first across
+// days. Transfers move real lot slices between portfolios so total cost is
+// preserved. Lot cost is shares x price — fees are tracked separately and never
+// folded into basis, matching computeClosedTrades.
+function _fifoKey(port, sym) { return (port || DEFAULT_PORT) + '\u0000' + sym; }
+
+// Walk an already view-filtered tx list. Returns per-key final lots plus one
+// record per Sell carrying the FIFO cost of the shares it retired.
+// lot = [shares, unitCost, dateStr]
+function fifoWalk(txs) {
+  const books = new Map();
+  const sells = [];
+  const lotsOf = k => { let L = books.get(k); if (!L) { L = []; books.set(k, L); } return L; };
+
+  // Retire `qty` from the front of a lot queue; returns the cost removed.
+  const retire = (L, qty) => {
+    let rem = qty, cost = 0;
+    while (rem > 1e-12 && L.length) {
+      const take = Math.min(rem, L[0][0]);
+      cost += take * L[0][1];
+      L[0][0] -= take;
+      rem -= take;
+      if (L[0][0] <= 1e-12) L.shift();
+    }
+    return cost;
+  };
+  // Same, but returns the actual lot slices so a transfer can carry real cost.
+  const detach = (L, qty) => {
+    let rem = qty; const out = [];
+    while (rem > 1e-12 && L.length) {
+      const take = Math.min(rem, L[0][0]);
+      out.push([take, L[0][1], L[0][2]]);
+      L[0][0] -= take;
+      rem -= take;
+      if (L[0][0] <= 1e-12) L.shift();
+    }
+    return out;
+  };
+
+  const byDate = new Map();
+  for (const t of (txs || [])) {
+    if (!t || !t.ticker || !t.dateStr || t.type === 'Dividend') continue;
+    if (!byDate.has(t.dateStr)) byDate.set(t.dateStr, []);
+    byDate.get(t.dateStr).push(t);
+  }
+  const dates = [...byDate.keys()].sort((a, b) => a.localeCompare(b));
+
+  for (const d of dates) {
+    const group = byDate.get(d);
+    const pick  = ty => group.filter(t => t.type === ty);
+
+    // 1. compress the day's buys per key into one lot
+    const buyAgg = new Map();
+    for (const t of pick('Buy')) {
+      const k = _fifoKey(t.portfolio, t.ticker);
+      const a = buyAgg.get(k) || { q: 0, c: 0 };
+      const tv = t.tradeValue != null ? t.tradeValue : (t.shares || 0) * (t.price || 0);
+      a.q += t.shares || 0; a.c += tv;
+      buyAgg.set(k, a);
+    }
+    for (const [k, a] of buyAgg) if (a.q > 1e-12) lotsOf(k).push([a.q, a.c / a.q, d]);
+
+    // 2. transfers out — stash the real lot slices for the matching leg
+    const moved = new Map();
+    for (const t of pick('Transfer-Out')) {
+      const slices = detach(lotsOf(_fifoKey(t.portfolio, t.ticker)), t.shares || 0);
+      const mk = t.ticker + '\u0000' + (t.shares || 0).toFixed(7);
+      moved.set(mk, (moved.get(mk) || []).concat(slices));
+    }
+    // 3. transfers in — receive those slices (fallback: one lot at carried avg)
+    for (const t of pick('Transfer-In')) {
+      const mk = t.ticker + '\u0000' + (t.shares || 0).toFixed(7);
+      const slices = moved.get(mk);
+      const L = lotsOf(_fifoKey(t.portfolio, t.ticker));
+      if (slices && slices.length) { slices.forEach(s => L.push([s[0], s[1], d])); moved.delete(mk); }
+      else if ((t.shares || 0) > 1e-12) L.push([t.shares, t.price || 0, d]);
+    }
+
+    // 4. sells retire oldest-first
+    for (const t of pick('Sell')) {
+      const k = _fifoKey(t.portfolio, t.ticker);
+      const L = lotsOf(k);
+      const held = L.reduce((s, l) => s + l[0], 0);
+      const sold = Math.min(t.shares || 0, held);
+      const costOut = retire(L, sold);
+      sells.push({
+        dateStr: d, ticker: t.ticker, portfolio: t.portfolio || DEFAULT_PORT,
+        shares: sold, price: t.price || 0,
+        tradeValue: t.tradeValue != null ? t.tradeValue : sold * (t.price || 0),
+        costOut,
+      });
+    }
+  }
+  return { books, sells };
+}
+
+// Memoized walk over the master tx list (all portfolios). _allTxCache is
+// replaced wholesale on refresh, so identity comparison is a valid cache key.
+let _fifoMemo = { src: null, res: null };
+function fifoAll() {
+  if (!_allTxCache) return null;
+  if (_fifoMemo.src === _allTxCache) return _fifoMemo.res;
+  _fifoMemo = { src: _allTxCache, res: fifoWalk(_allTxCache) };
+  return _fifoMemo.res;
+}
+
+// Reconciliation guard: only trust the ledger when its share count agrees with
+// the holding row. A gap over 1% means the tx history is incomplete, so the
+// stored sheet average is used instead and the row is marked.
+const FIFO_QTY_TOLERANCE = 0.01;
+function fifoBasis(port, sym, sheetQty) {
+  const res = fifoAll();
+  if (!res) return null;
+  const L = res.books.get(_fifoKey(port, sym));
+  if (!L || !L.length) return null;
+  const qty  = L.reduce((s, l) => s + l[0], 0);
+  const cost = L.reduce((s, l) => s + l[0] * l[1], 0);
+  if (!(qty > 1e-9)) return null;
+  if (sheetQty > 0 && Math.abs(qty - sheetQty) / sheetQty > FIFO_QTY_TOLERANCE) return null;
+  return { qty, cost, avg: cost / qty, lots: L };
+}
+
+// Apply a hypothetical trade to the current lots and report the resulting
+// average — used by the modal previews and by the write path.
+function fifoAfterTrade(port, sym, sheetQty, type, shares, price, dateStr) {
+  const b = fifoBasis(port, sym, sheetQty);
+  if (!b) return null;
+  const L = b.lots.map(l => [l[0], l[1], l[2]]);
+  const d = dateStr || new Date().toISOString().slice(0, 10);
+  if (type === 'Buy') {
+    // compress into today's lot if one already exists, else append
+    const i = L.findIndex(l => l[2] === d);
+    if (i >= 0) {
+      const q = L[i][0] + shares, c = L[i][0] * L[i][1] + shares * price;
+      L[i] = [q, c / q, d];
+    } else L.push([shares, price, d]);
+  } else {
+    let rem = shares;
+    while (rem > 1e-12 && L.length) {
+      const take = Math.min(rem, L[0][0]);
+      L[0][0] -= take; rem -= take;
+      if (L[0][0] <= 1e-12) L.shift();
+    }
+  }
+  const qty  = L.reduce((s, l) => s + l[0], 0);
+  const cost = L.reduce((s, l) => s + l[0] * l[1], 0);
+  return { qty, avg: qty > 1e-9 ? cost / qty : 0 };
+}
+
+// Editing or deleting a transaction makes Apps Script rebuild the holding by replaying its
+// history (replayHolding_), and that replay still uses a rolling average — it runs server-side
+// and cannot see the engine above. Rather than keep a second copy of a path-dependent cost
+// method in Apps Script, where the two would eventually drift, the client re-derives the basis
+// once the rebuilt ledger has loaded and writes the correct value back. Set by the edit/delete
+// paths and consumed once, so a normal refresh never triggers a write.
+let _basisFixPending = false;
+
+function reconcileFifoBasis() {
+  if (!_basisFixPending || !_allTxCache) return;
+  // gviz caches the sheet read for ~5-30s, so this can run against a copy that predates the
+  // rebuild. Only retire the flag once the ledger actually resolved a basis — otherwise a stale
+  // read would consume the one repair attempt and silently leave the wrong value in the sheet.
+  let resolved = false;
+  for (const r of _allRows) {
+    const qty = Number(r.qty) || 0;
+    if (!(qty > 0)) continue;
+    const port = r.portfolio || DEFAULT_PORT;
+    const b = fifoBasis(port, r.symbol, qty);
+    if (!b) continue;                                            // ledger doesn't reconcile — leave it
+    resolved = true;
+    if (Math.abs(b.avg - (Number(r.avgPrice) || 0)) < 0.005) continue;
+    r.avgPrice = b.avg;
+    // avgPrice only — Apps Script has just rebuilt qty from the ledger and that part is correct
+    recordFetch({ action: 'updateSymbol', symbol: r.symbol, portfolio: port, avgPrice: b.avg.toFixed(6) });
+  }
+  if (resolved) _basisFixPending = false;
+}
+
 // Slice the master tx list for a view. Single port → its rows; ALL → all rows.
 function filterTxForView(allTx, portId) {
   if (!allTx) return null;
@@ -6841,6 +7035,17 @@ function parseRows(table) {
   }).filter(r => r.symbol);
 }
 
+// Replace a holding row's stored average with the ledger-derived Compressed FIFO
+// basis. Falls back to the sheet value (and flags the row) when the tx history
+// doesn't reconcile with the holding's share count.
+function _withFifoBasis(r) {
+  const q = Number(r.qty) || 0;
+  if (!(q > 0)) return r;
+  const b = fifoBasis(r.portfolio || DEFAULT_PORT, r.symbol, q);
+  if (!b) return _allTxCache ? { ...r, basisFallback: true } : r;
+  return { ...r, avgPrice: b.avg };
+}
+
 // Slice _allRows for the active view. Single port → filter; ALL → merge same-symbol rows
 // (sum qty, sum cost basis, weighted avg). Keeps Long-Term's target on the merged row.
 function rowsForView(portId) {
@@ -6853,21 +7058,22 @@ function rowsForView(portId) {
       ['price','name','sector','industry','marketCap'].forEach(k => { if (f[k] == null && r[k] != null && r[k] !== '') f[k] = r[k]; });
     }
     return _allRows.filter(r => (r.portfolio || DEFAULT_PORT) === portId).map(r => {
+      const rr = _withFifoBasis(r);
       const f = fill[r.symbol] || {};
       return {
-        ...r,
-        price:    r.price    != null && r.price    !== '' ? r.price    : (f.price    ?? null),
-        name:     r.name     != null && r.name     !== '' ? r.name     : (f.name     ?? r.name),
-        sector:   r.sector   != null && r.sector   !== '' ? r.sector   : (f.sector   ?? r.sector),
-        industry: r.industry != null && r.industry !== '' ? r.industry : (f.industry ?? r.industry),
-        marketCap: r.marketCap != null && r.marketCap !== '' ? r.marketCap : (f.marketCap ?? null),
+        ...rr,
+        price:    rr.price    != null && rr.price    !== '' ? rr.price    : (f.price    ?? null),
+        name:     rr.name     != null && rr.name     !== '' ? rr.name     : (f.name     ?? rr.name),
+        sector:   rr.sector   != null && rr.sector   !== '' ? rr.sector   : (f.sector   ?? rr.sector),
+        industry: rr.industry != null && rr.industry !== '' ? rr.industry : (f.industry ?? rr.industry),
+        marketCap: rr.marketCap != null && rr.marketCap !== '' ? rr.marketCap : (f.marketCap ?? null),
       };
     });
   }
   const bySym = new Map();
   for (const r of _allRows) {
     const g = bySym.get(r.symbol) || { rows: [] };
-    g.rows.push(r);
+    g.rows.push(_withFifoBasis(r));
     bySym.set(r.symbol, g);
   }
   const merged = [];
@@ -6895,6 +7101,7 @@ function rowsForView(portId) {
       target:   tgtRow ? tgtRow.target : null,
       price:    pick('price'),
       marketCap: pick('marketCap'),
+      basisFallback: g.rows.some(r => r.basisFallback),
     });
   }
   return merged;
@@ -8513,7 +8720,7 @@ function renderTable(model) {
 
     return `<tr>
       <td><div class="asset-cell">${logoCell(p.symbol, color)}
-        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
+        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${p.basisFallback ? `<span style="color:var(--muted);font-size:10px" title="Cost basis estimated — transaction history incomplete">≈</span>` : ''}${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
       </div></td>
       <td>${dc(fmtCurr(p.price), priceSub, priceSubCls)}</td>
       <td class="${dayCls}">${dc(dayChgStr, dayPctStr, dayCls)}</td>
@@ -12039,84 +12246,140 @@ async function loadBenchmark(retry = 0) {
 }
 
 // ── Realized P&L chart ───────────────────────────────────────────────────────
+// Compressed FIFO: buys within a day are pooled per (portfolio, ticker), sells retire
+// lots oldest-first. fifoWalk already keys by portfolio so ALL-view sells never cross
+// portfolios. Gross of fees, matching the previous behaviour.
 function computePnLTimeline(txs) {
-  const holdings = {};
-  const trades   = [];
-  const sorted   = [...txs].sort((a, b) => {
-    const d = a.dateStr.localeCompare(b.dateStr);
-    return d !== 0 ? d : (a.time || '').localeCompare(b.time || '');
-  });
-  for (const tx of sorted) {
-    if (!tx.ticker) continue;
-    if (tx.type === 'Dividend') continue;
-    if (!holdings[tx.ticker]) holdings[tx.ticker] = { shares: 0, avgCost: 0 };
-    const h = holdings[tx.ticker];
-    if (tx.type === 'Buy' || tx.type === 'Transfer-In') {
-      // Transfer-In carries the source avg cost (tx.price) → buy-like, no realized P&L
-      const newShares = h.shares + tx.shares;
-      h.avgCost  = newShares > 0 ? (h.shares * h.avgCost + tx.shares * tx.price) / newShares : tx.price;
-      h.shares   = newShares;
-    } else if (tx.type === 'Sell') {
-      const pnl = (tx.price - h.avgCost) * tx.shares;
-      trades.push({ date: tx.dateStr, ticker: tx.ticker, pnl });
-      h.shares = Math.max(0, h.shares - tx.shares);
-    } else if (tx.type === 'Transfer-Out') {
-      h.shares = Math.max(0, h.shares - tx.shares); // share reduction only, no realized P&L
-    }
-  }
-  return trades;
+  const { sells } = fifoWalk(txs);
+  return sells.map(s => ({ date: s.dateStr, ticker: s.ticker, pnl: s.shares * s.price - s.costOut }));
 }
 
+// Closed-trade cycles (open → fully sold/transferred-out → closed), Compressed FIFO cost.
+// Lots are tracked per (portfolio, ticker) via _fifoKey — this also fixes a pre-FIFO bug
+// where the ALL view pooled Long-Term and Trade lots together under the bare ticker.
 function computeClosedTrades(txs) {
-  const open   = {};
+  const cyc    = new Map(); // _fifoKey → { lots:[[shares,unitCost,date]], fees, realized, soldQty, soldCost, firstBuy }
   const closed = [];
-  const sorted = [...txs].sort((a, b) => a.dateStr.localeCompare(b.dateStr));
-  for (const tx of sorted) {
-    if (!tx.ticker || tx.type === 'Dividend') continue;
-    const sh = tx.shares || 0, px = tx.price || 0;
-    const tv = tx.tradeValue != null ? tx.tradeValue : sh * px;
-    if (!open[tx.ticker]) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
-    const h = open[tx.ticker];
-    if (tx.type === 'Buy' || tx.type === 'Transfer-In') {
-      h.shares    += sh;
-      h.totalCost += sh * px;
-      if (tx.type === 'Buy') h.fees += Math.abs(tv - sh * px);
-      if (!h.firstBuy) h.firstBuy = tx.dateStr;
-    } else if (tx.type === 'Transfer-Out') {
-      // Move shares out at carried avg — no realized P&L, no closed-trade record
-      const avgEntry = h.shares > 1e-9 ? h.totalCost / h.shares : px;
-      const moved    = Math.min(sh, h.shares);
-      h.totalCost -= avgEntry * moved;
-      h.shares    -= moved;
-      if (h.shares < 0.001) open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
-    } else if (tx.type === 'Sell') {
-      const avgEntry  = h.shares > 1e-9 ? h.totalCost / h.shares : px;
-      const sold      = Math.min(sh, h.shares);
-      const grossPnl  = (px - avgEntry) * sold;
-      const sellFee   = Math.abs(tv - sh * px);
-      h.totalCost -= avgEntry * sold;
-      h.shares    -= sold;
-      h.fees      += sellFee;
-      h.realized  += grossPnl;
-      h.soldQty   += sold;
-      if (h.shares < 0.001) {
-        const totalFees = h.fees;
-        const netPnl    = h.realized - totalFees;
-        const costBasis = avgEntry * h.soldQty;
+  const blankCycle = () => ({ lots: [], fees: 0, realized: 0, soldQty: 0, soldCost: 0, firstBuy: null });
+  const cycOf  = k => { let c = cyc.get(k); if (!c) { c = blankCycle(); cyc.set(k, c); } return c; };
+
+  // Retire `qty` from the front of a lot queue; returns the cost removed.
+  const retire = (lots, qty) => {
+    let rem = qty, cost = 0;
+    while (rem > 1e-12 && lots.length) {
+      const take = Math.min(rem, lots[0][0]);
+      cost += take * lots[0][1];
+      lots[0][0] -= take;
+      rem -= take;
+      if (lots[0][0] <= 1e-12) lots.shift();
+    }
+    return cost;
+  };
+  // Same, but returns the actual lot slices so a transfer can carry real cost.
+  const detach = (lots, qty) => {
+    let rem = qty; const out = [];
+    while (rem > 1e-12 && lots.length) {
+      const take = Math.min(rem, lots[0][0]);
+      out.push([take, lots[0][1], lots[0][2]]);
+      lots[0][0] -= take;
+      rem -= take;
+      if (lots[0][0] <= 1e-12) lots.shift();
+    }
+    return out;
+  };
+
+  const byDate = new Map();
+  for (const t of (txs || [])) {
+    if (!t || !t.ticker || !t.dateStr || t.type === 'Dividend') continue;
+    if (!byDate.has(t.dateStr)) byDate.set(t.dateStr, []);
+    byDate.get(t.dateStr).push(t);
+  }
+  const dates = [...byDate.keys()].sort((a, b) => a.localeCompare(b));
+
+  for (const d of dates) {
+    const group = byDate.get(d);
+    const pick  = ty => group.filter(t => t.type === ty);
+
+    // 1. compress the day's buys per key into one lot; accumulate fees per-tx (fee doesn't
+    //    depend on the compressed cost, only on that tx's own tradeValue vs shares*price)
+    const buyAgg = new Map();
+    for (const t of pick('Buy')) {
+      const k  = _fifoKey(t.portfolio, t.ticker);
+      const sh = t.shares || 0, px = t.price || 0;
+      const tv = t.tradeValue != null ? t.tradeValue : sh * px;
+      const a  = buyAgg.get(k) || { q: 0, c: 0, fees: 0 };
+      a.q += sh; a.c += sh * px; a.fees += Math.abs(tv - sh * px);
+      buyAgg.set(k, a);
+    }
+    for (const [k, a] of buyAgg) {
+      if (a.q <= 1e-12) continue;
+      const c = cycOf(k);
+      c.lots.push([a.q, a.c / a.q, d]);
+      c.fees += a.fees;
+      if (!c.firstBuy) c.firstBuy = d;
+    }
+
+    // 2. transfers out — move shares at carried FIFO cost, no realized P&L, no closed record
+    const moved = new Map();
+    for (const t of pick('Transfer-Out')) {
+      const k = _fifoKey(t.portfolio, t.ticker);
+      const c = cycOf(k);
+      const slices = detach(c.lots, t.shares || 0);
+      const mk = t.ticker + '\u0000' + (t.shares || 0).toFixed(7);
+      moved.set(mk, (moved.get(mk) || []).concat(slices));
+      const remaining = c.lots.reduce((s, l) => s + l[0], 0);
+      if (remaining < 0.001) cyc.set(k, blankCycle());
+    }
+    // 3. transfers in — receive those slices into the destination's cycle (fallback: one lot
+    //    at carried avg)
+    for (const t of pick('Transfer-In')) {
+      const k = _fifoKey(t.portfolio, t.ticker);
+      const c = cycOf(k);
+      const mk = t.ticker + '\u0000' + (t.shares || 0).toFixed(7);
+      const slices = moved.get(mk);
+      if (slices && slices.length) {
+        slices.forEach(s => { c.lots.push([s[0], s[1], d]); if (!c.firstBuy) c.firstBuy = s[2]; });
+        moved.delete(mk);
+      } else if ((t.shares || 0) > 1e-12) {
+        c.lots.push([t.shares, t.price || 0, d]);
+        if (!c.firstBuy) c.firstBuy = d;
+      }
+    }
+
+    // 4. sells retire oldest-first; close the cycle when shares hit ~0
+    for (const t of pick('Sell')) {
+      const k  = _fifoKey(t.portfolio, t.ticker);
+      const c  = cycOf(k);
+      const sh = t.shares || 0, px = t.price || 0;
+      const tv = t.tradeValue != null ? t.tradeValue : sh * px;
+      const held = c.lots.reduce((s, l) => s + l[0], 0);
+      const sold = Math.min(sh, held);
+      const costOut = retire(c.lots, sold);
+
+      c.realized += sold * px - costOut;
+      c.fees     += Math.abs(tv - sh * px);
+      c.soldQty  += sold;
+      c.soldCost += costOut;
+
+      const remaining = c.lots.reduce((s, l) => s + l[0], 0);
+      if (remaining < 0.001) {
+        const avgEntry  = c.soldQty > 1e-9 ? c.soldCost / c.soldQty : px;
+        const netPnl    = c.realized - c.fees;
+        const costBasis = c.soldCost;
         closed.push({
-          ticker:    tx.ticker,
-          openDate:  h.firstBuy,
-          closeDate: tx.dateStr,
-          holdDays:  h.firstBuy ? Math.round((new Date(tx.dateStr) - new Date(h.firstBuy)) / 86400000) : 0,
+          ticker:    t.ticker,
+          openDate:  c.firstBuy,
+          closeDate: d,
+          holdDays:  c.firstBuy ? Math.round((new Date(d) - new Date(c.firstBuy)) / 86400000) : 0,
           avgEntry,
           avgExit:   px,
-          shares:    h.soldQty,
-          grossPnl:  h.realized,
-          fees:      totalFees,
+          shares:    c.soldQty,
+          grossPnl:  c.realized,
+          fees:      c.fees,
           netPnl,
           netPnlPct: costBasis > 0 ? netPnl / costBasis * 100 : 0,
         });
-        open[tx.ticker] = { shares: 0, totalCost: 0, fees: 0, realized: 0, soldQty: 0, firstBuy: null };
+        cyc.set(k, blankCycle());
       }
     }
   }
@@ -14306,7 +14569,10 @@ async function init() {
       (async () => {
         try {
           // Master tx list (all portfolios + Transfer rows) fetched once; txCache is the active-view slice.
+          const _txWasEmpty = !_allTxCache;
           _allTxCache = _allTxCache || await fetchTransactions();
+          reconcileFifoBasis(); // repair any avg cost a tx edit/delete rebuilt with a rolling average
+          if (_txWasEmpty && _allTxCache) applyPortfolioView(); // rebuild with FIFO basis now the ledger exists
           txCache = filterTxForView(_allTxCache, activePortfolio);
           if (isFirstLoad || !txList.length) refreshTxPanel();
           // Benchmark first-load also backfills historyCache (readHistory) used by net worth.
