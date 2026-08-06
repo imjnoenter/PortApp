@@ -2710,8 +2710,10 @@ let txCache = null;
 let lastTxData = null;
 let historyCache = null;
 let _ohlcCache = {}; // { sym: { dateStr: {o,h,l,c} } } — Heikin Ashi OHLC cache, in-memory/session only
-let chartType = localStorage.getItem('chartType.v1') || 'area'; // 'area' | 'heikin' — TV chart type pref
-let emaOn = localStorage.getItem('emaOn.v1') === '1'; // EMA 50/100/200 overlay pref (default off)
+let chartType = localStorage.getItem('chartType.v1') || 'heikin'; // 'area' | 'heikin' — TV chart type pref (default HA)
+// Default ON: absent → on, and only an explicit '0' turns it off. toggleEma always writes '1'
+// or '0' (never removes the key), so switching EMA off still sticks.
+let emaOn = localStorage.getItem('emaOn.v1') !== '0'; // EMA 50/100/200 overlay pref (default on)
 let _gicsMap = {}; // { TICKER: { sector, subIndustry } } — GICS overlay, see ensureGicsMap()
 let _journalTrades = [], _journalSort = 'closeDate', _journalDir = -1;
 
