@@ -1443,6 +1443,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .tx-date-sub { font-size: 10px; color: var(--muted); margin-top: 1px; font-family: var(--font-mono); }
 .tx-badge-buy  { display: inline-block; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 10px; font-weight: 700; background: var(--badge-up-bg); color: var(--badge-up-fg); letter-spacing: .3px; }
 .tx-badge-sell { display: inline-block; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 10px; font-weight: 700; background: var(--badge-dn-bg); color: var(--badge-dn-fg); letter-spacing: .3px; }
+/* Cash In / Out totals strip — the three figures the contributions ledger rolls up to. */
+.contrib-totals { display: flex; flex-wrap: wrap; gap: var(--sp-5); padding: 0 0 var(--sp-4); margin-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
+.contrib-totals > div { display: flex; flex-direction: column; gap: 2px; }
+.ct-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.ct-val { font-size: 15px; font-weight: 700; font-family: var(--font-mono); color: var(--ink); }
+.ct-val.up { color: var(--gain); } .ct-val.down { color: var(--loss); }
+.ct-alt { font-size: 11px; font-weight: 500; color: var(--muted); }
 .tx-free-yes { color: var(--gain); font-weight: 700; }
 .tx-free-no  { color: var(--muted); }
 .tx-actions { display: flex; gap: 5px; justify-content: flex-end; }
@@ -2112,7 +2119,8 @@ let _staticQuoteCache = {}; // { origSym: { fiftyTwoWeekHigh, fiftyTwoWeekLow, e
 let _lastQuoteSource  = null; // { type: 'sheet'|'yahoo'|'cnbc', updatedAt?: unixSec }
 let _etfDataCache = {};
 let _stockReturnsCache = {};
-let _contribCache = {}; // { [portfolio]: { depositTHB, withdrawUSD } }
+let _contribCache = {}; // { [portfolio]: { depositTHB, withdrawUSD } } — derived from _contribList
+let _contribList = [];  // one entry per Contributions row: { row, portfolio, date, type, amount, currency, note, thb, usd, rate }
 
 // ── Write helper — injects auth key on every mutating request ─────────────────
 function _showToast(msg, duration = 3500) {
@@ -2259,6 +2267,9 @@ const I18N = {
     add_contribution: "Add Contribution", deposit: "Deposit", withdraw: "Withdraw",
     contrib_note: "Note", contrib_amount: "Amount",
     contrib_rate_label: "Rate", contrib_amount_error: "Enter a valid amount.",
+    edit_contribution: "Edit Contribution", cash_in_out_title: "Cash In / Out",
+    total_in: "Total In", total_out: "Total Out", net_contributed: "Net Contributed",
+    date_label: "Date", contrib_row_changed: "This entry changed — refresh and try again.",
     target_alloc_label: "Target Allocation", set_pct_hint: "— set % to calculate",
     take_profit_trim_label: "Take Profit / Trim", exit_price_label: "Exit Price",
     no_position_data: "No position data", optional_placeholder: "optional",
@@ -2493,6 +2504,9 @@ const I18N = {
     add_contribution: "เพิ่มเงินเข้า/ออก", deposit: "ฝากเงิน", withdraw: "ถอนเงิน",
     contrib_note: "หมายเหตุ", contrib_amount: "จำนวนเงิน",
     contrib_rate_label: "อัตราแลกเปลี่ยน", contrib_amount_error: "กรุณากรอกจำนวนเงินให้ถูกต้อง",
+    edit_contribution: "แก้ไขเงินเข้า/ออก", cash_in_out_title: "เงินเข้า / เงินออก",
+    total_in: "เงินเข้ารวม", total_out: "เงินออกรวม", net_contributed: "เงินลงทุนสุทธิ",
+    date_label: "วันที่", contrib_row_changed: "รายการนี้มีการเปลี่ยนแปลง — กรุณารีเฟรชแล้วลองใหม่",
     // Action Modal — Plan Tab
     target_alloc_label: "สัดส่วนเป้าหมาย", set_pct_hint: "— กำหนด % เพื่อคำนวณ",
     take_profit_trim_label: "ขายทำกำไร / แบ่งขาย", exit_price_label: "ราคาขายออก",
@@ -4083,53 +4097,62 @@ window.submitEditCash = async function() {
 // or the type is switched.
 let _contribDerivedDirty = false;
 
-window.openAddContribution = function() {
+// `row` (the Contributions sheet row) switches the modal to edit mode. Editing an existing
+// entry starts with _contribDerivedDirty = true on purpose: a row logged in January carries
+// January's exchange rate, and letting the auto-fill fire would silently rewrite its USD leg at
+// today's fxRate — quietly changing the baht baseline the whole Total Return benchmark is
+// measured against. The rate only recomputes if the user actually retypes an amount.
+window.openAddContribution = function(row) {
   const overlay = document.getElementById('contribModal');
   if (!overlay) return;
-  _contribDerivedDirty = false;
-  const editPort = (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
+  const editing = row != null ? _contribList.find(c => c.row === row) : null;
+  if (row != null && !editing) return;
+  _contribDerivedDirty = !!editing;
+  const editPort = editing ? editing.portfolio
+                 : (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
   const portSel = _portfolioRegistry.length > 1
     ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
         <select class="tx-input" id="contribPort" onchange="updateContribPreview()">
           ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
         </select></div>` : `<input type="hidden" id="contribPort" value="${editPort}">`;
+  const isWithdraw = editing?.type === 'Withdraw';
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
     <div class="tx-header">
-      <div class="tx-title">${t('add_contribution')}</div>
+      <div class="tx-title">${editing ? t('edit_contribution') : t('add_contribution')}</div>
       <button class="tx-close" onclick="document.getElementById('contribModal').classList.remove('open')">×</button>
     </div>
     ${portSel}
     <div class="tx-field">
       <label class="tx-label">${t('deposit')}/${t('withdraw')}</label>
       <select class="tx-input" id="contribType" onchange="onContribTypeChange()">
-        <option value="Deposit">${t('deposit')}</option>
-        <option value="Withdraw">${t('withdraw')}</option>
+        <option value="Deposit"${isWithdraw?'':' selected'}>${t('deposit')}</option>
+        <option value="Withdraw"${isWithdraw?' selected':''}>${t('withdraw')}</option>
       </select>
     </div>
     <div class="tx-field">
       <label class="tx-label">Date</label>
-      <input class="tx-input" id="contribDate" type="date" value="${new Date().toISOString().slice(0,10)}">
+      <input class="tx-input" id="contribDate" type="date" value="${editing?.date || new Date().toISOString().slice(0,10)}">
     </div>
     <div class="tx-row2">
       <div class="tx-field">
         <label class="tx-label">${t('contrib_amount')} (฿ THB)</label>
-        <input class="tx-input" id="contribThb" type="number" step="any" min="0" oninput="onContribAmountInput('thb')">
+        <input class="tx-input" id="contribThb" type="number" step="any" min="0" value="${editing?.thb || ''}" oninput="onContribAmountInput('thb')">
       </div>
       <div class="tx-field">
         <label class="tx-label">${t('contrib_amount')} ($ USD)</label>
-        <input class="tx-input" id="contribUsd" type="number" step="any" min="0" oninput="onContribAmountInput('usd')">
+        <input class="tx-input" id="contribUsd" type="number" step="any" min="0" value="${editing?.usd || ''}" oninput="onContribAmountInput('usd')">
       </div>
     </div>
     <div id="contribRateLine" style="font-size:12px;color:var(--muted);margin:-6px 0 14px"></div>
-    <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
+    ${editing ? '' : `<div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">${t('fcd_label')}</div>
       <div id="contribFcdPreview"></div>
-    </div>
+    </div>`}
     <div class="tx-field">
       <label class="tx-label">${t('contrib_note')}</label>
-      <input class="tx-input" id="contribNote" type="text">
+      <input class="tx-input" id="contribNote" type="text" value="${(editing?.note || '').replace(/"/g,'&quot;')}">
     </div>
-    <button class="tx-submit" onclick="saveContribution()">${t('save_sheet_btn')}</button>
+    <button class="tx-submit" onclick="saveContribution(${editing ? editing.row : ''})">${t('save_sheet_btn')}</button>
     <div class="tx-status" id="contribStatus"></div>
   </div>`;
   overlay.classList.add('open');
@@ -4173,6 +4196,7 @@ window.updateContribPreview = function(){
     const rate = usd > 0 ? thb / usd : null;
     rateEl.textContent = `${t('contrib_rate_label')}: ${rate != null ? rate.toFixed(2) + ' THB/USD' : '—'}`;
   }
+  // Add-mode only — the element isn't rendered when editing, because an edit doesn't move FCD.
   const fcdEl = document.getElementById('contribFcdPreview');
   if (fcdEl) {
     const rawPort = document.getElementById('contribPort')?.value || DEFAULT_PORT;
@@ -4183,7 +4207,8 @@ window.updateContribPreview = function(){
   }
 };
 
-window.saveContribution = async function() {
+// `row` present → rewrite that Contributions row; absent → append a new one.
+window.saveContribution = async function(row) {
   const rawPort = document.getElementById('contribPort')?.value || DEFAULT_PORT;
   const type = document.getElementById('contribType')?.value || 'Deposit';
   const date = document.getElementById('contribDate')?.value || '';
@@ -4198,18 +4223,36 @@ window.saveContribution = async function() {
   const rate = thb / usd;
   const amount   = type === 'Withdraw' ? usd : thb;
   const currency = type === 'Withdraw' ? 'USD' : 'THB';
+  const portfolio = rawPort === 'ETF' ? DEFAULT_PORT : rawPort;
+  const editing = row != null ? _contribList.find(c => c.row === row) : null;
   statusEl.innerHTML = `<span style="color:var(--muted)">${t('saving_msg')}</span>`;
   try {
     const params = new URLSearchParams({
-      action: 'addContribution', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort,
+      action: editing ? 'updateContribution' : 'addContribution', portfolio,
       date, type, amount, currency, note,
       amountTHB: thb, amountUSD: usd, rate,
     });
-    await recordFetch(params);
+    if (editing) { params.set('row', String(row)); params.set('expect', contribExpectSig(editing)); }
+    // Edits need the response: the server refuses a row that moved underneath us, and a
+    // fire-and-forget write would report that refusal as success.
+    const res = editing ? await recordFetch(params, true) : await recordFetch(params);
+    if (editing && res?.ok === false) {
+      statusEl.innerHTML = `<span style="color:var(--loss)">${
+        res.error === 'row_changed' ? t('contrib_row_changed') : res.error}</span>`;
+      return;
+    }
     statusEl.innerHTML = `<span style="color:var(--gain)">${t('saved_sheet_msg')}</span>`;
+    if (editing) {
+      // Apply locally rather than re-reading: the gviz read behind this panel is CDN-cached for
+      // up to ~30s, so an immediate re-fetch would usually repaint the pre-edit values and look
+      // like the save silently failed. The next init() reconciles against the sheet.
+      // amount/currency move too — they back both the legacy read path and the row fingerprint.
+      Object.assign(editing, { portfolio, date, type, thb, usd, rate, note, amount, currency });
+      applyContribChange();
+    }
     setTimeout(() => {
       document.getElementById('contribModal')?.classList.remove('open');
-      init();
+      if (!editing) init();
     }, 1000);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
@@ -10803,39 +10846,217 @@ async function readCalendarSheet() {
 }
 
 // ── Contributions (real THB deposits / USD withdrawals, per portfolio) ────────
+// Contributions are a Total-Return benchmark ledger only — they deliberately do NOT move the
+// FCD/USD cash balances (those stay hand-edited from the Cash card), so an edit or delete here
+// has nothing to unwind.
 async function fetchContributions(){
-  _contribCache = {};
+  _contribList = [];
   try{
     const res = await fetch(CONTRIBUTIONS_URL);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(')+1, text.lastIndexOf(')')));
     const rows = json.table?.rows || [];
-    for(const row of rows){
-      const c = row.c || [];
-      const port = c[0]?.v; if(!port || port==='Portfolio') continue;
-      const type = (c[2]?.v||'').toString();
-      const b = _contribCache[port] || (_contribCache[port]={depositTHB:0, withdrawUSD:0});
-      const isDeposit = type.toLowerCase().startsWith('deposit');
-      // Explicit AmountTHB/AmountUSD (new rows carry both) take precedence; legacy rows only
-      // have Amount+Currency, so fall back to the old currency/type inference for those.
-      if(c[6]?.v != null && c[7]?.v != null){
-        if(isDeposit) b.depositTHB += Number(c[6].v)||0;
-        else b.withdrawUSD += Number(c[7].v)||0;
-      } else {
-        const amt = Number(c[3]?.v)||0;
-        const cur = (c[4]?.v||'').toString().toUpperCase();
-        if(isDeposit || cur==='THB') b.depositTHB += amt;
-        else b.withdrawUSD += amt;
+    // gviz normally consumes row 1 as the header (so gviz index i is sheet row i+2), but hands
+    // it back as data when it can't type the columns. Detecting it keeps the sheet row numbers
+    // that edit/delete write to correct in both cases.
+    const rowOffset = (rows[0]?.c?.[0]?.v === 'Portfolio') ? 1 : 2;
+    const dateStr = raw => {
+      if (raw == null) return '';
+      if (typeof raw === 'string' && raw.startsWith('Date(')) {
+        const p = raw.slice(5,-1).split(',').map(Number);
+        return new Date(Date.UTC(p[0], p[1], p[2])).toISOString().slice(0,10);
       }
-    }
+      return String(raw).slice(0,10);
+    };
+    rows.forEach((row, i) => {
+      const c = row.c || [];
+      const port = c[0]?.v; if(!port || port==='Portfolio') return;
+      _contribList.push({
+        row: i + rowOffset,
+        portfolio: port,
+        date: dateStr(c[1]?.v),
+        type: (c[2]?.v||'').toString(),
+        amount: Number(c[3]?.v)||0,
+        currency: (c[4]?.v||'').toString().toUpperCase(),
+        note: (c[5]?.v||'').toString(),
+        thb: c[6]?.v != null ? Number(c[6].v)||0 : null,
+        usd: c[7]?.v != null ? Number(c[7].v)||0 : null,
+        rate: c[8]?.v != null ? Number(c[8].v)||0 : null,
+      });
+    });
   }catch(e){ console.error('fetchContributions:', e); }
+  rebuildContribCache();
+}
+
+// Amounts as the benchmark counts them. Rows written before the dual-currency columns existed
+// carry only Amount+Currency, so fall back to the old currency/type inference for those.
+function contribAmounts(c){
+  const isDeposit = String(c.type||'').toLowerCase().startsWith('deposit');
+  if (c.thb != null && c.usd != null) return { isDeposit, thb: c.thb, usd: c.usd };
+  const cur = String(c.currency||'').toUpperCase();
+  return (isDeposit || cur === 'THB')
+    ? { isDeposit, thb: c.amount, usd: null }
+    : { isDeposit, thb: null, usd: c.amount };
+}
+
+// _contribCache is derived, never written directly — so an optimistic local edit only has to
+// mutate _contribList and re-derive.
+function rebuildContribCache(){
+  _contribCache = {};
+  for (const c of _contribList) {
+    const b = _contribCache[c.portfolio] || (_contribCache[c.portfolio]={depositTHB:0, withdrawUSD:0});
+    const a = contribAmounts(c);
+    if (a.isDeposit) b.depositTHB += a.thb || 0;
+    else b.withdrawUSD += a.usd || 0;
+  }
+}
+
+// Must match contribFingerprint_() in apps_script.js. Uses the legacy Amount column, which
+// every row carries regardless of vintage.
+function contribExpectSig(c){
+  return [c.date, String(c.portfolio||'').trim(), String(c.type||'').trim(),
+          (Number(c.amount)||0).toFixed(6)].join('|');
+}
+
+// Re-derive and repaint everything a contribution change touches: the panel itself and the
+// Total Return stat card, whose baht baseline is the sum of these rows.
+function applyContribChange(){
+  rebuildContribCache();
+  renderContribPanel();
+  if (currentModel) renderStatCards(currentModel);
 }
 function netContributedForView(){
-  const ports = activePortfolio==='ALL' ? Object.keys(_contribCache) : [activePortfolio];
+  const ports = activePortfolio==='ALL' ? Object.keys(_contribCache) : [contribPortForView()];
   let depositTHB=0, withdrawUSD=0;
   for(const p of ports){ const b=_contribCache[p]; if(b){ depositTHB+=b.depositTHB; withdrawUSD+=b.withdrawUSD; } }
   return { depositTHB, withdrawUSD };
 }
+// ETF has no contributions of its own — it shares Long-Term's, matching the coercion
+// openAddContribution already applies when writing.
+function contribPortForView(){ return activePortfolio === 'ETF' ? DEFAULT_PORT : activePortfolio; }
+
+// ── Cash In / Out panel (Activity page) ──────────────────────────────────────
+// The ledger behind the Total Return card's baht baseline: deposits in, withdrawals out, with
+// the Net line reproducing exactly the netContribTHB that card divides by.
+function contribRowsForView(){
+  const list = activePortfolio === 'ALL'
+    ? _contribList : _contribList.filter(c => c.portfolio === contribPortForView());
+  // Newest first — the row you want to correct is nearly always the one you just entered.
+  return [...list].sort((a,b) => (b.date || '').localeCompare(a.date || '') || b.row - a.row);
+}
+
+// What deleting this row would do to the benchmark baseline, in the same baht terms the Net
+// line and the Total Return card use.
+function contribDeleteImpact(c){
+  const a = contribAmounts(c);
+  const d = a.isDeposit ? -(a.thb || 0) : (a.usd || 0) * fxRate;
+  return `${t('net_contributed')} ${d >= 0 ? '+' : '−'}${fmtBaht(Math.abs(d))}`;
+}
+
+function renderContribPanel(){
+  const card = document.getElementById('contribCard');
+  const body = document.getElementById('contribPanelBody');
+  if (!card || !body) return;
+  const list = contribRowsForView();
+  card.style.display = list.length ? '' : 'none';
+  const countEl = document.getElementById('contribPanelCount');
+  if (countEl) countEl.textContent = list.length || '';
+  if (!list.length) return;
+
+  let inTHB = 0, inUSD = 0, outUSD = 0, outTHB = 0;
+  for (const c of list) {
+    const a = contribAmounts(c);
+    if (a.isDeposit) { inTHB += a.thb || 0; inUSD += a.usd || 0; }
+    else { outUSD += a.usd || 0; outTHB += a.thb || 0; }
+  }
+  // Deposits carry the rate actually paid, so their USD leg is historical; withdrawals are
+  // converted at today's rate — the same asymmetry netContributedForView's math has.
+  const net = inTHB - outUSD * fxRate;
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const showPort = activePortfolio === 'ALL' && _portfolioRegistry.length > 1;
+
+  const totals = `<div class="contrib-totals">
+    <div><span class="ct-label">${t('total_in')}</span><span class="ct-val up">${fmtBaht(inTHB)}${
+      inUSD ? ` <span class="ct-alt">(${fmtUSD(inUSD)})</span>` : ''}</span></div>
+    <div><span class="ct-label">${t('total_out')}</span><span class="ct-val down">${fmtUSD(outUSD)}${
+      outUSD ? ` <span class="ct-alt">(${fmtBaht(outUSD * fxRate)})</span>` : ''}</span></div>
+    <div><span class="ct-label">${t('net_contributed')}</span><span class="ct-val">${fmtBaht(net)}</span></div>
+  </div>`;
+
+  const rows = list.map(c => {
+    const a = contribAmounts(c);
+    const rate = c.rate || (a.thb && a.usd ? a.thb / a.usd : null);
+    const actions = `<div class="tx-actions">
+      <button class="tx-action-btn" title="Edit" onclick="openAddContribution(${c.row})">${EDIT_ICON}</button>
+      <button class="tx-action-btn danger" title="Delete" onclick="deleteContribRow(${c.row},this)">${TRASH_ICON}</button>
+    </div>`;
+    return `<tr data-row="${c.row}">
+      <td>${fmtDate(c.date)}</td>
+      ${showPort ? `<td style="text-align:left">${esc(c.portfolio)}</td>` : ''}
+      <td style="text-align:left"><span class="${a.isDeposit ? 'tx-badge-buy' : 'tx-badge-sell'}">${
+        a.isDeposit ? t('deposit') : t('withdraw')}</span></td>
+      <td>${a.thb != null ? fmtBaht(a.thb) : '—'}</td>
+      <td>${a.usd != null ? fmtUSD(a.usd) : '—'}</td>
+      <td>${rate != null ? rate.toFixed(2) : '—'}</td>
+      <td style="text-align:left;white-space:normal">${esc(c.note)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `${totals}<div class="tx-panel-wrap"><table class="tx-panel-table">
+    <thead><tr>
+      <th>${t('date_label')}</th>${showPort ? `<th style="text-align:left">${t('portfolio')}</th>` : ''}
+      <th style="text-align:left">${t('Type')}</th>
+      <th>฿ THB</th><th>$ USD</th><th>${t('contrib_rate_label')}</th>
+      <th style="text-align:left">${t('contrib_note')}</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+window.deleteContribRow = function(row, btnEl){
+  const cell = btnEl.closest('td');
+  if (!cell) return;
+  const c = _contribList.find(x => x.row === row);
+  if (!cell.dataset.original) cell.dataset.original = cell.innerHTML;
+  cell.innerHTML = `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+    ${c ? `<span style="font-size:10px;color:var(--muted);white-space:nowrap">${contribDeleteImpact(c)}</span>` : ''}
+    <div class="tx-confirm-row">
+      Delete?
+      <button class="tx-confirm-yes" onclick="confirmDeleteContrib(${row},this)">Yes</button>
+      <button class="tx-confirm-no"  onclick="cancelDeleteContrib(this)">No</button>
+    </div>
+  </div>`;
+};
+window.cancelDeleteContrib = function(btnEl){
+  const cell = btnEl.closest('td');
+  if (cell?.dataset.original) cell.innerHTML = cell.dataset.original;
+};
+window.confirmDeleteContrib = async function(row, btnEl){
+  const cell = btnEl.closest('td');
+  const c = _contribList.find(x => x.row === row);
+  if (cell) cell.innerHTML = `<span style="color:var(--muted);font-size:11px">${t('deleting_msg')}</span>`;
+  try {
+    // needsResponse: the server refuses a row that moved underneath us, and that refusal is
+    // invisible through a fire-and-forget write.
+    const res = await recordFetch(
+      { action: 'deleteContribution', row: String(row), expect: c ? contribExpectSig(c) : '' }, true);
+    if (res?.ok === false) {
+      if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">${
+        res.error === 'row_changed' ? t('contrib_row_changed') : res.error}</span>`;
+      setTimeout(() => { fetchContributions().then(applyContribChange); }, 2500);
+      return;
+    }
+    // Drop it locally and shift every row below it up, exactly as the sheet's deleteRow did —
+    // without this the next edit in the same session would target the wrong row.
+    const i = _contribList.findIndex(x => x.row === row);
+    if (i >= 0) _contribList.splice(i, 1);
+    for (const x of _contribList) if (x.row > row) x.row--;
+    applyContribChange();
+  } catch(e) {
+    if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">Failed</span>`;
+  }
+};
 
 // ── Calendar: monthly grid ────────────────────────────────────────────────────
 // Month grid (Sunday-first) with type-colored dots per day; clicking a day fills
@@ -12682,6 +12903,11 @@ function buildShell() {
             </div>
             <div id="journalBody" style="max-height:500px;overflow-y:auto"><div class="tx-panel-status">${t('loading_msg')}</div></div>
           </div>` : ''}
+          <!-- Cash In / Out (contributions ledger behind the Total Return baht baseline) -->
+          <div class="card" id="contribCard" style="display:none">
+            <div class="card-title">${t('cash_in_out_title')}<span class="tx-count-badge" id="contribPanelCount"></span></div>
+            <div id="contribPanelBody"></div>
+          </div>
           <!-- Dividend Breakdown -->
           <div class="card" id="divBreakdownCard" style="display:none">
             <div class="card-title">${t('dividend_breakdown_title')}</div>
@@ -12849,7 +13075,7 @@ window.submitSetup = function() {
     if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData,
       theme:    localStorage.getItem('theme')    || 'light',
@@ -12864,7 +13090,7 @@ window.submitSetup = function() {
     closeSetupModal();
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData };
@@ -12872,7 +13098,7 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null;
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _contribCache = {};
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _contribCache = {}; _contribList = [];
   }
   init();
 };
@@ -13876,6 +14102,7 @@ function renderModelViews(model) {
   renderWatchlist(model);
   renderPlansPanel();
   renderPlanWatch();
+  renderContribPanel();
 }
 
 // txCache-derived stat cards / dividend / holdings / journal. Mirrors init's tx IIFE body.
