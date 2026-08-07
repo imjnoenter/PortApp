@@ -3186,7 +3186,11 @@ async function fetchTxList() {
     com:            Number(cell(r, 'Com')) || 0,
     tax:            Number(cell(r, 'Tax')) || 0,
     total:          Number(cell(r, 'Trade_Value+Fee') ?? cell(r, 'Trade_Value Fee') ?? 0),
-    commissionFree: cell(r, 'Commission_Free') === true || cell(r, 'Commission_Free') === 'TRUE',
+    // Existing sheets label this column 'No Commission'; the one appendTxnAction creates labels it
+    // 'Commission_Free'. Reading only the latter silently yields false on every row, which unticks
+    // the checkbox when the edit modal opens — and re-saving then charges 0.15% commission on a
+    // trade that never had any. Accept either spelling.
+    commissionFree: (v => v === true || v === 'TRUE')(cell(r, 'Commission_Free') ?? cell(r, 'No Commission')),
   })).filter(x => x.date && x.ticker);
 
   return out;
