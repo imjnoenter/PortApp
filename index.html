@@ -2246,6 +2246,7 @@ const I18N = {
     bd_explain: "XIRR solves for the annual rate that makes these dated flows net to zero, weighting each dollar by how long it was invested — it can't be split into '% from dividends'.",
     irr_breakdown_aria: "Show IRR breakdown",
     open_positions: "Open positions", from_closed_trades: "From closed trades",
+    cost_sold: "On cost sold",
     withholding_tax: "After 15% withholding tax", gross: "Gross", edit: "Edit",
     edit_tx_title: "Edit Transaction", add_tx_title: "Add Transaction",
     save_changes_btn: "Save Changes", enter_symbol_placeholder: "Enter symbol",
@@ -2264,6 +2265,9 @@ const I18N = {
     stop_loss_upper_label: "STOP LOSS", note_upper_label: "NOTE",
     edit_cash_title: "Edit Cash", before_label: "BEFORE", after_label: "AFTER",
     fcd_label: "FCD", usd_label: "USD",
+    cash_cap_label: "cap", cash_cap_over: "Over cap by", cash_cap_used: "Used",
+    cash_cap_unfunded: "more allowed, no cash for it",
+    cash_cap_hint: "Trade % caps Trade at that share of your total portfolio. Its cash card shows the unused headroom. Reserve % does not apply to it.",
     add_contribution: "Add Contribution", deposit: "Deposit", withdraw: "Withdraw",
     contrib_note: "Note", contrib_amount: "Amount",
     contrib_rate_label: "Rate", contrib_amount_error: "Enter a valid amount.",
@@ -2474,6 +2478,7 @@ const I18N = {
     bd_explain: "XIRR หาค่าอัตราผลตอบแทนต่อปีที่ทำให้กระแสเงินสดตามวันที่เหล่านี้มีมูลค่าปัจจุบันสุทธิเป็นศูนย์ โดยถ่วงน้ำหนักแต่ละบาทตามระยะเวลาที่ลงทุน จึงไม่สามารถแยกเป็น '% จากเงินปันผล' ได้",
     irr_breakdown_aria: "แสดงรายละเอียด IRR",
     from_closed_trades: "จากการขายหุ้น",
+    cost_sold: "จากต้นทุนที่ขายไป",
     withholding_tax: "หักภาษี ณ ที่จ่าย 15% แล้ว",
     gross: "ยอดก่อนภาษี", edit: "แก้ไข",
     // Transaction / Modal
@@ -2501,6 +2506,9 @@ const I18N = {
     edit_cash_title: "แก้ไขจำนวนเงินสด",
     before_label: "ก่อนหน้า", after_label: "หลังจากนี้",
     fcd_label: "FCD", usd_label: "USD",
+    cash_cap_label: "เพดาน", cash_cap_over: "เกินเพดาน", cash_cap_used: "ใช้ไป",
+    cash_cap_unfunded: "ยังลงทุนได้ แต่เงินสดไม่พอ",
+    cash_cap_hint: "Trade % คือเพดานของพอร์ต Trade เทียบกับพอร์ตรวมทั้งหมด ช่องเงินสดของ Trade จะแสดงวงเงินที่เหลือ และไม่ใช้ Reserve %",
     add_contribution: "เพิ่มเงินเข้า/ออก", deposit: "ฝากเงิน", withdraw: "ถอนเงิน",
     contrib_note: "หมายเหตุ", contrib_amount: "จำนวนเงิน",
     contrib_rate_label: "อัตราแลกเปลี่ยน", contrib_amount_error: "กรุณากรอกจำนวนเงินให้ถูกต้อง",
@@ -2913,11 +2921,17 @@ function updateTxEditImpact(shares, price) {
   el.textContent = `${ticker} ${sign(dq)}${+Math.abs(dq).toFixed(6)} sh · USD ${sign(dc)}${fmtUSD(Math.abs(dc))}`;
 }
 
+// Fees for a trade value, given only data (no DOM) — so the P&L math can use the same rates the
+// modal quotes. `noComm` waives the commission but NOT the VAT on it (see the no-commission hint).
+function feesOn(tv, noComm) {
+  const gross = tv * 0.0015;       // standard commission
+  const comm  = noComm ? 0 : gross;
+  const tax   = gross * 0.07;      // VAT is owed on the full commission even when it is waived
+  return { comm, tax, total: comm + tax };
+}
+
 function calcFees(tv) {
-  const noComm = document.getElementById('txNoCommission')?.checked;
-  const gross  = tv * 0.0015;      // standard commission
-  const comm   = noComm ? 0 : gross;
-  const tax    = gross * 0.07;     // VAT is owed on the full commission even when it is waived
+  const { comm, tax } = feesOn(tv, document.getElementById('txNoCommission')?.checked);
   return { comm, tax, buyTotal: tv + comm + tax, sellNet: tv - comm - tax };
 }
 
@@ -2943,17 +2957,31 @@ window.updateTxCashPreview = function() {
       el.innerHTML = `<span style="color:var(--muted)">Balance: ${fmtCurr(bal)}</span><br><span style="color:${after<0?'var(--loss)':'var(--muted)'}">−${fmtCurr(buyTotal)} → ${fmtCurr(after)}</span>${feeNote}`;
     }
   });
+  // Cap warning for a capped portfolio. Shown in red like an overdrawn balance is, and like that
+  // one it never blocks the submit — the trade already happened at the broker.
+  const capEl = document.getElementById('txCapNote');
+  if (!capEl) return;
+  const cap = Number(_portRow(txActivePort())?.capPct) || 0;
+  // Buys only — a Sell shrinks the portfolio and a Dividend adds no shares, so neither can breach.
+  if (!cap || txType !== 'Buy' || tv <= 0) { capEl.innerHTML = ''; return; }
+  const capDollar = cap * _totalPortfolioValue();
+  const after     = _portStockValue(txActivePort()) + tv;
+  capEl.innerHTML = after > capDollar
+    ? `<span style="color:var(--loss)">${t('cash_cap_over')} ${fmtCurr(after - capDollar)}</span> <span style="color:var(--muted)">(${fmtCurr(after)} / ${fmtCurr(capDollar)})</span>`
+    : `<span style="color:var(--muted)">${t('cash_cap_used')} ${fmtCurr(after)} / ${fmtCurr(capDollar)}</span>`;
 };
 
-// Portfolio whose cash a transaction draws from: action modal → actionModalPort;
-// standalone tx modal → the txPortfolio <select>; else the active view (ALL → Long-Term).
+// Which portfolio the transaction belongs to: action modal → actionModalPort; standalone tx modal
+// → the txPortfolio <select>; else the active view (ALL → Long-Term). Only decides which holdings
+// and which cap the trade touches — the cash always comes from the one shared wallet.
 function txActivePort() {
   const sel = document.getElementById('txPortfolio');
   if (sel && sel.value) return sel.value;
   if (document.getElementById('actionModal')?.classList.contains('open')) return actionModalPort;
   return (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
 }
-function txPortCash() { const p = txActivePort(); const r = _portRow(p === 'ETF' ? DEFAULT_PORT : p); return { fcd: Number(r.fcd) || 0, usd: Number(r.usd) || 0 }; }
+// Every transaction draws on the one shared wallet, whichever portfolio it belongs to.
+function txPortCash() { const r = _portRow(_cashPort()); return { fcd: Number(r.fcd) || 0, usd: Number(r.usd) || 0 }; }
 
 function buildCashSelectorHtml() {
   const { fcd, usd } = txPortCash();
@@ -2976,6 +3004,7 @@ function buildCashSelectorHtml() {
         <div id="txCashInfoUSD" style="font-size:10px"><span style="color:var(--muted)">Balance: ${fmtCurr(usd)}</span></div>
       </div>
     </div>
+    <div id="txCapNote" style="font-size:10px;margin-top:6px"></div>
   </div>`;
 }
 
@@ -3011,7 +3040,7 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
   const tv   = shares * price;
   const { buyTotal, sellNet } = calcFees(tv);
   const amount = txTypeVal === 'Buy' ? buyTotal : sellNet;
-  const cashPort = port === 'ETF' ? DEFAULT_PORT : port;
+  const cashPort = _cashPort();
   const reg = _portRow(cashPort);
   const fcd  = Number(reg?.fcd) || 0;
   const usd  = Number(reg?.usd) || 0;
@@ -4017,28 +4046,24 @@ window.openEditCash = function() {
   if (!currentModel) return;
   const overlay = document.getElementById('editCashModal');
   if (!overlay) return;
-  // Cash is per-portfolio. In ALL view default to Long-Term; a selector lets the user pick.
-  const editPort = (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
-  const r0   = _portRow(editPort);
-  const fcd  = Number(r0.fcd) || 0;
-  const usd  = Number(r0.usd) || 0;
+  // One shared wallet, so there is nothing to switch between — the form edits the wallet directly.
+  // Reserve % belongs to the uncapped portfolios (Long-Term/ETF); Trade % is the cap on CAP_PORT.
+  const r0   = _portRow(_cashPort());
+  const w    = _walletTotal();
+  const fcd  = Number(w.fcd) || 0;
+  const usd  = Number(w.usd) || 0;
   const cash = fcd + usd;
   const resPct = (Number(r0.cashRes) || 0) * 100;
-  const portSel = _portfolioRegistry.length > 1
-    ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
-        <select class="tx-input" id="editCashPortfolio" onchange="onEditCashPortChange(this.value)">
-          ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
-        </select></div>` : `<input type="hidden" id="editCashPortfolio" value="${editPort}">`;
+  const capPct = (Number(_portRow(CAP_PORT)?.capPct) || 0) * 100;
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
     <div class="tx-header">
       <div class="tx-title">${t('edit_cash_title')}</div>
       <button class="tx-close" onclick="document.getElementById('editCashModal').classList.remove('open')">×</button>
     </div>
-    ${portSel}
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">BEFORE</div>
       <div><strong>${fmtCurr(cash)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span></div>
-      <div style="color:var(--muted);margin-top:2px">Reserve target: ${resPct.toFixed(1)}%</div>
+      <div style="color:var(--muted);margin-top:2px">Reserve target: ${resPct.toFixed(1)}% · ${CAP_PORT}: ${capPct.toFixed(1)}%</div>
     </div>
     <div class="tx-row2">
       <div class="tx-field">
@@ -4050,10 +4075,17 @@ window.openEditCash = function() {
         <input class="tx-input" id="editCashUsd" type="number" step="any" min="0" value="${usd}" oninput="updateCashPreview()">
       </div>
     </div>
-    <div class="tx-field" style="margin-bottom:14px">
-      <label class="tx-label">Reserve %</label>
-      <input class="tx-input" id="editCashReserve" type="number" step="any" min="0" max="100" value="${resPct}" oninput="updateCashPreview()">
+    <div class="tx-row2">
+      <div class="tx-field">
+        <label class="tx-label">Reserve %</label>
+        <input class="tx-input" id="editCashReserve" type="number" step="any" min="0" max="100" value="${resPct}" oninput="updateCashPreview()">
+      </div>
+      <div class="tx-field">
+        <label class="tx-label">${CAP_PORT} %</label>
+        <input class="tx-input" id="editCashCap" type="number" step="any" min="0" max="100" value="${capPct}" oninput="updateCashPreview()">
+      </div>
     </div>
+    <div style="color:var(--muted);font-size:10px;margin:-8px 0 14px">${t('cash_cap_hint')}</div>
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">AFTER</div>
       <div id="editCashAfter"><strong>${fmtCurr(cash)}</strong></div>
@@ -4064,34 +4096,30 @@ window.openEditCash = function() {
   overlay.classList.add('open');
 };
 
-window.onEditCashPortChange = function(port) {
-  const r = _portRow(port);
-  const fcdEl = document.getElementById('editCashFcd'), usdEl = document.getElementById('editCashUsd');
-  const resEl = document.getElementById('editCashReserve');
-  if (fcdEl) fcdEl.value = Number(r.fcd) || 0;
-  if (usdEl) usdEl.value = Number(r.usd) || 0;
-  if (resEl) resEl.value = (Number(r.cashRes) || 0) * 100;
-  updateCashPreview();
-};
-
 window.updateCashPreview = function() {
   const fcd  = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd  = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
   const res  = parseFloat(document.getElementById('editCashReserve')?.value) || 0;
+  const cap  = parseFloat(document.getElementById('editCashCap')?.value) || 0;
   const el   = document.getElementById('editCashAfter');
-  if (el) el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">Reserve target: ${res.toFixed(1)}%</div>`;
+  if (!el) return;
+  // What the cap works out to in dollars right now, so the % isn't an abstract number.
+  const capNote = cap > 0 ? ` · ${CAP_PORT}: ${cap.toFixed(1)}% (${fmtCurr(cap / 100 * _totalPortfolioValue())})` : '';
+  el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">Reserve target: ${res.toFixed(1)}%${capNote}</div>`;
 };
 
 window.submitEditCash = async function() {
   const fcd = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
   const cashRes = (parseFloat(document.getElementById('editCashReserve')?.value) || 0) / 100;
+  const capPct  = (parseFloat(document.getElementById('editCashCap')?.value) || 0) / 100;
   const statusEl = document.getElementById('editCashStatus');
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
-    const rawPort = document.getElementById('editCashPortfolio')?.value || DEFAULT_PORT;
-    const params = new URLSearchParams({ action: 'updateCash', portfolio: rawPort === 'ETF' ? DEFAULT_PORT : rawPort, fcd, usd, cashRes });
-    await recordFetch(params);
+    // Two rows: the wallet + reserve live on the cash port, the cap on CAP_PORT's own row.
+    await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: _cashPort(), fcd, usd, cashRes }));
+    if (_portfolioRegistry.some(p => p.name === CAP_PORT))
+      await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: CAP_PORT, capPct }));
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
     setTimeout(() => {
       document.getElementById('editCashModal')?.classList.remove('open');
@@ -4120,12 +4148,16 @@ window.openAddContribution = function(row) {
   const editing = row != null ? _contribList.find(c => c.row === row) : null;
   if (row != null && !editing) return;
   _contribDerivedDirty = !!editing;
-  const editPort = editing ? editing.portfolio
-                 : (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : activePortfolio;
-  const portSel = _portfolioRegistry.length > 1
+  // A capped portfolio has no wallet and no deposit baseline of its own — tagging a contribution
+  // to it would measure real deposited baht against a cap, so those rows belong to the cash port.
+  const _contribPortOf = p => (Number(_portRow(p)?.capPct) || 0) > 0 ? _cashPort() : p;
+  const editPort = editing ? _contribPortOf(editing.portfolio)
+                 : (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : _contribPortOf(activePortfolio);
+  const contribPorts = _portfolioRegistry.filter(p => !((Number(p.capPct) || 0) > 0));
+  const portSel = contribPorts.length > 1
     ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
         <select class="tx-input" id="contribPort" onchange="updateContribPreview()">
-          ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
+          ${contribPorts.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
         </select></div>` : `<input type="hidden" id="contribPort" value="${editPort}">`;
   const isWithdraw = editing?.type === 'Withdraw';
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
@@ -6747,8 +6779,12 @@ async function ensureGicsMap() {
 
 // ── Portfolios registry ───────────────────────────────────────────────────────
 const DEFAULT_PORT = 'Long-Term';
+// The one portfolio the Edit Cash card writes a CapPct to. Storage stays generic — cashCtxFor
+// caps any registry row whose CapPct > 0 — but the card needs a fixed target to write the very
+// first value to, before any row is capped yet.
+const CAP_PORT = 'Trade';
 // Used pre-migration (no Portfolios sheet) so the app still loads as a single portfolio.
-const _fallbackRegistry = () => [{ id: DEFAULT_PORT, name: DEFAULT_PORT, color: '#4ade80', cash: 0, cashRes: 0, fcd: 0, usd: 0, _fallback: true }];
+const _fallbackRegistry = () => [{ id: DEFAULT_PORT, name: DEFAULT_PORT, color: '#4ade80', cash: 0, cashRes: 0, fcd: 0, usd: 0, capPct: 0, _fallback: true }];
 
 async function fetchPortfolios() {
   if (!PORTFOLIOS_URL) return _fallbackRegistry();
@@ -6768,6 +6804,7 @@ async function fetchPortfolios() {
       cashRes: Number(cell(r, 'CashReserves')) || 0,
       fcd:     Number(cell(r, 'FCD')) || 0,
       usd:     Number(cell(r, 'USD')) || 0,
+      capPct:  Number(cell(r, 'CapPct')) || 0,
     })).filter(p => p.name);
     return out.length ? out : _fallbackRegistry();
   } catch (e) { console.error('fetchPortfolios:', e); return _fallbackRegistry(); }
@@ -6778,16 +6815,49 @@ function _portRow(portId) {
   return _portfolioRegistry.find(p => p.name === portId) || _portfolioRegistry[0] || _fallbackRegistry()[0];
 }
 
-// Cash context fed into buildModel. Single port → its row; ALL → summed cash/fcd/usd + Long-Term's reserve %.
+// One shared wallet across every portfolio. It lives on Long-Term's registry row, but summing the
+// whole registry keeps this right on a sheet where the balances haven't been merged by hand yet.
+function _walletTotal() {
+  return _portfolioRegistry.reduce((a, p) => ({ cash: a.cash + p.cash, fcd: a.fcd + p.fcd, usd: a.usd + p.usd }),
+                                   { cash: 0, fcd: 0, usd: 0 });
+}
+
+// The registry row every portfolio's trades settle against — there is only one wallet.
+const _cashPort = () => DEFAULT_PORT;
+
+// Live market value of one _allRows row. _lastQuotes is the tick-fresh price when present, the
+// sheet's Current price the fallback.
+function _rowValue(r) {
+  if (!(r.qty > 0)) return 0;
+  const q = _lastQuotes?.[r.symbol]?.regularMarketPrice;
+  return r.qty * ((q > 0 ? q : r.price) || 0);
+}
+
+// Every stock in every portfolio, plus the wallet. This is the base a capped portfolio's cap is a
+// percentage of, so it reads _allRows rather than a per-view model — the number has to come out
+// identical in every tab.
+function _totalPortfolioValue() {
+  return _allRows.reduce((s, r) => s + _rowValue(r), 0) + _walletTotal().cash;
+}
+
+// One portfolio's stocks at live prices, without building its whole model.
+function _portStockValue(port) {
+  return _allRows.reduce((s, r) => s + ((r.portfolio || DEFAULT_PORT) === port ? _rowValue(r) : 0), 0);
+}
+
+// Cash context fed into buildModel. Uncapped ports (Long-Term, ETF, ALL) share the whole wallet.
+// A capped port (CapPct > 0) holds no wallet at all: its cash is the unused headroom under its cap,
+// which recomputeValuation derives per tick because it moves with prices. Reserve % is an
+// uncapped-portfolio idea — a cap is already a hard ceiling, so a capped port gets cashRes 0.
 function cashCtxFor(portId) {
+  const w = _walletTotal();
   if (portId === 'ALL') {
-    const sum = _portfolioRegistry.reduce((a, p) => ({ cash: a.cash + p.cash, fcd: a.fcd + p.fcd, usd: a.usd + p.usd }), { cash: 0, fcd: 0, usd: 0 });
     const lt = _portfolioRegistry.find(p => p.name === DEFAULT_PORT);
-    return { cash: sum.cash, fcd: sum.fcd, usd: sum.usd, cashRes: lt?.cashRes ?? (_portfolioRegistry[0]?.cashRes ?? 0) };
+    return { ...w, cashRes: lt?.cashRes ?? (_portfolioRegistry[0]?.cashRes ?? 0) };
   }
-  if (portId === 'ETF') return _portRow(DEFAULT_PORT);
-  const r = _portRow(portId);
-  return { cash: r.cash, fcd: r.fcd, usd: r.usd, cashRes: r.cashRes };
+  const r = _portRow(portId === 'ETF' ? DEFAULT_PORT : portId);
+  if (r.capPct > 0) return { cash: 0, fcd: 0, usd: 0, cashRes: 0, capPct: r.capPct, walletTotal: w.cash };
+  return { ...w, cashRes: r.cashRes };
 }
 
 // Transfer-Out / Transfer-In rows move shares between portfolios with no realized P&L.
@@ -6810,24 +6880,28 @@ function fifoWalk(txs) {
   const sells = [];
   const lotsOf = k => { let L = books.get(k); if (!L) { L = []; books.set(k, L); } return L; };
 
-  // Retire `qty` from the front of a lot queue; returns the cost removed.
+  // A lot is [shares, unitCost, date, unitBuyFee]. unitBuyFee rides along so realized P&L can be
+  // netted on both sides; it is deliberately NOT folded into unitCost, because unitCost is the
+  // cost basis that fifoBasis turns into the displayed Avg price — a price, not a price+fee.
+  // Retire `qty` from the front of a lot queue; returns the cost and buy-fee removed.
   const retire = (L, qty) => {
-    let rem = qty, cost = 0;
+    let rem = qty, cost = 0, fee = 0;
     while (rem > 1e-12 && L.length) {
       const take = Math.min(rem, L[0][0]);
       cost += take * L[0][1];
+      fee  += take * (L[0][3] || 0);
       L[0][0] -= take;
       rem -= take;
       if (L[0][0] <= 1e-12) L.shift();
     }
-    return cost;
+    return { cost, fee };
   };
-  // Same, but returns the actual lot slices so a transfer can carry real cost.
+  // Same, but returns the actual lot slices so a transfer can carry real cost (and its buy fee).
   const detach = (L, qty) => {
     let rem = qty; const out = [];
     while (rem > 1e-12 && L.length) {
       const take = Math.min(rem, L[0][0]);
-      out.push([take, L[0][1], L[0][2]]);
+      out.push([take, L[0][1], L[0][2], L[0][3] || 0]);
       L[0][0] -= take;
       rem -= take;
       if (L[0][0] <= 1e-12) L.shift();
@@ -6851,12 +6925,12 @@ function fifoWalk(txs) {
     const buyAgg = new Map();
     for (const t of pick('Buy')) {
       const k = _fifoKey(t.portfolio, t.ticker);
-      const a = buyAgg.get(k) || { q: 0, c: 0 };
+      const a = buyAgg.get(k) || { q: 0, c: 0, f: 0 };
       const tv = t.tradeValue != null ? t.tradeValue : (t.shares || 0) * (t.price || 0);
-      a.q += t.shares || 0; a.c += tv;
+      a.q += t.shares || 0; a.c += tv; a.f += feesOn(tv, t.commissionFree).total;
       buyAgg.set(k, a);
     }
-    for (const [k, a] of buyAgg) if (a.q > 1e-12) lotsOf(k).push([a.q, a.c / a.q, d]);
+    for (const [k, a] of buyAgg) if (a.q > 1e-12) lotsOf(k).push([a.q, a.c / a.q, d, a.f / a.q]);
 
     // 2. transfers out — stash the real lot slices for the matching leg
     const moved = new Map();
@@ -6870,8 +6944,8 @@ function fifoWalk(txs) {
       const mk = t.ticker + '\u0000' + (t.shares || 0).toFixed(7);
       const slices = moved.get(mk);
       const L = lotsOf(_fifoKey(t.portfolio, t.ticker));
-      if (slices && slices.length) { slices.forEach(s => L.push([s[0], s[1], d])); moved.delete(mk); }
-      else if ((t.shares || 0) > 1e-12) L.push([t.shares, t.price || 0, d]);
+      if (slices && slices.length) { slices.forEach(s => L.push([s[0], s[1], d, s[3] || 0])); moved.delete(mk); }
+      else if ((t.shares || 0) > 1e-12) L.push([t.shares, t.price || 0, d, 0]);
     }
 
     // 4. sells retire oldest-first
@@ -6880,12 +6954,15 @@ function fifoWalk(txs) {
       const L = lotsOf(k);
       const held = L.reduce((s, l) => s + l[0], 0);
       const sold = Math.min(t.shares || 0, held);
-      const costOut = retire(L, sold);
+      const { cost: costOut, fee: feeIn } = retire(L, sold);
+      const tv = t.tradeValue != null ? t.tradeValue : sold * (t.price || 0);
       sells.push({
         dateStr: d, ticker: t.ticker, portfolio: t.portfolio || DEFAULT_PORT,
         shares: sold, price: t.price || 0,
-        tradeValue: t.tradeValue != null ? t.tradeValue : sold * (t.price || 0),
+        tradeValue: tv,
         costOut,
+        feeIn,                                        // buy-side fee of the shares retired
+        feeOut: feesOn(tv, t.commissionFree).total,   // this sale's own fee
       });
     }
   }
@@ -7112,17 +7189,30 @@ function rowsForView(portId) {
 }
 
 // Recompute everything derived from p.price. Shared by buildModel and attachQuotes so the
-// valuation math exists in exactly one place. Reads cashResPct/totalCash/totalInvested from the
-// model (they don't depend on price) rather than recomputing them.
+// valuation math exists in exactly one place. Reads cashResPct/totalInvested from the model (they
+// don't depend on price) rather than recomputing them. totalCash is read the same way for an
+// uncapped portfolio, but re-derived here for a capped one — its cap is a share of a total that
+// moves with every tick. See Shared Cash Pool in CLAUDE.md.
 function recomputeValuation(model) {
-  const { positions, totalCash, totalInvested } = model;
+  const { positions, totalInvested } = model;
   positions.forEach(p => {
     p.currentValue = p.qty * p.price;
     p.pnl          = p.currentValue - p.costBasis;
     p.pnlPct       = p.costBasis ? p.pnl / p.costBasis * 100 : 0;
   });
-  const totalCurrent = positions.reduce((s, p) => s + p.currentValue, 0) + totalCash;
-  const stockTotal   = positions.reduce((s, p) => s + p.currentValue, 0);
+  const stockTotal = positions.reduce((s, p) => s + p.currentValue, 0);
+  // A capped portfolio's cash is what its cap still allows, not a balance it holds. Bounded below
+  // by 0 (already past the cap) and above by the wallet (the cap can allow more than there is money
+  // for). Derived here, not in buildModel, because the cap moves with every quote tick.
+  if (model.capPct != null) {
+    model.capDollar   = model.capPct * _totalPortfolioValue();
+    const allowed     = model.capDollar - stockTotal;
+    model.rawCash     = model.totalCash = Math.max(0, Math.min(allowed, model.walletTotal));
+    model.capOver     = allowed < 0 ? -allowed : 0;                                      // deployed past the cap
+    model.capUnfunded = allowed > model.walletTotal ? allowed - model.walletTotal : 0;   // allowed, but no cash for it
+  }
+  const totalCash    = model.totalCash;
+  const totalCurrent = stockTotal + totalCash;
   // Three weight bases, easy to mix up: weightPct divides by totalCurrent (incl. cash reserve),
   // stockWeightPct divides by stockTotal (equity only, no cash), investWeightPct divides by
   // investable (totalCurrent minus the reserved cash %) — use investWeightPct wherever a weight
@@ -7135,8 +7225,12 @@ function recomputeValuation(model) {
   });
   model.totalCurrent = totalCurrent;
   model.investable   = totalCurrent * (1 - model.cashResPct);
-  model.totalPnl     = totalCurrent - totalInvested;
-  model.totalPnlPct  = totalInvested ? (totalCurrent - totalInvested) / totalInvested * 100 : 0;
+  // Equity minus what that equity cost. Identical to totalCurrent − totalInvested for an uncapped
+  // portfolio (its cash sits on both sides and cancels), but a capped portfolio's cash is headroom
+  // that is deliberately absent from totalInvested — subtracting there would book it as profit.
+  const costTotal    = positions.reduce((s, p) => s + p.costBasis, 0);
+  model.totalPnl     = stockTotal - costTotal;
+  model.totalPnlPct  = totalInvested ? model.totalPnl / totalInvested * 100 : 0;
   return model;
 }
 
@@ -7156,12 +7250,15 @@ function buildModel(rows, cashCtx) {
     positions.push({ ...r, costBasis });
   }
 
-  const totalCash     = rawCash;
-  const totalInvested = positions.reduce((s, p) => s + p.costBasis, 0) + rawCash;
+  const capPct = cashCtx?.capPct ?? null;
+  const totalCash = rawCash;
+  // A capped portfolio's cash is unused headroom, not capital it holds — counting it as invested
+  // would divide its Total Return by money that was never put into anything.
+  const totalInvested = positions.reduce((s, p) => s + p.costBasis, 0) + (capPct == null ? rawCash : 0);
 
   const model = {
     positions, watchlist, sgovPos: null, rawCash, rawFcd, rawUsd, cashResPct,
-    totalCash, totalInvested,
+    totalCash, totalInvested, capPct, walletTotal: cashCtx?.walletTotal ?? 0,
   };
   recomputeValuation(model);
   positions.sort((a, b) => b.currentValue - a.currentValue);
@@ -7269,8 +7366,12 @@ function computeIRR(txs, holdingsValue) {
   return done(((lo + hi) / 2) * 100);
 }
 
-function computeRealizedPnlTotal(txs) {
-  return computePnLTimeline(txs).reduce((s, t) => s + t.pnl, 0);
+// Realized P&L and the cost basis behind it. The pair travels together so the stat card's % is a
+// return on the capital actually traded, not on the portfolio's current size.
+function computeRealizedTotals(txs) {
+  return computePnLTimeline(txs).reduce(
+    (a, t) => ({ pnl: a.pnl + t.pnl, cost: a.cost + t.cost, fee: a.fee + t.fee }),
+    { pnl: 0, cost: 0, fee: 0 });
 }
 
 // ── Render: stat cards (replaces hero) ────────────────────────────────────────
@@ -7347,19 +7448,35 @@ function renderStatCards(model, txData) {
       </div>
     </div>
     <div class="sc-value">${fmtCurr(model.totalCash)}</div>
+    ${model.capPct != null ? `
+    <div class="sc-sub mut"><span style="display:inline-block">${cashPct.toFixed(1)}% ·&nbsp;</span><span style="display:inline-block">${t('cash_cap_label')} ${(model.capPct*100).toFixed(1)}%</span></div>
+    <div class="sc-detail">${
+        model.capOver > 0
+          ? `<span style="color:var(--loss)">${t('cash_cap_over')} ${fmtCurr(model.capOver)}</span>`
+        : model.capUnfunded > 0
+          ? `${fmtCurr(model.capUnfunded)} ${t('cash_cap_unfunded')}`
+          : `${t('cash_cap_used')} ${fmtCurr(Math.max(0, model.capDollar - model.totalCash))} / ${fmtCurr(model.capDollar)}`
+      }</div>` : `
     <div class="sc-sub mut"><span style="display:inline-block">${cashPct.toFixed(1)}% ·&nbsp;</span><span style="display:inline-block">${t('target')} ${((model.cashResPct||0)*100).toFixed(0)}%</span></div>
-    <div class="sc-detail">${t('fcd_label')}: ${fmtCurr(model.rawFcd||0)} · ${t('usd_label')}: ${fmtCurr(model.rawUsd||0)}</div>`);
+    <div class="sc-detail">${t('fcd_label')}: ${fmtCurr(model.rawFcd||0)} · ${t('usd_label')}: ${fmtCurr(model.rawUsd||0)}</div>`}`);
 
   set('sc-unreal', `<div class="sc-label">${t('unrealized')}</div>
     <div class="sc-value ${cl(model.totalPnl)}">${m(model.totalPnl)}</div>
     <div class="sc-sub ${cl(portValPct)}">${p(portValPct)}</div>
     <div class="sc-detail">${t('open_positions')}</div>`);
 
-  const realPct = (realized != null && model.totalInvested) ? realized / model.totalInvested * 100 : null;
+  // Return on the capital that was actually traded: realized P&L over the FIFO cost of the shares
+  // sold. Deliberately NOT over totalInvested — that is the cost of what is still held plus cash,
+  // neither of which produced these gains.
+  const realCost = td.realizedCost ?? null;
+  const realFee  = td.realizedFee  ?? null;
+  const realPct  = (realized != null && realCost) ? realized / realCost * 100 : null;
   set('sc-realized', `<div class="sc-label">${t('realized')}</div>
     <div class="sc-value ${cl(realized)}">${realized == null ? '—' : m(realized)}</div>
     <div class="sc-sub ${cl(realPct)}">${realPct == null ? '—' : p(realPct)}</div>
-    <div class="sc-detail">${t('from_closed_trades')}</div>`);
+    <div class="sc-detail">${realCost
+      ? `<span style="display:inline-block">${t('cost_sold')}: ${fmtCurr(realCost)} ·&nbsp;</span><span style="display:inline-block">${t('trade_fee_label')}: ${fmtCurr(realFee || 0)}</span>`
+      : t('from_closed_trades')}</div>`);
 
     set('sc-div', `<div class="sc-label">${t('dividends')}</div>
     <div class="sc-value ${div ? 'up' : ''}">${div ? fmtCurr(div.net) : '—'}</div>    <div class="sc-sub mut">${div ? t('gross')+': '+fmtCurr(div.gross) : '—'}</div>
@@ -11893,6 +12010,9 @@ async function fetchTransactions() {
     return { dateStr, type: cell(r,'Type'), ticker: cell(r,'Ticker'),
              shares: cell(r,'Shares'), price: cell(r,'Price_Per_Share'),
              tradeValue: cell(r,'Trade_Value'),
+             // Two spellings in the wild — see fetchTxList. Reading only one yields false on every
+             // row, which would silently charge commission on commission-free trades in the P&L.
+             commissionFree: (v => v === true || v === 'TRUE')(cell(r,'Commission_Free') ?? cell(r,'No Commission')),
              portfolio: cell(r,'Portfolio') || DEFAULT_PORT };
   }).filter(r => r.dateStr && r.type && r.ticker);
 }
@@ -12253,9 +12373,17 @@ async function loadBenchmark(retry = 0) {
 // Compressed FIFO: buys within a day are pooled per (portfolio, ticker), sells retire
 // lots oldest-first. fifoWalk already keys by portfolio so ALL-view sells never cross
 // portfolios. Gross of fees, matching the previous behaviour.
+// Realized P&L, net of fees on both legs: proceeds minus this sale's fee, minus what the retired
+// shares cost plus the fee paid buying them. `cost` is the capital those trades tied up (buy price
+// + buy fee), so pnl/cost is a true return on what was traded.
 function computePnLTimeline(txs) {
   const { sells } = fifoWalk(txs);
-  return sells.map(s => ({ date: s.dateStr, ticker: s.ticker, pnl: s.shares * s.price - s.costOut }));
+  return sells.map(s => ({
+    date: s.dateStr, ticker: s.ticker,
+    pnl:  (s.shares * s.price - s.feeOut) - (s.costOut + s.feeIn),
+    cost: s.costOut + s.feeIn,
+    fee:  s.feeIn + s.feeOut,        // total already deducted from pnl, surfaced for display
+  }));
 }
 
 // Closed-trade cycles (open → fully sold/transferred-out → closed), Compressed FIFO cost.
@@ -14378,8 +14506,11 @@ function renderModelViews(model) {
 function renderTxAnalytics(model, txs) {
   if (!model || !txs?.length) return;
   const dividends = historyCache ? computeDividends(txs) : null;
+  const realized  = computeRealizedTotals(txs);
   renderStatCards(model, {
-    realizedPnl: computeRealizedPnlTotal(txs),
+    realizedPnl:  realized.pnl,
+    realizedCost: realized.cost,
+    realizedFee:  realized.fee,
     dividends,
     irr: computeIRR(txs, model.totalCurrent - model.totalCash),
   });
