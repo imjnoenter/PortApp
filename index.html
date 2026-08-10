@@ -8601,6 +8601,10 @@ function tpBadge(sym, price) {
 
 // ── Render: positions table ───────────────────────────────────────────────────
 let sortKey = 'currentValue', sortDir = -1, searchTerm = '';
+// The Performance sub-tab sorts on its own columns (returns, volume, ETF stats) — none of
+// which the Overview table has — so it keeps its own sort state instead of sharing sortKey.
+let perfSortKey = 'currentValue', perfSortDir = -1;
+const PERF_METRIC_KEYS = new Set(['ytdRet', '1M', '3M', '1Y', '3Y', '5Y', 'expenseRatio', 'netAssets', 'holdingsCount']);
 // Multi-select: each group holds an array of chosen values; empty === "All".
 // Filters drive the Holdings table only — the Breakdowns donuts are independent.
 let filterState = { category: [], sector: [], industry: [], custom: [], myGroup: [] };
@@ -8877,6 +8881,27 @@ function renderTable(model) {
     `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${emptyRow || sorted.map((p,i) => stockRow(p,i+1)).join('')}${cashRow}</tbody></table>`;
 }
 
+// Every derived number the Performance table shows, resolved through the same precedence
+// chain the row renderer used to do inline: ETF trailing returns → Returns sheet →
+// client-side history estimate. Shared so a column's sort and its cell can never disagree.
+function perfMetrics(p) {
+  const etf = _etfDataCache[p.symbol];
+  const source = etf?.trailingReturns || _stockReturnsCache[p.symbol];
+  const computed = computePeriodReturns(p.symbol, p.price);
+  const pick = k => source?.[k] != null ? source[k] * 100 : (computed[k] ?? null);
+  const eYtd = etf?.ytdReturn ?? p.ytdReturnQ;
+  return {
+    ytdRet: eYtd != null ? eYtd * 100 : pick('YTD'),
+    '1M': pick('1M'), '3M': pick('3M'), '1Y': pick('1Y'), '3Y': pick('3Y'), '5Y': pick('5Y'),
+    // Read ETF quote fields from _etfDataCache (module-level, persisted) so they survive
+    // portfolio-toggle model rebuilds + attachQuotes nulling. Fall back to any value
+    // applied onto the position object.
+    expenseRatio:  etf?.expenseRatio  ?? p.expenseRatio  ?? null,
+    netAssets:     etf?.netAssets     ?? p.netAssets     ?? null,
+    holdingsCount: etf?.holdingsCount ?? p.holdingsCount ?? null,
+  };
+}
+
 function renderPerformanceTable(model) {
   const titleEl = document.getElementById('posTitle');
   const showWatchlist = _watchlistMode;
@@ -8905,9 +8930,17 @@ function renderPerformanceTable(model) {
     filtered = applyFilters(filtered);
   }
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
+  // Resolve the derived numbers once per render; the comparator and perfRow both read this.
+  const metrics = new Map(filtered.map(p => [p, perfMetrics(p)]));
+  const sortVal = p => PERF_METRIC_KEYS.has(perfSortKey) ? metrics.get(p)[perfSortKey] : p[perfSortKey];
   const sorted = [...filtered].sort((a, b) => {
-    if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
-    return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
+    if (perfSortKey === 'symbol') return perfSortDir * a.symbol.localeCompare(b.symbol);
+    const av = sortVal(a), bv = sortVal(b);
+    // No data sinks to the bottom either way — a missing 3-Yr must not outrank a real negative one.
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return perfSortDir * (av - bv);
   });
   if (showWatchlist && titleEl) titleEl.textContent = `${sorted.length} ${t('Watchlist')}`;
   renderWeightBar(showWatchlist ? [] : sorted);
@@ -8950,33 +8983,15 @@ function renderPerformanceTable(model) {
   );
 
   const thHTML = headers.map(h =>
-    h.key ? `<th style="text-align:${h.align}" onclick="sortTable('${h.key}')">${h.label}${sortKey === h.key ? ' ' + (sortDir > 0 ? '↑' : '↓') : ''}</th>`
+    h.key ? `<th style="text-align:${h.align}" onclick="sortPerfTable('${h.key}')">${h.label}${perfSortKey === h.key ? ' ' + (perfSortDir > 0 ? '↑' : '↓') : ''}</th>`
            : `<th style="text-align:${h.align};cursor:default">${h.label}</th>`
   ).join('');
 
   function perfRow(p) {
     const color = colorFor(p.symbol);
     const etf = _etfDataCache[p.symbol];
-    const tr = etf?.trailingReturns;
-    const sr = _stockReturnsCache[p.symbol];
-    const computed = computePeriodReturns(p.symbol, p.price);
-    const source = tr || sr;
-    const pr = source ? {
-      '1M': source['1M'] != null ? source['1M'] * 100 : computed['1M'],
-      '3M': source['3M'] != null ? source['3M'] * 100 : computed['3M'],
-      '1Y': source['1Y'] != null ? source['1Y'] * 100 : computed['1Y'],
-      '3Y': source['3Y'] != null ? source['3Y'] * 100 : computed['3Y'],
-      '5Y': source['5Y'] != null ? source['5Y'] * 100 : computed['5Y'],
-    } : computed;
-    // Read ETF quote fields from _etfDataCache (module-level, persisted) so they survive
-    // portfolio-toggle model rebuilds + attachQuotes nulling — same pattern as trailingReturns
-    // above. Fall back to any value applied onto the position object.
-    const eYtd = etf?.ytdReturn    ?? p.ytdReturnQ;
-    const eExp = etf?.expenseRatio ?? p.expenseRatio;
-    const eNA  = etf?.netAssets    ?? p.netAssets;
-    const eHC  = etf?.holdingsCount ?? p.holdingsCount;
-    const ytdVal = eYtd != null ? eYtd * 100
-      : (source?.YTD != null ? source.YTD * 100 : computed.YTD);
+    const m = metrics.get(p);
+    const eExp = m.expenseRatio, eNA = m.netAssets, eHC = m.holdingsCount;
 
     let etfCols = '';
     if (hasEtf) {
@@ -8992,12 +9007,12 @@ function renderPerformanceTable(model) {
       <td><span class="perf-num">${fmtCurr(p.price)}</span></td>
       ${isEtfView ? '' : `<td>${p.marketCap != null ? `<span class="perf-num">${fmtCompact(p.marketCap)}</span>` : '<span class="perf-muted">—</span>'}</td>`}
       <td><span class="perf-muted">${fmtVol(p.volume)}</span></td>
-      <td>${retCell(ytdVal)}</td>
-      <td>${retCell(pr['1M'])}</td>
-      <td>${retCell(pr['3M'])}</td>
-      <td>${retCell(pr['1Y'])}</td>
-      <td>${retCell(pr['3Y'])}</td>
-      <td>${retCell(pr['5Y'])}</td>
+      <td>${retCell(m.ytdRet)}</td>
+      <td>${retCell(m['1M'])}</td>
+      <td>${retCell(m['3M'])}</td>
+      <td>${retCell(m['1Y'])}</td>
+      <td>${retCell(m['3Y'])}</td>
+      <td>${retCell(m['5Y'])}</td>
       ${etfCols}
       <td><span style="font-size:11px;color:var(--muted)">${etf?.topSector || p.sector || '—'}</span></td>
       <td><span style="font-size:11px;color:var(--muted)">${p.industry || '—'}</span></td>
@@ -9023,6 +9038,10 @@ function renderPerformanceTable(model) {
 
 window.sortTable = function(key) {
   if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+  renderTable(currentModel);
+};
+window.sortPerfTable = function(key) {
+  if (perfSortKey === key) perfSortDir *= -1; else { perfSortKey = key; perfSortDir = -1; }
   renderTable(currentModel);
 };
 window.setWatchTblSort = function(key) {
