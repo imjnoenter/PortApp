@@ -2382,6 +2382,8 @@ const I18N = {
     weekend_status: "Weekend", closed_status: "Closed",
     pre_market_status: "Pre-Market", market_open_status: "Market Open",
     after_hours_status: "After Hours", tap_back_hint: "↩ tap center to go back",
+    overnight_status: "Overnight", overnight_futures_label: "Overnight futures",
+    overnight_price_tip: "Last after-hours trade, 19:59 ET — stocks have no overnight session",
     tweaks_title: "Tweaks", reset_btn: "Reset",
     ring_thickness_label: "Ring thickness", segment_gap_label: "Segment gap",
     corner_radius_label: "Corner radius", show_labels_label: "Show labels",
@@ -2641,6 +2643,8 @@ const I18N = {
     weekend_status: "ตลาดปิด", closed_status: "ตลาดปิด",
     pre_market_status: "ก่อนตลาดเปิด (Pre-Market)", market_open_status: "ตลาดเปิด",
     after_hours_status: "หลังตลาดปิด (After Hours)",
+    overnight_status: "ช่วงกลางคืน (Overnight)", overnight_futures_label: "ฟิวเจอร์สช่วงกลางคืน",
+    overnight_price_tip: "ราคาหลังตลาดปิดครั้งสุดท้าย (19:59 ET)",
     tap_back_hint: "↩ แตะตรงกลางเพื่อย้อนกลับ",
     // Tweaks Panel
     tweaks_title: "ปรับแต่งการแสดงผล", reset_btn: "รีเซ็ต",
@@ -2692,6 +2696,7 @@ let _portfolioRegistry = [];   // parsed Portfolios sheet — [{id,name,color,ca
 let _irrDetail = null;         // last computeIRR() cash-flow breakdown, for the IRR info popover
 let _allTxCache        = null; // full minimal tx list incl Portfolio tag + Transfer rows
 let _lastQuotes        = null; // cached quote map, re-attached on toggle (no refetch)
+let _futuresCache      = {};   // cached overnight index-futures quotes, keyed by CNBC symbol
 let actionModalPort    = 'Long-Term'; // portfolio governing the action modal tabs
 let currency = localStorage.getItem('currency') || 'USD';
 let fxRate   = 1;
@@ -3568,6 +3573,17 @@ async function buildSdTvChart(sym) {
         title: 'Avg',
       });
     }
+    const sess = tvSessionLine(pos);
+    if (sess) {
+      tvSeries.createPriceLine({
+        price: sess.price,
+        color: sess.color,
+        lineWidth: 1,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: sess.title,
+      });
+    }
 
     // Show last (real) price in legend by default
     if (lastReal != null) legend.innerHTML =
@@ -4377,6 +4393,16 @@ function buildTvSeriesData(sym, priceMap) {
   return seriesData;
 }
 
+// Current extended-hours price as a dashed chart line: BMO (pre), AMC (post),
+// ON (overnight — the frozen 19:59 ET after-hours print).
+function tvSessionLine(pos) {
+  if (!pos) return null;
+  if (pos.marketState === 'PRE' && pos.preMarketPrice) return { price: pos.preMarketPrice, title: 'BMO', color: '#c79038' };
+  if (pos.marketState === 'POST' && pos.postMarketPrice) return { price: pos.postMarketPrice, title: 'AMC', color: '#6b7eb8' };
+  if (pos.marketState === 'OVERNIGHT' && pos.postMarketPrice) return { price: pos.postMarketPrice, title: 'ON', color: '#8a6fb0' };
+  return null;
+}
+
 // Override the last (today's) HA-source bar's close with the live quote, expanding
 // high/low to contain it, so the current candle derives from the same live price as
 // the dashed price line (mirrors buildTvSeriesData for the area chart). open untouched.
@@ -4683,6 +4709,14 @@ function updateActionTvLines() {
       price: _avgPos.avgPrice, color: '#ffffff',
       lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
       axisLabelVisible: true, title: 'Avg',
+    }));
+  }
+  const sess = tvSessionLine(_avgPos);
+  if (sess) {
+    actionTvLines.push(actionTvSeries.createPriceLine({
+      price: sess.price, color: sess.color,
+      lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: sess.title,
     }));
   }
 }
@@ -7913,12 +7947,21 @@ async function fetchYahooBatch(syms) {
 }
 
 // ── Live quotes (day change + pre/post market) ────────────────────────────────
-// Volume + regular/extended-hours quote source for stocks AND ETFs — CNBC batch quote
-// (CORS-open, no key, no proxy, no Apps Script). `exthrs=1` adds the ExtendedMktQuote block:
-// the only pre/post-market price source still reachable from a browser, since both Yahoo
-// paths are dead client-side in production (see Known Limitations).
+// Volume + regular/extended-hours quote source for stocks, ETFs, AND indices — CNBC batch
+// quote (CORS-open, no key, no proxy, no Apps Script). Indices go out under CNBC's own
+// tickers (CNBC_INDEX, e.g. ^GSPC → .SPX) and are mapped back to the app's ^-symbol on the
+// way in. `exthrs=1` adds the ExtendedMktQuote block: the only pre/post-market price source
+// still reachable from a browser, since both Yahoo paths are dead client-side in production
+// (see Known Limitations).
+const CNBC_INDEX = { '^GSPC': '.SPX', '^IXIC': '.IXIC', '^RUT': '.RUT' };
 async function fetchCnbcQuotes(symbols) {
-  const syms = [...new Set(symbols.filter(s => s && !s.startsWith('^')))];
+  const back = {}; // CNBC ticker → app symbol, for indices sent under a translated ticker
+  const syms = [...new Set(symbols.filter(Boolean).map(s => {
+    if (!s.startsWith('^')) return s;
+    const c = CNBC_INDEX[s];
+    if (c) back[c] = s;
+    return c;
+  }).filter(Boolean))];
   if (!syms.length) return {};
   const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=${encodeURIComponent(syms.join('|'))}&exthrs=1&output=json`;
   try {
@@ -7934,7 +7977,7 @@ async function fetchCnbcQuotes(symbols) {
       if (!q.symbol) return;
       const ext  = q.ExtendedMktQuote;
       const type = ext?.type === 'POST_MKT' ? 'POST' : ext?.type === 'PRE_MKT' ? 'PRE' : null;
-      out[q.symbol] = {
+      out[back[q.symbol] ?? q.symbol] = {
         volume:    num(q.fullVolume ?? q.volume),
         price:     num(q.last),
         change:    num(q.change),
@@ -7949,6 +7992,36 @@ async function fetchCnbcQuotes(symbols) {
   } catch { return {}; }
 }
 
+// ── Overnight index futures (20:00–04:00 ET, keyless, same CNBC endpoint) ─────
+// Per-stock overnight prices don't exist anywhere keyless, but index futures tick live
+// all night on this same endpoint. Unknown tickers come back as {symbol,code:"1"} with
+// no `last` — those stubs are skipped below, not rendered.
+const OVERNIGHT_FUTURES = [
+  { sym: '@SP.1', label: 'S&P 500' },
+  { sym: '@ND.1', label: 'Nasdaq'  },
+  { sym: '@DJ.1', label: 'Dow'     },
+];
+async function fetchFutures() {
+  const syms = OVERNIGHT_FUTURES.map(f => f.sym);
+  const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=${encodeURIComponent(syms.join('|'))}&output=json`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return {};
+    const j = await r.json();
+    let arr = j?.QuickQuoteResult?.QuickQuote ?? j?.FormattedQuoteResult?.FormattedQuote ?? [];
+    if (!Array.isArray(arr)) arr = [arr];
+    const num = v => { const n = Number(String(v ?? '').replace(/,/g, '')); return Number.isFinite(n) ? n : null; };
+    const out = {};
+    arr.forEach(q => {
+      if (!q.symbol) return;
+      const price = num(q.last);
+      if (price == null) return;
+      out[q.symbol] = { price, changePct: num(q.change_pct) };
+    });
+    return out;
+  } catch { return {}; }
+}
+
 // Thin wrapper: merges CNBC volume into every quote-source path of _fetchQuotesBase, and
 // backfills the fields the Yahoo paths can no longer supply. Only fills what's missing, so
 // during market hours the Finnhub-backed Quotes sheet stays authoritative; outside them the
@@ -7957,10 +8030,12 @@ async function fetchQuotes(symbols) {
   const out = await _fetchQuotesBase(symbols);
   try {
     const cnbc = await fetchCnbcQuotes(symbols);
-    // CNBC keeps the previous session's ExtendedMktQuote block alive outside that session —
-    // during regular hours and all through the overnight/weekend gap — so extType/extPrice are
-    // stale unless a pre/post session is actually running right now.
+    // CNBC keeps the previous session's ExtendedMktQuote block alive outside that session, so
+    // extType/extPrice are stale during regular hours and the weekend gap — rejected below.
+    // Overnight, that same "stale" block IS the last real after-hours print, so it's deliberately
+    // accepted and tagged 'OVERNIGHT' (not 'PRE'/'POST') so the holdings table skips it.
     const extLive = isExtendedHours();
+    const extNight = isOvernight();
     const cnbcWins = priceSource === 'CNBC';
     // CNBC now owns the price, so the sheet's write time no longer describes what's shown —
     // drop the 'sheet' source or the freshness badge would claim a timestamp that isn't the data's.
@@ -7974,8 +8049,8 @@ async function fetchQuotes(symbols) {
       put('regularMarketChangePercent', c.changePct);
       if (q.fiftyTwoWeekHigh == null && c.high52 != null) q.fiftyTwoWeekHigh = c.high52;
       if (q.fiftyTwoWeekLow  == null && c.low52  != null) q.fiftyTwoWeekLow  = c.low52;
-      if (c.extType && extLive) {
-        q.marketState = c.extType;
+      if (c.extType && (extLive || extNight)) {
+        q.marketState = extNight ? 'OVERNIGHT' : c.extType;
         if (c.extType === 'POST') q.postMarketPrice = c.extPrice;
         else                      q.preMarketPrice  = c.extPrice;
       }
@@ -8700,6 +8775,19 @@ function logoCell(symbol, color) {
 function renderIndexReturns(quotes) {
   const el = document.getElementById('posIndexReturn');
   if (!el) return;
+  if (isOvernight() && Object.keys(_futuresCache).length) {
+    const parts = OVERNIGHT_FUTURES.map(({ sym, label }) => {
+      const q = _futuresCache[sym];
+      const pct = q?.changePct ?? null;
+      if (pct == null) return null;
+      const up = pct >= 0;
+      const col = `var(${up ? '--gain' : '--loss'})`;
+      return `${label}: <span style="color:${col};font-weight:600">${up ? '+' : ''}${pct.toFixed(2)}%</span>`;
+    }).filter(Boolean);
+    const prefix = `<span style="color:var(--muted)">${t('overnight_futures_label')} · </span>`;
+    el.innerHTML = prefix + parts.join('<span style="color:var(--line);margin:0 5px">|</span>');
+    return;
+  }
   const indices = [
     { sym: '^GSPC', label: 'S&P 500' },
     { sym: '^IXIC', label: 'Nasdaq' },
@@ -8833,6 +8921,9 @@ function renderTable(model) {
     } else if ((ms === 'POST' || ms === 'CLOSED') && p.postMarketPrice) {
       priceSubCls = (p.postMarketPct||0) >= 0 ? 'cell-up' : 'cell-dn';
       priceSub = `☾ ${fmtCurr(p.postMarketPrice)} (${(p.postMarketPct||0)>=0?'+':''}${(p.postMarketPct||0).toFixed(2)}%)`;
+    } else if (ms === 'OVERNIGHT' && p.postMarketPrice) {
+      priceSubCls = (p.postMarketPct||0) >= 0 ? 'cell-up' : 'cell-dn';
+      priceSub = `<span title="${t('overnight_price_tip')}">☾ ${fmtCurr(p.postMarketPrice)} (${(p.postMarketPct||0)>=0?'+':''}${(p.postMarketPct||0).toFixed(2)}%)</span>`;
     }
 
     // Day change
@@ -9280,6 +9371,9 @@ function watchlistRow(w) {
   } else if ((ms==='POST'||ms==='CLOSED') && w.postMarketPrice) {
     priceSubCls = (w.postMarketPct||0)>=0 ? 'cell-up' : 'cell-dn';
     priceSub = `☾ ${fmtCurr(w.postMarketPrice)} (${(w.postMarketPct||0)>=0?'+':''}${(w.postMarketPct||0).toFixed(2)}%)`;
+  } else if (ms==='OVERNIGHT' && w.postMarketPrice) {
+    priceSubCls = (w.postMarketPct||0)>=0 ? 'cell-up' : 'cell-dn';
+    priceSub = `<span title="${t('overnight_price_tip')}">☾ ${fmtCurr(w.postMarketPrice)} (${(w.postMarketPct||0)>=0?'+':''}${(w.postMarketPct||0).toFixed(2)}%)</span>`;
   }
   const dayChgStr = dc$==null ? '—' : `${dayUp?'+':''}${fmtCurr(dc$)}`;
   const dayPctStr = dcPct==null ? null : `${dayUp?'+':''}${dcPct.toFixed(2)}%`;
@@ -11654,7 +11748,9 @@ function drawClock() {
   const isWeekend  = et.getDay() === 0 || et.getDay() === 6;
 
   let status, statusColor;
-  if (isWeekend || etMinFloor < 240 || etMinFloor >= 1200) {
+  if (isOvernight()) {
+    status = t('overnight_status'); statusColor = '#8a6fb0';
+  } else if (isWeekend || etMinFloor < 240 || etMinFloor >= 1200) {
     status = isWeekend ? t('weekend_status') : t('closed_status'); statusColor = '#8a7458';
   } else if (etMinFloor < 570) {
     status = t('pre_market_status'); statusColor = '#c79038';
@@ -14625,6 +14721,7 @@ async function init() {
         // Attach to the live view (currentModel may have changed via a portfolio toggle during load).
         const m = currentModel;
         attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderStressTest(m); renderPnLBySector(m);
+        if (isOvernight()) refreshFutures();
         fetchEtfData(_quoteSyms);
         fetchStockReturns();
         recordFetch({ action: 'backfillMetadata' });
@@ -14817,6 +14914,27 @@ function isExtendedHours() {
   const min = (+parts.hour % 24) * 60 + (+parts.minute);
   // Pre-market 4:00–9:30 AM ET; post-market 4:00–8:00 PM ET
   return day >= 1 && day <= 5 && ((min >= 240 && min < 570) || (min >= 960 && min < 1200));
+}
+// Overnight index-futures session, 20:00–04:00 ET, following the CME week: Sun evening
+// through Fri morning. Needs a full 7-day weekday map — isMarketOpen/isExtendedHours' 5-entry
+// map's `?? 0` fallback collapses Sat AND Sun to 0, which would misread Saturday evening.
+function isOvernight() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false,
+    }).formatToParts(new Date()).map(p => [p.type, p.value])
+  );
+  const days = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  const day = days[parts.weekday];
+  const min = (+parts.hour % 24) * 60 + (+parts.minute);
+  if (min >= 1200) return day >= 0 && day <= 4; // Sun–Thu evening
+  if (min < 240) return day >= 1 && day <= 5;   // Mon–Fri early morning
+  return false;
+}
+async function refreshFutures() {
+  _futuresCache = await fetchFutures();
+  renderIndexReturns(_lastQuotes || {});
 }
 // ── Tweaks panel (donut design) ──────────────────────────────────────────────
 (function setupTweaksPanel() {
@@ -15170,6 +15288,7 @@ window.sendGeminiMessage = async function() {
 };
 
 let _lastExtRefresh = 0;
+let _lastOvernightRefresh = 0;
 setInterval(() => {
   if (!_cfg) return;
   const anyOpen = document.querySelector('.tx-overlay.open, .plan-overlay.open, .donut-overlay.open');
@@ -15178,6 +15297,10 @@ setInterval(() => {
   if (isExtendedHours()) {
     const now = Date.now();
     if (now - _lastExtRefresh >= 5 * 60 * 1000) { _lastExtRefresh = now; init(); }
+  }
+  if (isOvernight()) {
+    const now = Date.now();
+    if (now - _lastOvernightRefresh >= 5 * 60 * 1000) { _lastOvernightRefresh = now; refreshFutures(); }
   }
 }, 60_000);
 </script>
