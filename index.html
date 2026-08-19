@@ -2725,7 +2725,7 @@ let pnlChartInst = null;
 let nwChartInst  = null;
 let nwData       = null;
 let nwTimeFilter = 'ALL';
-let _nwDonutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Total Net Worth donut: include cash slice (default on)
+let _donutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Breakdowns donuts: include cash slice (default on); key name is historical; the pref now governs every Breakdowns donut
 let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
@@ -9486,38 +9486,54 @@ const donutOuterLabels = {
   }
 };
 
+// One cash slice, shared by every Breakdowns donut so the label, colour and return-cell
+// behaviour can't drift apart. colorFor is keyed on the literal 'Cash' (it has a fixed
+// brown), so the colour is passed explicitly rather than derived from the translated label.
+function _donutCashSlice(model) {
+  const v = model?.totalCash || 0;
+  return (_donutInclCash && v > 0) ? { label: t('cash'), value: v, color: colorFor('Cash') } : null;
+}
 function _netWorthDonutData(model) {
   const positions = model.positions;
-  const items = _nwDonutInclCash ? [...positions, { symbol: 'Cash', currentValue: model.totalCash }] : positions;
-  const total  = items.reduce((s, p) => s + p.currentValue, 0);
-  const labels = items.map(p => p.symbol);
-  const data   = items.map(p => p.currentValue);
-  const rets   = items.map(p => p.symbol === 'Cash' ? null : { pnl: p.pnl || 0, pct: p.pnlPct || 0 });
-  return { labels, data, colors: labels.map(colorFor), total, rets };
+  const labels = positions.map(p => p.symbol);
+  const data   = positions.map(p => p.currentValue);
+  const colors = labels.map(colorFor);
+  const rets   = positions.map(p => ({ pnl: p.pnl || 0, pct: p.pnlPct || 0 }));
+  const cash   = _donutCashSlice(model);
+  if (cash) { labels.push(cash.label); data.push(cash.value); colors.push(cash.color); rets.push(null); }
+  const total = data.reduce((s, v) => s + v, 0);
+  return { labels, data, colors, total, rets };
 }
-// Segmented [ Incl. cash | Holdings ] control for the Total Net Worth donut.
-// Shared markup for the card title and the fullscreen modal head.
-function nwCashToggleHtml(prefix, wrapId) {
-  const on = _nwDonutInclCash;
+// Segmented [ Incl. cash | Holdings ] control, shared by every Breakdowns donut.
+// Shared markup for each card title and the fullscreen modal head.
+function donutCashToggleHtml(prefix, wrapId) {
+  const on = _donutInclCash;
   return `<div class="nw-cash-toggle"${wrapId ? ` id="${wrapId}"` : ''} style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px;margin-left:auto">
-    <button id="${prefix}InclCash" class="pnl-tab-btn${on ? ' active' : ''}" onclick="event.stopPropagation();setNwDonutCash(true)">${t('nw_incl_cash')}</button>
-    <button id="${prefix}HoldOnly" class="pnl-tab-btn${on ? '' : ' active'}" onclick="event.stopPropagation();setNwDonutCash(false)">${t('nw_holdings_only')}</button>
+    <button id="${prefix}InclCash" class="pnl-tab-btn${on ? ' active' : ''}" onclick="event.stopPropagation();setDonutCash(true)">${t('nw_incl_cash')}</button>
+    <button id="${prefix}HoldOnly" class="pnl-tab-btn${on ? '' : ' active'}" onclick="event.stopPropagation();setDonutCash(false)">${t('nw_holdings_only')}</button>
   </div>`;
 }
-function _syncNwCashToggles() {
-  const on = _nwDonutInclCash;
-  [['cardNwInclCash', 'cardNwHoldOnly'], ['modalNwInclCash', 'modalNwHoldOnly']].forEach(([a, b]) => {
+function _syncDonutCashToggles() {
+  const on = _donutInclCash;
+  ['cardNw','cardCat','cardSec','cardInd','cardCus','cardMyg','modalNw'].map(p => [`${p}InclCash`, `${p}HoldOnly`]).forEach(([a, b]) => {
     const ea = document.getElementById(a), eb = document.getElementById(b);
     if (ea) ea.classList.toggle('active', on);
     if (eb) eb.classList.toggle('active', !on);
   });
 }
-window.setNwDonutCash = function(on) {
-  _nwDonutInclCash = !!on;
+window.setDonutCash = function(on) {
+  _donutInclCash = !!on;
   localStorage.setItem('nwDonutCash.v1', on ? 'on' : 'off');
-  _syncNwCashToggles();
-  if (currentModel) renderDonut(currentModel);
-  if (_donutModalKind === 'networth') renderDonutModal();
+  _syncDonutCashToggles();
+  if (currentModel) {
+    renderDonut(currentModel);
+    renderCategoryDonut(currentModel);
+    renderSectorDonut(currentModel);
+    renderIndustryDonut(currentModel);
+    renderCustomDonut(currentModel);
+    renderMyGroupDonut(currentModel);
+  }
+  if (_donutModalKind) renderDonutModal();
 };
 
 function renderDonut(model) {
@@ -9800,8 +9816,10 @@ function renderGroupedDonut(cfg, model) {
     r.pnl  += p.pnl || 0;
     r.cost += p.costBasis || 0;
   }
-  const grandTotal = Object.values(map).reduce((s, v) => s + v, 0);
+  const posTotal = Object.values(map).reduce((s, v) => s + v, 0);
   const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
+  const cashSlice = _donutCashSlice(model);
+  const grandTotal = posTotal + (cashSlice ? cashSlice.value : 0);
 
   const drilled = cfg.getDrill();
   let labels, data, colors, drillTotal, rets;
@@ -9818,6 +9836,11 @@ function renderGroupedDonut(cfg, model) {
     data   = keys.map(k => map[k]);
     colors = keys.map(cfg.color);
     rets   = keys.map(k => { const r = retMap[k]; return r && r.cost ? { pnl: r.pnl, pct: r.pnl / r.cost * 100 } : null; });
+    // Cash rides along as a final slice; it has no group to drill into and no return.
+    if (cashSlice) {
+      labels.push(cashSlice.label); data.push(cashSlice.value);
+      colors.push(cashSlice.color); rets.push(null);
+    }
   }
 
   const centerPlugin = {
@@ -9873,7 +9896,9 @@ function renderGroupedDonut(cfg, model) {
           return;
         }
         if (!elements.length || cfg.getDrill()) return;
-        cfg.setDrill(keys[elements[0].index]);
+        const k = keys[elements[0].index];
+        if (!k) return;            // the appended Cash slice has no group behind it
+        cfg.setDrill(k);
         cfg.afterChange();
       }
     },
@@ -10024,14 +10049,20 @@ function _etfSectorDonutData(model) {
     map[sector] = (map[sector] || 0) + h.blended * totalVal;
   }
   const keys = Object.keys(map).sort((a, b) => map[b] - map[a]);
-  return { labels: keys, data: keys.map(k => map[k]), colors: keys.map(colorFor), total: totalVal };
+  const labels = keys.slice(), data = keys.map(k => map[k]), colors = keys.map(colorFor);
+  const cash = _donutCashSlice(model);
+  if (cash) { labels.push(cash.label); data.push(cash.value); colors.push(cash.color); }
+  return { labels, data, colors, total: totalVal + (cash ? cash.value : 0) };
 }
 
 function _etfHoldingDonutData(model) {
   const { agg, totalVal } = _blendedEtfHoldings(model);
   const entries = Object.values(agg).map(h => ({ label: h.symbol, value: h.blended * totalVal }));
   entries.sort((a, b) => b.value - a.value);
-  return { labels: entries.map(e => e.label), data: entries.map(e => e.value), colors: entries.map(e => colorFor(e.label)), total: totalVal };
+  const labels = entries.map(e => e.label), data = entries.map(e => e.value), colors = entries.map(e => colorFor(e.label));
+  const cash = _donutCashSlice(model);
+  if (cash) { labels.push(cash.label); data.push(cash.value); colors.push(cash.color); }
+  return { labels, data, colors, total: totalVal + (cash ? cash.value : 0) };
 }
 
 function renderEtfSectorDonut(model) {
@@ -10098,8 +10129,8 @@ window.openDonutModal = function(kind) {
   const titleEl = document.getElementById('donutModalTitle');
   if (titleEl) titleEl.textContent = _donutModalTitleFor(kind);
   const ct = document.getElementById('donutModalCashToggle');
-  if (ct) ct.style.display = kind === 'networth' ? 'flex' : 'none';
-  _syncNwCashToggles();
+  if (ct) ct.style.display = 'flex';
+  _syncDonutCashToggles();
   const ov = document.getElementById('donutModal');
   if (ov) ov.classList.add('open');
   requestAnimationFrame(() => renderDonutModal());
@@ -13608,7 +13639,7 @@ function buildShell() {
           <div class="alloc-donuts">
             <!-- Total Net Worth -->
             <div class="card">
-              <div class="card-title">${t('total_net_worth_label')}${nwCashToggleHtml('cardNw')}${donutExpandBtn('networth')}</div>
+              <div class="card-title">${t('total_net_worth_label')}${donutCashToggleHtml('cardNw')}${donutExpandBtn('networth')}</div>
               <div class="chart-wrap donut-h donut-wrap">
                 <canvas id="donutChart"></canvas>
                 <div class="donut-center"><div class="dc-label" id="donut-label">${t('total_net_worth_label')}</div><div class="dc-value" id="donut-value">—</div></div>
@@ -13616,29 +13647,29 @@ function buildShell() {
             </div>
             <!-- Category Breakdown -->
             <div class="card">
-              <div class="card-title">${t('category_breakdown_title')}${donutExpandBtn('category')}</div>
+              <div class="card-title">${t('category_breakdown_title')}${donutCashToggleHtml('cardCat')}${donutExpandBtn('category')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="catDonutChart"></canvas></div>
             </div>
             <!-- Sector Breakdown -->
             <div class="card">
-              <div class="card-title">${t('sector_breakdown_title')}${donutExpandBtn('sector')}</div>
+              <div class="card-title">${t('sector_breakdown_title')}${donutCashToggleHtml('cardSec')}${donutExpandBtn('sector')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="sectorDonutChart"></canvas></div>
               <div id="sectorDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
             </div>
             <!-- Industry Breakdown -->
             <div class="card">
-              <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutExpandBtn('industry')}</div>
+              <div class="card-title" id="industryBreakdownTitle"><span id="industryBreakdownTitleText">${t('industry_breakdown_title')}</span>${donutCashToggleHtml('cardInd')}${donutExpandBtn('industry')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="industryDonutChart"></canvas></div>
               <div id="industryDonutNote" style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px"></div>
             </div>
             <!-- Custom -->
             <div class="card" id="customDonutCard">
-              <div class="card-title"><span>${t('custom_breakdown_title')}</span>${donutExpandBtn('custom')}</div>
+              <div class="card-title"><span>${t('custom_breakdown_title')}</span>${donutCashToggleHtml('cardCus')}${donutExpandBtn('custom')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="customDonutChart"></canvas></div>
             </div>
             <!-- My Group -->
             <div class="card" id="myGroupDonutCard">
-              <div class="card-title"><span>${t('mygroup_breakdown_title')}</span>${donutExpandBtn('mygroup')}</div>
+              <div class="card-title"><span>${t('mygroup_breakdown_title')}</span>${donutCashToggleHtml('cardMyg')}${donutExpandBtn('mygroup')}</div>
               <div class="chart-wrap donut-h donut-wrap"><canvas id="myGroupDonutChart"></canvas></div>
             </div>
           </div>
@@ -13694,7 +13725,7 @@ function buildShell() {
     <div class="donut-modal" role="dialog" aria-modal="true" aria-labelledby="donutModalTitle">
       <div class="donut-modal-head">
         <h2 class="donut-modal-title" id="donutModalTitle"></h2>
-        ${nwCashToggleHtml('modalNw', 'donutModalCashToggle')}
+        ${donutCashToggleHtml('modalNw', 'donutModalCashToggle')}
         <button class="donut-modal-close" onclick="closeDonutModal()" aria-label="Close">×</button>
       </div>
       <div class="donut-modal-body">
