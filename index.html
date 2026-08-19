@@ -2344,6 +2344,14 @@ const I18N = {
     stress_scenario_label: "Market move", stress_hist_label: "Historical",
     stress_movers_label: "Biggest movers",
     stress_fallback_note: "used market beta (thin history)",
+    timpact_title: "Trade impact", timpact_conc: "Concentration",
+    timpact_largest: "Largest position", timpact_top3: "Top 3", timpact_hhi: "HHI",
+    timpact_risk: "Risk", timpact_beta: "Portfolio beta", timpact_corr: "Most correlated",
+    timpact_beta_note: "of equity used market beta",
+    timpact_ctx: "Price context", timpact_52w: "52W range position",
+    timpact_vs50: "vs 50-day avg", timpact_vs200: "vs 200-day avg",
+    drift_badge: "Drift", drift_vs_target: "vs target",
+    drift_band_label: "Drift alert", drift_off: "Off",
     monthly_returns_title: "Monthly Returns",
     mret_avg_label: "Avg", year_label: "Year",
     no_realized_pnl: "No realized P&L in this period.",
@@ -2598,6 +2606,14 @@ const I18N = {
     stress_scenario_label: "ตลาดเปลี่ยนแปลง", stress_hist_label: "เหตุการณ์ในอดีต",
     stress_movers_label: "หุ้นกระทบมากสุด",
     stress_fallback_note: "ใช้เบต้าตลาด (ข้อมูลย้อนหลังไม่พอ)",
+    timpact_title: "ผลกระทบต่อพอร์ต", timpact_conc: "การกระจุกตัว",
+    timpact_largest: "หุ้นสัดส่วนมากสุด", timpact_top3: "3 อันดับแรก", timpact_hhi: "HHI",
+    timpact_risk: "ความเสี่ยง", timpact_beta: "เบต้าพอร์ต", timpact_corr: "สัมพันธ์สูงสุดกับ",
+    timpact_beta_note: "ของมูลค่าหุ้นใช้เบต้าตลาด",
+    timpact_ctx: "บริบทราคา", timpact_52w: "ตำแหน่งในกรอบ 52 สัปดาห์",
+    timpact_vs50: "เทียบเฉลี่ย 50 วัน", timpact_vs200: "เทียบเฉลี่ย 200 วัน",
+    drift_badge: "เบี่ยงเบน", drift_vs_target: "เทียบเป้าหมาย",
+    drift_band_label: "แจ้งเตือนการเบี่ยงเบน", drift_off: "ปิด",
     corr_omitted_suffix: "หุ้นสัดส่วนย่อยที่ไม่ได้แสดง",
     monthly_returns_title: "ผลตอบแทนรายเดือน",
     mret_avg_label: "เฉลี่ย", year_label: "ปี",
@@ -2756,6 +2772,7 @@ window.setTxType = function(t) {
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   updateTxAllocationBars(shares, price);
+  updateTxImpact(shares, price);
   updateTxCashPreview();
   updateTxEditImpact(shares, price);
   updateActionNewAvgLine();
@@ -2871,6 +2888,153 @@ function updateTxAllocationBars(shares, price) {
   </div>`;
 }
 
+// ── Trade Impact — portfolio-level consequence of the order being entered ────────────────
+// The bars above answer "what happens to this position and my cash". This answers "what
+// happens to my portfolio": concentration, the traded name's sector weight, portfolio beta,
+// and where in the symbol's own range the fill sits.
+//
+// Frame is currentModel (the active view), matching #txAllocBars directly above so the two
+// panels can never disagree. Weights are equity-only — the stockWeightPct basis the Risk
+// panel uses — because cash is not part of a concentration measure.
+const IMPACT_CORR_HOT = 0.75;   // r at/above this reads as "more of what you already own"
+let _impactStatic = { key: null, corr: null, sma50: null, sma200: null };
+
+// The symbol-only half: nearest correlate across every holding, plus the moving-average
+// levels. None of it moves while the user types a quantity, so it is cached rather than
+// rebuilt on each keystroke. (The percentages derived from the MA levels do depend on the
+// typed price — only the levels themselves are cached.)
+function _impactStaticFor(sym) {
+  const priceDays = Object.keys(historyCache?.prices || {}).length;
+  const key = `${sym}:${activePortfolio}:${priceDays}`;
+  if (_impactStatic.key === key) return _impactStatic;
+  let corr = null;
+  for (const p of (currentModel?.positions || [])) {
+    if (p.symbol === sym) continue;
+    const r = _pairCorr(sym, p.symbol);
+    if (r != null && (corr == null || r > corr.r)) corr = { sym: p.symbol, r };
+  }
+  _impactStatic = { key, corr, sma50: _sma(sym, 50), sma200: _sma(sym, 200) };
+  return _impactStatic;
+}
+
+function updateTxImpact(shares, price) {
+  const el = document.getElementById('txImpactPanel');
+  if (!el) return;
+  const tickerEl = document.getElementById('txTicker');
+  const sym = tickerEl?.value === '__custom__'
+    ? (document.getElementById('txTickerCustom')?.value?.trim()?.toUpperCase() || '')
+    : (tickerEl?.value || '');
+  const tradeVal = (shares || 0) * (price || 0);
+  // Nothing to evaluate until there is a real order on the form — same rule as the bars above.
+  if (!currentModel || !sym || sym === '__custom__' || tradeVal <= 0) { el.innerHTML = ''; return; }
+
+  const positions = currentModel.positions || [];
+  const pos    = positions.find(p => p.symbol === sym) || null;
+  const isSell = txType === 'Sell';
+  const curVal = pos?.currentValue || 0;
+  const delta  = isSell ? -Math.min(tradeVal, curVal) : tradeVal;
+
+  const valBefore = new Map(positions.map(p => [p.symbol, p.currentValue || 0]));
+  const valAfter  = new Map(valBefore);
+  valAfter.set(sym, Math.max(0, curVal + delta));
+  const sumOf    = m => [...m.values()].reduce((s, v) => s + v, 0);
+  const eqBefore = sumOf(valBefore), eqAfter = sumOf(valAfter);
+  if (eqAfter <= 0) { el.innerHTML = ''; return; }
+
+  const conc = (m, total) => {
+    const ws = [...m.entries()].map(([s, v]) => [s, total > 0 ? v / total * 100 : 0])
+                               .sort((a, b) => b[1] - a[1]);
+    return {
+      big:  ws[0] || ['—', 0],
+      top3: ws.slice(0, 3).reduce((s, w) => s + w[1], 0),
+      hhi:  ws.reduce((s, w) => s + (w[1] / 100) ** 2, 0),
+    };
+  };
+  const cB = conc(valBefore, eqBefore), cA = conc(valAfter, eqAfter);
+
+  // Sector weight of the traded name's own sector. Skipped entirely when we have no sector
+  // for the symbol (a brand-new ticker) rather than lumping it into a misleading "Other".
+  const mySec = pos?.sector || null;
+  const secOf = new Map(positions.map(p => [p.symbol, p.sector || 'Other']));
+  const secW  = (m, total) => {
+    if (!mySec || total <= 0) return null;
+    let v = 0;
+    for (const [s, val] of m) if (secOf.get(s) === mySec) v += val;
+    return v / total * 100;
+  };
+  const secB = secW(valBefore, eqBefore), secA = secW(valAfter, eqAfter);
+
+  // Equity-weighted portfolio beta. Symbols with too little history fall back to the
+  // portfolio beta, exactly as the Stress Test card does, and are counted for the footnote.
+  const betas = perHoldingBetas(currentModel);
+  const ra    = riskAdjusted();
+  const fallbackBeta = ra && ra.beta != null ? ra.beta : null;
+  const canBeta = Object.keys(betas).length > 0 || fallbackBeta != null;
+  const portBeta = (m, total) => {
+    if (!canBeta || total <= 0) return null;
+    const fb = fallbackBeta != null ? fallbackBeta : 1;
+    let acc = 0, fallbackVal = 0;
+    for (const [s, v] of m) {
+      const covered = betas[s] !== undefined;
+      if (!covered) fallbackVal += v;
+      acc += (covered ? betas[s] : fb) * (v / total);
+    }
+    return { beta: acc, fallbackVal };
+  };
+  const bB = portBeta(valBefore, eqBefore), bA = portBeta(valAfter, eqAfter);
+
+  const st  = _impactStaticFor(sym);
+  const hi  = pos?.week52High, lo = pos?.week52Low;
+  const rangePct = (hi && lo && hi > lo) ? (price - lo) / (hi - lo) * 100 : null;
+  const vsMa = ma => (ma && ma > 0) ? (price / ma - 1) * 100 : null;
+  const v50  = vsMa(st.sma50), v200 = vsMa(st.sma200);
+
+  const sub = txt =>
+    `<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:9px 0 4px">${txt}</div>`;
+  const row = (label, valueHtml) =>
+    `<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">
+       <span style="color:var(--muted)">${label}</span><span style="text-align:right">${valueHtml}</span>
+     </div>`;
+  const arrow = (b, a, tone) =>
+    `<span style="color:var(--muted)">${b}</span> <span style="color:var(--muted)">→</span> <strong style="color:${_toneColor(tone)}">${a}</strong>`;
+  const dash   = `<span style="color:var(--muted)">—</span>`;
+  const p1     = v => v.toFixed(1) + '%';
+  // Signed but deliberately uncoloured: distance from a moving average is context, not a
+  // verdict — the app reports where the fill sits and leaves the judgement to the user.
+  const signed = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
+
+  const concRows =
+    row(t('timpact_largest'), arrow(`${cB.big[0]} ${p1(cB.big[1])}`, `${cA.big[0]} ${p1(cA.big[1])}`,
+        _riskTone(cA.big[1], ...RISK_BANDS.largest))) +
+    row(t('timpact_top3'), arrow(p1(cB.top3), p1(cA.top3), _riskTone(cA.top3, ...RISK_BANDS.top3))) +
+    row(t('timpact_hhi'),  arrow(cB.hhi.toFixed(3), cA.hhi.toFixed(3), _riskTone(cA.hhi, ...RISK_BANDS.hhi))) +
+    (secB != null ? row(t(mySec), arrow(p1(secB), p1(secA), _riskTone(secA, ...RISK_BANDS.sector))) : '');
+
+  const betaRow = (bB && bA)
+    ? row(t('timpact_beta'), arrow(bB.beta.toFixed(2), bA.beta.toFixed(2), bA.beta > 1.3 ? 'honey' : null))
+    : row(t('timpact_beta'), dash);
+  const corrRow = st.corr
+    ? row(t('timpact_corr'),
+        `<strong style="color:${st.corr.r >= IMPACT_CORR_HOT ? 'var(--honey)' : 'var(--ink)'}">${st.corr.sym} · r ${st.corr.r.toFixed(2)}</strong>`)
+    : row(t('timpact_corr'), dash);
+  const fbPct = (bA && eqAfter > 0) ? bA.fallbackVal / eqAfter * 100 : 0;
+  const betaNote = fbPct >= 1
+    ? `<div style="font-size:9px;color:var(--muted);margin-top:4px">${fbPct.toFixed(0)}% ${t('timpact_beta_note')}</div>`
+    : '';
+
+  const ctxRows =
+    row(t('timpact_52w'),   rangePct != null ? `<strong>${Math.max(0, Math.min(100, rangePct)).toFixed(0)}%</strong>` : dash) +
+    row(t('timpact_vs50'),  v50  != null ? `<strong>${signed(v50)}</strong>`  : dash) +
+    row(t('timpact_vs200'), v200 != null ? `<strong>${signed(v200)}</strong>` : dash);
+
+  el.innerHTML = `<div style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px">
+    <div style="font-weight:600;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px">${t('timpact_title')} · ${sym}</div>
+    ${sub(t('timpact_conc'))}${concRows}
+    ${sub(t('timpact_risk'))}${betaRow}${corrRow}${betaNote}
+    ${sub(t('timpact_ctx'))}${ctxRows}
+  </div>`;
+}
+
 window.setSellAll = function() {
   const tickerEl = document.getElementById('txTicker');
   const sym = tickerEl?.value === '__custom__'
@@ -2891,6 +3055,7 @@ window.updateTxCalc = function() {
   const el = document.getElementById('txTradeValue');
   if (el) el.textContent = fmtCurr(shares * price);
   updateTxAllocationBars(shares, price);
+  updateTxImpact(shares, price);
   updateTxCashPreview();
   updateTxEditImpact(shares, price);
   updateActionNewAvgLine();
@@ -3135,6 +3300,7 @@ function buildTxModal(defaultSymbol, editData) {
       </div>
     </div>
     <div id="txAllocBars"></div>
+    <div id="txImpactPanel"></div>
     ${!isEdit ? buildCashSelectorHtml() : ''}
     <div class="tx-calc">
       <span>Trade Value: <strong id="txTradeValue">$0.00</strong></span>
@@ -4934,6 +5100,7 @@ function recomputeTradeFrom(source) {
 
   const shares = parseFloat(qtyEl.value) || 0;
   updateTxAllocationBars(shares, price);
+  updateTxImpact(shares, price);
   updateTxCashPreview();
   updateTradeSummary();
   updateTradeAvgLine();
@@ -4955,6 +5122,7 @@ window.onTradeSellAll = function() {
   const { sellNet } = calcFees(pos.qty * price);
   if (costEl) costEl.value = pos.qty * price > 0 ? sellNet.toFixed(2) : '';
   updateTxAllocationBars(pos.qty, price);
+  updateTxImpact(pos.qty, price);
   updateTxCashPreview();
   updateTradeSummary();
   updateTradeAvgLine();
@@ -5652,6 +5820,7 @@ function renderActionTabContent() {
         </div>
       </div>
       <div id="txAllocBars"></div>
+      <div id="txImpactPanel"></div>
       ${buildCashSelectorHtml()}
       <div id="tradeSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
       <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
@@ -8400,6 +8569,45 @@ function renderTrueExposure(model) {
 }
 
 // Correlation Matrix — Pearson r of daily returns between the top-10 holdings by current value.
+// Daily returns from cached closes, memoized per symbol on the close count. Shared by the
+// correlation matrix and the Trade Impact panel, which correlates one symbol against every
+// holding on modal open and would otherwise rebuild the same series N times.
+const _retSeriesMemo = new Map();
+function _dailyReturns(sym) {
+  const prices = historyCache?.prices?.[sym];
+  if (!prices) return null;
+  const dates = Object.keys(prices).sort();
+  const cached = _retSeriesMemo.get(sym);
+  if (cached && cached.n === dates.length) return cached.rets;
+  const rets = {};
+  for (let i = 1; i < dates.length; i++) {
+    const prev = prices[dates[i - 1]], cur = prices[dates[i]];
+    if (prev > 0 && cur > 0) rets[dates[i]] = cur / prev - 1;
+  }
+  _retSeriesMemo.set(sym, { n: dates.length, rets });
+  return rets;
+}
+
+// Pearson r of two symbols' daily returns over their overlapping dates.
+// null under CORR_MIN_DAYS of overlap — an r off a handful of points is noise, not a signal.
+const CORR_MIN_DAYS = 30;
+function _pairCorr(symA, symB) {
+  const a = _dailyReturns(symA), b = _dailyReturns(symB);
+  if (!a || !b) return null;
+  const common = Object.keys(a).filter(d => b[d] !== undefined);
+  if (common.length < CORR_MIN_DAYS) return null;
+  const n = common.length;
+  let mx = 0, my = 0;
+  for (const d of common) { mx += a[d]; my += b[d]; }
+  mx /= n; my /= n;
+  let cov = 0, vx = 0, vy = 0;
+  for (const d of common) {
+    const dx = a[d] - mx, dy = b[d] - my;
+    cov += dx * dy; vx += dx * dx; vy += dy * dy;
+  }
+  return (vx > 0 && vy > 0) ? cov / Math.sqrt(vx * vy) : null;
+}
+
 function computeCorrelationMatrix(model) {
   const eligible = (model.positions || []).filter(p => {
     const prices = historyCache?.prices?.[p.symbol];
@@ -8411,36 +8619,11 @@ function computeCorrelationMatrix(model) {
     .map(p => p.symbol);
   if (syms.length < 2) return null;
 
-  const returnMaps = {};
-  for (const sym of syms) {
-    const prices = historyCache.prices[sym];
-    const dates = Object.keys(prices).sort();
-    const rets = {};
-    for (let i = 1; i < dates.length; i++) {
-      const prev = prices[dates[i - 1]], cur = prices[dates[i]];
-      if (prev > 0 && cur > 0) rets[dates[i]] = cur / prev - 1;
-    }
-    returnMaps[sym] = rets;
-  }
-
   const matrix = syms.map(() => syms.map(() => null));
   for (let i = 0; i < syms.length; i++) {
     matrix[i][i] = 1;
     for (let j = i + 1; j < syms.length; j++) {
-      const a = returnMaps[syms[i]], b = returnMaps[syms[j]];
-      const commonDates = Object.keys(a).filter(d => b[d] !== undefined);
-      if (commonDates.length < 30) continue;
-      const xs = commonDates.map(d => a[d]), ys = commonDates.map(d => b[d]);
-      const n = xs.length;
-      const meanX = xs.reduce((s, v) => s + v, 0) / n;
-      const meanY = ys.reduce((s, v) => s + v, 0) / n;
-      let cov = 0, varX = 0, varY = 0;
-      for (let k = 0; k < n; k++) {
-        const dx = xs[k] - meanX, dy = ys[k] - meanY;
-        cov += dx * dy; varX += dx * dx; varY += dy * dy;
-      }
-      const r = (varX > 0 && varY > 0) ? cov / Math.sqrt(varX * varY) : null;
-      matrix[i][j] = matrix[j][i] = r;
+      matrix[i][j] = matrix[j][i] = _pairCorr(syms[i], syms[j]);
     }
   }
   return { syms, matrix, omittedCount: eligible.length - syms.length };
@@ -10038,6 +10221,18 @@ function computePeriodReturns(sym, currentPrice) {
   return ret;
 }
 
+// Simple moving average of the last `days` cached closes; null when history is too short.
+// Deliberately computed from historyCache (the History sheet) rather than Yahoo's
+// fiftyDayAverage/twoHundredDayAverage — those ride the v7/quote batch, which needs a crumb
+// and is dead in production, so they'd work in local dev and silently blank once deployed.
+function _sma(sym, days) {
+  const pm = historyCache?.prices?.[sym];
+  if (!pm) return null;
+  const closes = Object.keys(pm).sort().map(d => pm[d]).filter(v => v > 0);
+  if (closes.length < days) return null;
+  return closes.slice(-days).reduce((s, v) => s + v, 0) / days;
+}
+
 function priceSpark(sym, width, height) {
   width = width || 64; height = height || 20;
   const pm = historyCache?.prices?.[sym];
@@ -10272,6 +10467,18 @@ function destroyPlanExpandCharts() {
 let _planAlertSigs = new Set();
 let _planAlertInitDone = false;
 
+// Drift band — how far a holding may wander from its target before Plan Watch says so.
+// 0 = off. Stored per device, like the other display preferences.
+const DRIFT_MAX_ROWS = 3;
+function getDriftBand() {
+  const v = parseInt(localStorage.getItem('driftBand.v1'), 10);
+  return Number.isFinite(v) && v >= 0 ? v : 25;
+}
+window.setDriftBand = function(v) {
+  localStorage.setItem('driftBand.v1', String(parseInt(v, 10) || 0));
+  if (currentModel) renderPlanWatch();
+};
+
 function renderPlanWatch() {
   const card = document.getElementById('planWatchCard');
   const el   = document.getElementById('planWatchPanel');
@@ -10314,6 +10521,38 @@ function renderPlanWatch() {
       });
     });
   });
+
+  // ── Drift: holdings that have wandered outside their target band ────────────
+  // A standing condition, not an event: urgency sits below every price trigger and is
+  // deliberately outside HIT_URGENCIES, so drift never fires a browser notification.
+  const _band = getDriftBand();
+  if (_band > 0) {
+    const _inv = currentModel.investable || 0;
+    const _drifted = [];
+    for (const p of (currentModel.positions || [])) {
+      // Target dollars computed directly, NOT via getTargetDollar() — that reads
+      // planState.pendingTarget, so an unsaved edit in an open modal would move this alert.
+      const tgt = (p.target || 0) * _inv;
+      if (tgt <= 0) continue;
+      const drift = (p.currentValue || 0) / tgt * 100 - 100;
+      if (Math.abs(drift) < _band) continue;
+      _drifted.push({ p, drift });
+    }
+    _drifted.sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift));
+    for (const { p, drift } of _drifted.slice(0, DRIFT_MAX_ROWS)) {
+      const actualPct = _inv > 0 ? (p.currentValue || 0) / _inv * 100 : 0;
+      const targetPct = (p.target || 0) * 100;
+      const port = defaultPortFor(p.symbol);
+      alerts.push({
+        sym: p.symbol, port,
+        key: `${port}:${p.symbol}:DRIFT`,
+        label: `${t('drift_badge')} ${drift >= 0 ? '+' : '−'}${Math.abs(drift).toFixed(0)}%`,
+        detail: `${actualPct.toFixed(1)}% ${t('drift_vs_target')} ${targetPct.toFixed(1)}%`,
+        urgency: 0.25,
+        color: 'var(--honey)', bg: 'rgba(199,144,56,.14)',
+      });
+    }
+  }
 
   alerts.sort((a, b) => b.urgency - a.urgency);
 
@@ -10907,6 +11146,24 @@ function riskAdjusted() {
   return data;
 }
 
+// Concentration bands, in one place: the Risk panel and the Trade Impact panel both read
+// them, so the same number can never be tinted two different ways on two different screens.
+// [lossAbove, honeyAbove] — anything at or below honeyAbove reads as gain.
+const RISK_BANDS = {
+  largest: [30,   20  ],
+  top3:    [60,   45  ],
+  hhi:     [ 0.25, 0.15],
+  sector:  [50,   35  ],
+};
+function _riskTone(v, lossAt, honeyAt) {
+  return v > lossAt ? 'loss' : v > honeyAt ? 'honey' : 'gain';
+}
+function _toneColor(tn) {
+  return tn === 'gain'  ? 'var(--gain)'  :
+         tn === 'honey' ? 'var(--honey)' :
+         tn === 'loss'  ? 'var(--loss)'  : 'var(--ink)';
+}
+
 function renderRiskPanel(model) {
   const el = document.getElementById('riskPanel');
   if (!el || !model) return;
@@ -10916,10 +11173,7 @@ function renderRiskPanel(model) {
     return;
   }
 
-  const toneColor = tn =>
-    tn === 'gain'  ? 'var(--gain)'  :
-    tn === 'honey' ? 'var(--honey)' :
-    tn === 'loss'  ? 'var(--loss)'  : 'var(--ink)';
+  const toneColor = _toneColor;
   const row = (label, valueHtml, tone, sub) =>
     `<div class="risk-row">
        <div class="risk-row-label">${label}${sub ? `<span class="risk-row-sub">${sub}</span>` : ''}</div>
@@ -10931,13 +11185,13 @@ function renderRiskPanel(model) {
   // ── Concentration (stock-only weights) ──────────────────────────────────────
   const byStockW = [...pos].sort((a,b) => (b.stockWeightPct||0) - (a.stockWeightPct||0));
   const top3 = byStockW.slice(0,3).reduce((s,p) => s + (p.stockWeightPct||0), 0);
-  const top3Tone = top3 > 60 ? 'loss' : top3 > 45 ? 'honey' : 'gain';
+  const top3Tone = _riskTone(top3, ...RISK_BANDS.top3);
   const hhi = pos.reduce((s,p) => { const w = (p.stockWeightPct||0)/100; return s + w*w; }, 0);
-  const hhiTone  = hhi > 0.25 ? 'loss' : hhi > 0.15 ? 'honey' : 'gain';
+  const hhiTone  = _riskTone(hhi, ...RISK_BANDS.hhi);
   const hhiLabel = hhi > 0.25 ? t('risk_concentrated') : hhi > 0.15 ? t('risk_moderate') : t('risk_diversified');
   const cashPct  = model.totalCurrent > 0 ? model.totalCash / model.totalCurrent * 100 : 0;
   const big = byStockW[0];
-  const bigTone = (big.stockWeightPct||0) > 30 ? 'loss' : (big.stockWeightPct||0) > 20 ? 'honey' : 'gain';
+  const bigTone = _riskTone(big.stockWeightPct||0, ...RISK_BANDS.largest);
 
   // ── Sector diversification ──────────────────────────────────────────────────
   const secMap = {};
@@ -10946,7 +11200,7 @@ function renderRiskPanel(model) {
   const secEntries = Object.entries(secMap).sort((a,b) => b[1]-a[1]);
   const topSecPct  = stockTotal > 0 && secEntries.length ? secEntries[0][1] / stockTotal * 100 : 0;
   const topSecName = secEntries.length ? t(secEntries[0][0]) : '—';
-  const topSecTone = topSecPct > 50 ? 'loss' : topSecPct > 35 ? 'honey' : 'gain';
+  const topSecTone = _riskTone(topSecPct, ...RISK_BANDS.sector);
   const secCount   = secEntries.length;
 
   // ── Stop-Loss coverage ──────────────────────────────────────────────────────
@@ -13128,6 +13382,12 @@ function buildShell() {
                 <button class="lang-seg${priceSource==='FINNHUB'?' active':''}" id="priceSourceFinnhubBtn" onclick="setPriceSource('FINNHUB')">Finnhub</button>
                 <button class="lang-seg${priceSource==='CNBC'?' active':''}" id="priceSourceCnbcBtn" onclick="setPriceSource('CNBC')">CNBC</button>
               </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-row-label">${t('drift_band_label')}</span>
+              <select id="driftBandSel" onchange="setDriftBand(this.value)" style="background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-size:11px;font-family:inherit;cursor:pointer">
+                ${[0,15,25,40].map(v => `<option value="${v}"${getDriftBand()===v?' selected':''}>${v===0?t('drift_off'):'±'+v+'%'}</option>`).join('')}
+              </select>
             </div>
             <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:6px">
               <span class="settings-row-label">${t('portfolios_label') || 'Portfolios'}</span>
