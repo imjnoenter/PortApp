@@ -1359,6 +1359,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .tx-label { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; display: block; text-transform: uppercase; letter-spacing: .5px; }
 .tx-input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--ink); font-family: var(--font-ui); font-size: 13px; outline: none; transition: border-color .15s, background .15s; }
 .tx-input:focus { border-color: var(--terracotta); background: var(--card); }
+.tag-pick { position: relative; }
+.tag-pick .tx-input { padding-right: 32px; }
+.tag-pick-btn { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 30px; border: none; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; }
+.tag-pick-btn:hover { color: var(--ink); }
+.tag-pick-list { display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: var(--z-popover); max-height: 180px; overflow-y: auto; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); }
+.tag-pick-list.open { display: block; }
+.tag-pick-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: transparent; color: var(--ink); font-family: var(--font-ui); font-size: 12px; cursor: pointer; }
+.tag-pick-opt:hover { background: var(--track); }
 .tx-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tx-calc { font-size: 11px; color: var(--muted); margin-top: 8px; padding: 9px 11px; background: var(--track); border-radius: var(--radius-sm); display: flex; justify-content: space-between; }
 .tx-submit { width: 100%; padding: 12px; background: var(--terracotta); color: var(--btn-fg); border: none; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 14px; box-shadow: 0 2px 8px rgba(196,106,74,.3); transition: transform .15s, box-shadow .15s; }
@@ -5666,6 +5674,37 @@ window.switchActionTab = function(tab) {
   setTimeout(restoreTabDraft, 0);
 };
 
+// Free-text tag field (Custom / My Group) with a ▾ that lists the values already in use.
+// The native datalist only suggests values matching what's already typed, so a field that
+// already holds a tag can't browse the others — the caret list always shows all of them.
+// Values go through data-v rather than the onclick string, so quotes in a tag can't break it.
+function tagPickerHtml(id, label, value, opts) {
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const caret = !opts.length ? '' :
+    `<button type="button" class="tag-pick-btn" onclick="toggleTagPick('${id}',event)" aria-label="${esc(label)} — show existing values">▾</button>
+     <div class="tag-pick-list" id="${id}Pick">${opts.map(v =>
+        `<button type="button" class="tag-pick-opt" data-v="${esc(v)}" onclick="pickTag('${id}',this.dataset.v)">${esc(v)}</button>`).join('')}</div>`;
+  return `<div class="tx-field"><label class="tx-label">${label}</label>
+    <div class="tag-pick">
+      <input class="tx-input" id="${id}" type="text" list="${id}List" value="${esc(value)}">
+      <datalist id="${id}List">${opts.map(v => `<option value="${esc(v)}"></option>`).join('')}</datalist>
+      ${caret}
+    </div>
+  </div>`;
+}
+window.toggleTagPick = function(id, e) {
+  if (e) e.stopPropagation();
+  const list = document.getElementById(id + 'Pick');
+  if (!list) return;
+  document.querySelectorAll('.tag-pick-list.open').forEach(el => { if (el !== list) el.classList.remove('open'); });
+  list.classList.toggle('open');
+};
+window.pickTag = function(id, val) {
+  const input = document.getElementById(id);
+  if (input) input.value = val;
+  document.getElementById(id + 'Pick')?.classList.remove('open');
+};
+
 function renderActionTabContent() {
   const el = document.getElementById('actionTabContent');
   if (!el) return;
@@ -5833,15 +5872,9 @@ function renderActionTabContent() {
     const curQty   = pos?.qty || 0;
     const customOpts  = [...new Set(_allRows.map(r => r.custom).filter(Boolean))];
     const myGroupOpts = [...new Set(_allRows.map(r => r.myGroup).filter(Boolean))];
-    const customBlock = `
-      <div class="tx-field"><label class="tx-label">${t('custom_label')}</label>
-        <input class="tx-input" id="editCustom" type="text" list="editCustomList" value="${pos?.custom || ''}">
-        <datalist id="editCustomList">${customOpts.map(v=>`<option value="${v}"></option>`).join('')}</datalist>
-      </div>
-      <div class="tx-field"><label class="tx-label">${t('mygroup_label')}</label>
-        <input class="tx-input" id="editMyGroup" type="text" list="editMyGroupList" value="${pos?.myGroup || ''}">
-        <datalist id="editMyGroupList">${myGroupOpts.map(v=>`<option value="${v}"></option>`).join('')}</datalist>
-      </div>`;
+    const customBlock =
+      tagPickerHtml('editCustom',  t('custom_label'),  pos?.custom  || '', customOpts) +
+      tagPickerHtml('editMyGroup', t('mygroup_label'), pos?.myGroup || '', myGroupOpts);
     const showMove = !isReadOnly() && _portfolioRegistry.length > 1 && curQty > 0;
     const destOpts = _portfolioRegistry
       .filter(p => p.name !== actionModalPort)
@@ -12277,6 +12310,12 @@ document.addEventListener('click', function(e) {
   const el = e.target;
   if (!el?.closest || el.closest('#rebalFundPanel') || el.closest('input[data-role="dollar"]')) return;
   window.hideRebalFund();
+}, true);
+// Same capture-phase reason: the tag pickers live inside the action modal.
+document.addEventListener('click', function(e) {
+  const open = document.querySelectorAll('.tag-pick-list.open');
+  if (!open.length || e.target?.closest?.('.tag-pick')) return;
+  open.forEach(el => el.classList.remove('open'));
 }, true);
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') document.getElementById('irrBreakdown')?.classList.remove('open');
