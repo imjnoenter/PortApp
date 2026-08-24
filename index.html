@@ -2235,8 +2235,8 @@ const I18N = {
     deduct_from_label: "Deduct from", save_sheet_btn: "Save to Google Sheet",
     tx_row_changed: "This transaction changed — refresh and try again.",
     tx_type_locked: "Only Buy and Sell rows can be edited here.",
-    // TH deliberately omitted for these three — t() falls back to EN on an undefined key, so Thai
-    // shows English until the real strings land, rather than rendering blank.
+    // EN only, by choice — these four stay English in the Thai UI too. Omitting them from the TH
+    // dict is the mechanism, not an oversight: t() falls back to EN on an undefined key.
     tx_note_label: "Note", tx_note_ph: "Why this trade?", tx_note_add: "Add note",
     plan_note_label: "Plan note",
     tx_avg_kept: "Qty updated — avg cost left as-is (partial history).",
