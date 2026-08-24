@@ -1465,6 +1465,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .tx-action-btn:hover { color: var(--terracotta); border-color: var(--terracotta); background: var(--hover); }
 .tx-action-btn.danger:hover { color: var(--loss); border-color: var(--loss); }
 .tx-action-btn svg { width: 13px; height: 13px; }
+.tx-action-btn.has-note { color: var(--terracotta); border-color: var(--terracotta); }
+/* Note sub-row: spans the full table so a sentence isn't squeezed into a column. The transaction
+   above it gives up its own border, so the pair reads as one entry rather than two rows with a
+   line between them. Browsers without :has() just show that extra hairline — cosmetic only. */
+.tx-panel-table tr:has(+ .tx-note-row) td { border-bottom: none; }
+.tx-note-row td { padding: 0 8px 9px 8px; text-align: left !important; white-space: normal; border-bottom: 1px solid var(--line-soft); }
+.tx-note-text { font-size: 11px; color: var(--muted); font-style: italic; }
+.tx-note-text::before { content: "↳ "; font-style: normal; opacity: .6; }
+.tx-note-state { font-size: 10px; color: var(--muted); margin-left: 8px; }
+.tx-note-err { font-size: 10px; color: var(--loss); margin-left: 8px; }
+.tx-note-input { width: 100%; max-width: 520px; font-family: var(--font-ui); font-size: 11px; color: var(--ink); background: var(--track); border: 1px solid var(--terracotta); border-radius: var(--radius-sm); padding: 5px 8px; }
 .tx-confirm-row { display: inline-flex; gap: 4px; align-items: center; font-size: 11px; color: var(--muted); }
 .tx-confirm-yes { padding: 4px 10px; border: none; background: var(--loss); color: var(--btn-fg); border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; cursor: pointer; }
 .tx-confirm-no  { padding: 4px 10px; border: 1px solid var(--line); background: var(--track); color: var(--ink); border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; cursor: pointer; }
@@ -2224,6 +2235,10 @@ const I18N = {
     deduct_from_label: "Deduct from", save_sheet_btn: "Save to Google Sheet",
     tx_row_changed: "This transaction changed — refresh and try again.",
     tx_type_locked: "Only Buy and Sell rows can be edited here.",
+    // TH deliberately omitted for these three — t() falls back to EN on an undefined key, so Thai
+    // shows English until the real strings land, rather than rendering blank.
+    tx_note_label: "Note", tx_note_ph: "Why this trade?", tx_note_add: "Add note",
+    plan_note_label: "Plan note",
     tx_avg_kept: "Qty updated — avg cost left as-is (partial history).",
     tx_transfer_hint: "Reverse this with Move shares",
     tx_dividend_hint: "Edit dividend rows in the sheet",
@@ -3161,6 +3176,26 @@ function txActivePort() {
 // Every transaction draws on the one shared wallet, whichever portfolio it belongs to.
 function txPortCash() { const r = _portRow(_cashPort()); return { fcd: Number(r.fcd) || 0, usd: Number(r.usd) || 0 }; }
 
+// Notes are free text rendered through innerHTML in four places, so every one of them escapes.
+// `"` is in here too because the inline editor renders the note into a value="" attribute.
+const escHtml = s => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Writes travel as GET query strings (see recordFetch), and Thai percent-encodes to ~9 URL chars
+// per character — 200 keeps even an all-Thai note under ~1.8 KB. Mirrors TX_NOTE_MAX in apps_script.js.
+const TX_NOTE_MAX = 200;
+
+// Shared by the three trade forms and the edit modal, same as buildCashSelectorHtml() — and with
+// the same deliberate id sharing, since only one of those modals is ever open at a time.
+function txNoteFieldHtml(value) {
+  return `<div class="tx-field">
+    <label class="tx-label" for="txNote">${t('tx_note_label')}</label>
+    <input class="tx-input" id="txNote" type="text" maxlength="${TX_NOTE_MAX}"
+           placeholder="${t('tx_note_ph')}" value="${escHtml(value)}">
+  </div>`;
+}
+
 function buildCashSelectorHtml() {
   const { fcd, usd } = txPortCash();
   return `<div class="tx-field">
@@ -3307,6 +3342,7 @@ function buildTxModal(defaultSymbol, editData) {
         <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
       </div>
     </div>
+    ${txNoteFieldHtml(editData?.note)}
     <div id="txAllocBars"></div>
     <div id="txImpactPanel"></div>
     ${!isEdit ? buildCashSelectorHtml() : ''}
@@ -3343,6 +3379,7 @@ window.submitTx = async function() {
       tradeValue: tv.toFixed(4),
       commissionFree: noCommission,
       portfolio,
+      note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
     await postTransactionUpdates(ticker, shares, price, txType, portfolio);
@@ -3399,6 +3436,9 @@ async function fetchTxList() {
     // the checkbox when the edit modal opens — and re-saving then charges 0.15% commission on a
     // trade that never had any. Accept either spelling.
     commissionFree: (v => v === true || v === 'TRUE')(cell(r, 'Commission_Free') ?? cell(r, 'No Commission')),
+    // Freeform trade rationale (col M). Reads '' on any sheet whose M1 header is missing — gviz
+    // keys columns by their row-1 label, so an unlabelled M is invisible here no matter what it holds.
+    note:           String(cell(r, 'Note') ?? ''),
   })).filter(x => x.date && x.ticker);
 
   return out;
@@ -3406,6 +3446,82 @@ async function fetchTxList() {
 
 const EDIT_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>`;
+const NOTE_ICON  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>`;
+
+/* ── Transaction notes ────────────────────────────────────────────────────────
+   A note is display-only free text on a Buy/Sell row — it enters no calculation, so it lives on
+   txList (the rich display list) and never on txCache (the P&L list). Editing is inline in the
+   panel via the note-only `updateNote` action, which writes column M and nothing else. */
+let _editingNoteRow = null;  // tx row whose note is open in the editor, or null
+let _noteDraft = '';         // editor text — held here so a refused save doesn't lose what you typed
+let _noteSaving = false;
+let _noteError  = '';
+let _noteCancel = false;     // set by Escape, read by the blur handler that follows it
+
+// The sub-row under a transaction. Absent entirely unless there's a note or you're editing one,
+// so rows without notes look exactly as they did before this feature.
+function txNoteRowHtml(tx) {
+  const editing = _editingNoteRow === tx.row;
+  if (!editing && !tx.note) return '';
+  let cell;
+  if (editing && _noteSaving) {
+    cell = `<span class="tx-note-text">${escHtml(_noteDraft)}</span>
+            <span class="tx-note-state">${t('saving_msg')}</span>`;
+  } else if (editing) {
+    cell = `<input id="txNoteEdit" class="tx-note-input" maxlength="${TX_NOTE_MAX}"
+              value="${escHtml(_noteDraft)}" placeholder="${t('tx_note_ph')}"
+              onkeydown="onTxNoteKey(event)" onblur="saveTxNote(${tx.row},this)">`
+         + (_noteError ? `<span class="tx-note-err">${escHtml(_noteError)}</span>` : '');
+  } else {
+    cell = `<span class="tx-note-text">${escHtml(tx.note)}</span>`;
+  }
+  return `<tr class="tx-note-row"><td colspan="10">${cell}</td></tr>`;
+}
+
+// Read-only note line for the three compact per-symbol history tables (symbol-detail modal, the
+// trade/action modals, and the history popup). Editing lives only in the Transactions panel, so
+// these just render the text.
+const symNoteRowHtml = (tx, cols) => tx.note
+  ? `<tr class="tx-note-row"><td colspan="${cols}"><span class="tx-note-text">${escHtml(tx.note)}</span></td></tr>`
+  : '';
+
+window.startTxNote = function(row) {
+  const tx = txList.find(x => x.row === row);
+  if (!tx || !TX_EDITABLE(tx.type)) return;
+  _editingNoteRow = row; _noteDraft = tx.note || '';
+  _noteSaving = false; _noteError = ''; _noteCancel = false;
+  renderTxPanel(txList);
+};
+
+window.onTxNoteKey = function(e) {
+  if (e.key === 'Enter')       { e.preventDefault(); e.target.blur(); }   // blur runs the save
+  else if (e.key === 'Escape') { _noteCancel = true; e.target.blur(); }
+};
+
+window.saveTxNote = async function(row, el) {
+  if (_editingNoteRow !== row || _noteSaving) return;
+  const tx   = txList.find(x => x.row === row);
+  const next = String(el.value || '').trim();
+  if (_noteCancel || !tx || next === (tx.note || '')) {
+    _editingNoteRow = null; _noteCancel = false; _noteError = '';
+    renderTxPanel(txList); return;
+  }
+  _noteDraft = next; _noteSaving = true; _noteError = '';
+  renderTxPanel(txList);
+  // needsResponse: the server can refuse on a stale row, and a fire-and-forget write would make
+  // that indistinguishable from a save that worked.
+  const res = await recordFetch({ action: 'updateNote', row: String(row),
+                                  note: next, expect: txExpectSig(tx) }, true);
+  _noteSaving = false;
+  const err = txWriteError(res);
+  if (err) { _noteError = err; renderTxPanel(txList); return; }  // editor stays open, draft intact
+  // In memory only. Re-reading the sheet here would hit gviz's ~30s CDN cache and paint the old
+  // note back over the new one, which reads as the save having failed. Nothing else needs telling:
+  // a note changes no quantity, no cash and no P&L, so there is no model to rebuild.
+  tx.note = next;
+  _editingNoteRow = null;
+  renderTxPanel(txList);
+};
 
 // ── Editing / deleting a transaction ──────────────────────────────────────────
 // Editing or deleting a row now corrects the holding and the cash balance too, so both actions
@@ -3452,6 +3568,7 @@ function renderTxPanel(fullList) {
     // holdings or cash effect to correct — neither is editable from here.
     const actions = TX_EDITABLE(tx.type)
       ? `<div class="tx-actions">
+          <button class="tx-action-btn${tx.note ? ' has-note' : ''}" title="${tx.note ? t('tx_note_label') : t('tx_note_add')}" onclick="startTxNote(${tx.row})">${NOTE_ICON}</button>
           <button class="tx-action-btn" title="Edit" onclick="openEditTx(${tx.row})">${EDIT_ICON}</button>
           <button class="tx-action-btn danger" title="Delete" onclick="deleteTxRow(${tx.row},this)">${TRASH_ICON}</button>
         </div>`
@@ -3468,7 +3585,7 @@ function renderTxPanel(fullList) {
       <td>${fmtCurr(tx.tax)}</td>
       <td><strong>${fmtCurr(tx.total)}</strong></td>
       <td>${actions}</td>
-    </tr>`;
+    </tr>${txNoteRowHtml(tx)}`;
   }).join('');
 
   body.innerHTML = `<div class="tx-panel-wrap"><table class="tx-panel-table">
@@ -3479,6 +3596,11 @@ function renderTxPanel(fullList) {
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
+
+  // innerHTML replaced the editor, so focus has to be reclaimed — otherwise clicking the note
+  // button would open an input you then have to click a second time.
+  const noteInput = document.getElementById('txNoteEdit');
+  if (noteInput) { noteInput.focus(); noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length); }
 }
 
 async function refreshTxPanel() {
@@ -3528,6 +3650,9 @@ window.submitEditTx = async function(row) {
       type: txType, ticker, shares, price,
       tradeValue: tv.toFixed(4), commissionFree: noCommission,
       portfolio: document.getElementById('txPortfolio')?.value || DEFAULT_PORT,
+      // Must be sent: writeTxnRow writes col M unconditionally, so omitting it here would blank
+      // the note on every edit instead of preserving it.
+      note: document.getElementById('txNote')?.value.trim() || '',
       expect: _editOrigTx ? txExpectSig(_editOrigTx) : '',
     });
     const res = await recordFetch(params, true);
@@ -3991,7 +4116,7 @@ window.openSymbolDetail = function(sym) {
           <td style="padding:5px 8px;text-align:right">${fmtCurr(t.price)}</td>
           <td style="padding:5px 8px;text-align:right">${fmtCurr(t.tradeValue)}</td>
           <td style="padding:5px 8px;text-align:right;font-weight:600">${fmtCurr(t.total||t.tradeValue)}</td>
-        </tr>`).join('');
+        </tr>${symNoteRowHtml(t, 6)}`).join('');
       } else {
         body.innerHTML = '';
         if (empty) empty.style.display = 'block';
@@ -4175,13 +4300,13 @@ window.openTxHistory = function(sym) {
       <td style="padding:6px 8px;text-align:right">${fmtCurr(t.price)}</td>
       <td style="padding:6px 8px;text-align:right">${fmtCurr(t.tradeValue)}</td>
       <td style="padding:6px 8px;text-align:right;font-weight:600">${fmtCurr(t.total||t.tradeValue)}</td>
-    </tr>`).join('');
+    </tr>${symNoteRowHtml(t, 6)}`).join('');
 
   const planData = getPlan(sym);
   const noteHtml = (planData?.note || planData?.sl) ? `
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap">
       ${planData?.sl ? `<div><span style="font-size:10px;color:var(--muted)">STOP LOSS</span><br><span style="font-weight:700;color:var(--loss)">${fmtCurr(planData.sl)}</span></div>` : ''}
-      ${planData?.note ? `<div style="flex:1;min-width:0"><span style="font-size:10px;color:var(--muted)">NOTE</span><br><span style="font-size:12px">${planData.note}</span></div>` : ''}
+      ${planData?.note ? `<div style="flex:1;min-width:0"><span style="font-size:10px;color:var(--muted)">${t('plan_note_label').toUpperCase()}</span><br><span style="font-size:12px">${escHtml(planData.note)}</span></div>` : ''}
     </div>` : '';
 
   overlay.innerHTML = `<div class="tx-modal" style="max-width:520px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
@@ -5170,7 +5295,7 @@ function symTxHistoryHtml(sym, port) {
       <td style="padding:6px 8px;text-align:right">${fmtCurr(x.price)}</td>
       <td style="padding:6px 8px;text-align:right">${fmtCurr(x.tradeValue)}</td>
       <td style="padding:6px 8px;text-align:right;font-weight:600">${fmtCurr(x.total||x.tradeValue)}</td>
-    </tr>`).join('');
+    </tr>${symNoteRowHtml(x, 6)}`).join('');
   return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
     <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${t('tx_panel_title')}</div>
     ${txs.length ? `<div style="max-height:180px;overflow-y:auto">
@@ -5269,6 +5394,7 @@ window.openTradeModal = function(sym, port) {
         <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
       </div>
     </div>
+    ${txNoteFieldHtml('')}
     <div id="txAllocBars"></div>
     ${buildCashSelectorHtml()}
     <div id="tradeSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
@@ -5304,6 +5430,7 @@ window.submitTradeModal = async function() {
       shares, price, tradeValue: (shares*price).toFixed(4),
       commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
       portfolio,
+      note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
     postTransactionUpdates(sym, shares, price, txType, portfolio);
@@ -5858,6 +5985,7 @@ function renderActionTabContent() {
           <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
         </div>
       </div>
+      ${txNoteFieldHtml('')}
       <div id="txAllocBars"></div>
       <div id="txImpactPanel"></div>
       ${buildCashSelectorHtml()}
@@ -6177,6 +6305,7 @@ window.submitTxInAction = async function(sym) {
       shares, price, tradeValue: (shares*price).toFixed(4),
       commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
       portfolio,
+      note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
     postTransactionUpdates(sym, shares, price, txType, portfolio);
