@@ -462,6 +462,14 @@ body {
   transform-origin: top right;
 }
 .settings-dropdown.open { display: block; animation: dropdownIn .18s var(--ease-out-quint); }
+.export-wrap { position: relative; flex-shrink: 0; }
+.export-menu-item {
+  display: block; width: 100%; text-align: left;
+  padding: 7px 8px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink);
+  font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.export-menu-item:hover { background: var(--hover); }
 .settings-row {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 0; gap: 12px;
@@ -2751,7 +2759,7 @@ let nwTimeFilter = 'ALL';
 let _donutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Breakdowns donuts: include cash slice (default on); key name is historical; the pref now governs every Breakdowns donut
 let shellBuilt = false;
 let _isDark = false;
-let txList = [], editingRow = null, txSortDir = -1, txSellAll = false;
+let txList = [], editingRow = null, txSortDir = -1, txSellAll = false, _txSearch = '';
 let _editOrigTx = null;   // the row as it was when the edit modal opened, for the impact line
 let actionModalSym = null, actionModalTab = 'edit';
 let tabDraft = {};
@@ -3556,9 +3564,13 @@ function renderTxPanel(fullList) {
   const countEl = document.getElementById('txPanelCount');
   if (!body) return;
   // Single-portfolio view shows only that portfolio's transactions.
-  const list = activePortfolio === 'ALL' ? fullList : fullList.filter(x => (x.portfolio || DEFAULT_PORT) === activePortfolio);
+  let list = activePortfolio === 'ALL' ? fullList : fullList.filter(x => (x.portfolio || DEFAULT_PORT) === activePortfolio);
+  // Symbol search. The input lives in the card header, OUTSIDE #txPanelBody, so replacing the
+  // table's innerHTML below never destroys it and typing keeps focus.
+  const q = _txSearch.trim().toUpperCase();
+  if (q) list = list.filter(x => String(x.ticker || '').toUpperCase().includes(q));
   if (countEl) countEl.textContent = list.length || '';
-  if (!list.length) { body.innerHTML = '<div class="tx-panel-status">No transactions yet.</div>'; return; }
+  if (!list.length) { body.innerHTML = `<div class="tx-panel-status">${q ? `No transactions for ${escHtml(_txSearch.trim())}.` : 'No transactions yet.'}</div>`; return; }
   const sorted = [...list].sort((a,b) => txSortDir * ((a.date+a.time).localeCompare(b.date+b.time)));
 
   const rows = sorted.map(tx => {
@@ -3603,6 +3615,8 @@ function renderTxPanel(fullList) {
   if (noteInput) { noteInput.focus(); noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length); }
 }
 
+window.setTxSearch = function(v) { _txSearch = v; renderTxPanel(txList); };
+
 async function refreshTxPanel() {
   const body = document.getElementById('txPanelBody');
   const btn  = document.getElementById('txPanelRefreshBtn');
@@ -3618,6 +3632,117 @@ async function refreshTxPanel() {
     if (btn) btn.classList.remove('refreshing');
   }
 }
+
+/* ---- Google Finance export -------------------------------------------------
+   Columns and casing follow the format Google's importer asked for verbatim: Ticker, Action,
+   Quantity, Price, Date, with the action uppercased. Commission and trade notes are deliberately
+   NOT exported -- Google's spec has no column for them, and its importer is LLM-based, so extra
+   columns risk a bad parse for no gain. The cost is that Google's cost basis excludes fees.
+   The exchange prefix Google mentions (NASDAQ:GOOG) is skipped on purpose: it is optional in their
+   spec, and the only exchange source available here (CNBC) misreports some ETFs -- it calls SGOV
+   plain NYSE -- and a wrong prefix resolves worse than no prefix at all. */
+const GF_CSV_COLS = ['Ticker','Action','Quantity','Price','Date'];
+// Google's importer caps an import at 100 lines; 50 is a deliberate safety margin under that,
+// header included -- so 49 data rows per file.
+const GF_MAX_LINES = 50;
+
+// Quote a field only when it needs it, doubling any inner quote. Only the ticker is sheet-authored
+// free text here, but it is the one field that could carry a comma and silently shift the row.
+function _csvCell(v) {
+  const s = v == null ? '' : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+
+/* Transactions -> Google Finance import CSV chunks, each at most GF_MAX_LINES lines. Pure; takes an already port-filtered list.
+   - Prices stay raw USD. The currency toggle is a display concern only: fmtCurr here would hand
+     Google a baht number to import as though it were dollars.
+   - Dividends are dropped. Google derives income from its own data once it knows the holdings,
+     so importing ours would double-count it.
+   - Transfers are a move between the user's own portfolios, never a trade. Exporting ALL carries
+     both legs and they cancel exactly, so they are dropped. Exporting one portfolio carries only
+     one leg -- dropping it there would lose those shares outright, so it becomes a real BUY/SELL
+     at the carried cost, which books ~zero P&L since that is the cost it carries. */
+function txToGfCsv(list, mergedView) {
+  const body = [...list]
+    .sort((a,b) => (a.date + a.time).localeCompare(b.date + b.time))  // oldest first: it is a ledger
+    .reduce((out, tx) => {
+      let type = tx.type;
+      if (isTransfer(tx)) {
+        if (mergedView) return out;
+        type = type === 'Transfer-In' ? 'Buy' : 'Sell';
+      } else if (type !== 'Buy' && type !== 'Sell') return out;
+      out.push([
+        tx.ticker,
+        type.toUpperCase(),  // Google's spec shows BUY / SELL uppercase
+        tx.shares,
+        tx.price,
+        tx.date,             // already yyyy-mm-dd, the format Google's example uses
+      ].map(_csvCell).join(','));
+      return out;
+    }, []);
+  // Chunks stay in chronological order, so importing them in part order keeps every BUY ahead of
+  // the SELL that retires it -- which is the only ordering Google needs to land on the right count.
+  const head = GF_CSV_COLS.join(',');
+  const chunks = [];
+  for (let i = 0; i < body.length; i += GF_MAX_LINES - 1)
+    chunks.push([head, ...body.slice(i, i + GF_MAX_LINES - 1)].join('\r\n'));
+  return chunks;
+}
+
+// Builds the menu on open, not at shell time: the registry loads async and portfolio visibility
+// can change while the page is up.
+window.toggleExportMenu = function(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('txExportMenu');
+  if (!menu) return;
+  if (menu.classList.contains('open')) { menu.classList.remove('open'); return; }
+  const items = document.getElementById('txExportMenuItems');
+  items.textContent = '';
+  const hidden = getHiddenPorts();
+  const ports = ['ALL', ..._portfolioRegistry.filter(p => !hidden.includes(p.name)).map(p => p.name)];
+  for (const port of ports) {
+    const b = document.createElement('button');
+    b.className = 'export-menu-item';
+    b.textContent = port === 'ALL' ? t('port_all') : port;  // sheet-authored names: textContent, never innerHTML
+    b.onclick = () => { menu.classList.remove('open'); exportTxCsv(port); };
+    items.appendChild(b);
+  }
+  menu.classList.add('open');
+};
+
+// One file out. Split out of exportTxCsv only because a chunked export calls it N times.
+function _downloadCsv(filename, csv) {
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+window.exportTxCsv = function(port) {
+  const merged = port === 'ALL';
+  // Same slice rule renderTxPanel uses, but keyed to the chosen portfolio rather than the active view.
+  let list = merged ? txList : txList.filter(x => (x.portfolio || DEFAULT_PORT) === port);
+  const heldOnly = !!document.getElementById('gfHeldOnly')?.checked;
+  if (heldOnly) {
+    // A symbol sold out entirely keeps no row in _allRows, so its whole history drops out here.
+    // Partial sells on a still-open symbol survive: Google needs both legs to reach the right count.
+    const held = new Set(_allRows.filter(r => Number(r.qty) > 0 && (merged || r.portfolio === port)).map(r => r.symbol));
+    list = list.filter(x => held.has(x.ticker));
+  }
+  const parts = txToGfCsv(list, merged);
+  if (!parts.length) { _showToast(`No ${heldOnly ? 'currently-held ' : ''}buy or sell transactions in ${port === 'ALL' ? 'any portfolio' : port}.`); return; }
+  const base = `google-finance-${port.toLowerCase().replace(/[^a-z0-9]+/g,'-')}${heldOnly ? '-held' : ''}-${new Date().toISOString().slice(0,10)}`;
+  parts.forEach((csv, i) => {
+    const name = parts.length > 1 ? `${base}-part${i+1}of${parts.length}.csv` : `${base}.csv`;
+    // Staggered: a burst of downloads fired in one tick gets throttled or silently dropped.
+    setTimeout(() => _downloadCsv(name, csv), i * 300);
+  });
+  if (parts.length > 1) _showToast(`Split into ${parts.length} files (max ${GF_MAX_LINES} lines each). Import them in part order.`);
+};
 
 window.openEditTx = function(row) {
   const tx = txList.find(x => x.row === row);
@@ -12429,6 +12554,8 @@ window.toggleSettingsDropdown = function(e) {
 document.addEventListener('click', function(e) {
   const dd = document.getElementById('settingsDropdown');
   if (dd?.classList.contains('open') && !e.target.closest('.settings-gear-wrap')) dd.classList.remove('open');
+  const em = document.getElementById('txExportMenu');
+  if (em?.classList.contains('open') && !e.target.closest('.export-wrap')) em.classList.remove('open');
   const bd = document.getElementById('irrBreakdown');
   if (bd?.classList.contains('open') && !e.target.closest('.irr-info-wrap') && !e.target.closest('#irrBreakdown')) bd.classList.remove('open');
 });
@@ -13855,10 +13982,25 @@ function buildShell() {
           <!-- Transactions -->
           ${TRANSACTION_URL ? `
           <div class="card" id="txCard">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px;flex-wrap:wrap">
               <div class="card-title" style="margin-bottom:0">${t('transactions_title')}<span class="tx-count-badge" id="txPanelCount"></span></div>
               <div class="card-header-extra" style="display:flex;gap:6px">
+                <input class="tx-input" id="txSearch" type="search" placeholder="Symbol" aria-label="Search transactions by symbol" oninput="setTxSearch(this.value)" style="width:110px;min-width:80px;padding:5px 10px;font-size:12px">
                 <button class="add-tx-btn" onclick="openAddTx()"><span class="atx-plus">+</span><span class="atx-label">Transaction</span></button>
+                <div class="export-wrap">
+                  <button class="add-tx-btn" onclick="toggleExportMenu(event)" title="Export transactions as CSV for Google Finance portfolio import" style="background:var(--track);color:var(--ink);padding:5px 10px">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span class="atx-label">Export</span>
+                  </button>
+                  <div class="settings-dropdown" id="txExportMenu">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding-bottom:6px">Google Finance</div>
+                    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink);cursor:pointer;padding-bottom:8px;margin-bottom:6px;border-bottom:1px solid var(--line)">
+                      <input type="checkbox" id="gfHeldOnly" style="accent-color:var(--terracotta)">
+                      Current holdings only
+                    </label>
+                    <div id="txExportMenuItems"></div>
+                  </div>
+                </div>
                 <button class="add-tx-btn" id="txPanelRefreshBtn" onclick="refreshTxPanel()" style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
                 </button>
