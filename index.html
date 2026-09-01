@@ -9386,9 +9386,10 @@ function renderTable(model) {
     return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
   });
   renderWeightBar(sorted);
-  // Share of cost across the rows actually on screen, so the Total Cost column always sums to
-  // 100% — it tracks the filter pills and the search box instead of the whole portfolio.
-  const costTotalShown = sorted.reduce((s, p) => s + (p.costBasis || 0), 0);
+  // Share of the whole portfolio's cost, deliberately not the visible rows: a symbol's % has to
+  // stay put when the filter pills or search narrow the table. So the column only sums to 100%
+  // when nothing is filtered out.
+  const costTotalAll = model.positions.reduce((s, p) => s + (p.costBasis || 0), 0);
 
   const headers = [
     { key: 'symbol',       label: t('th_symbol'),        sort: true  },
@@ -9450,7 +9451,7 @@ function renderTable(model) {
       <td class="${totalUp?'cell-up':'cell-dn'}">${dc((totalUp?'+':'')+fmtCurr(p.pnl), fmtPct(p.pnlPct), totalUp?'cell-up':'cell-dn')}</td>
       <td>${dc(p.qty?.toFixed(4)||'—', null)}</td>
       <td>${dc(fmtCurr(p.avgPrice), null)}</td>
-      <td>${dc(fmtCurr(p.costBasis), costTotalShown > 0 ? (p.costBasis / costTotalShown * 100).toFixed(2) + '% of total' : null)}</td>
+      <td>${dc(fmtCurr(p.costBasis), costTotalAll > 0 ? (p.costBasis / costTotalAll * 100).toFixed(2) + '% of total' : null)}</td>
       <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.investWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(1)+'%' : p.investWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
       <td>${allocSparkline(p, model.investable)}</td>
       <td>${weekRange52Bar(p)}</td>
@@ -9467,9 +9468,10 @@ function renderTable(model) {
       </div>
       <div><div class="asset-sym">Cash</div><div class="asset-name">Raw cash · not invested</div></div>
     </div></td>
-    <td colspan="8"></td>
+    <td colspan="7"></td>
     <td>${dc(fmtCurr(model.rawCash), cashPct.toFixed(1)+'%', 'cell-mut')}</td>
     <td>${dc(fmtCurr(model.cashResPct * model.totalCurrent)+' reserved', (model.cashResPct*100).toFixed(0)+'% target', 'cell-mut')}</td>
+    <td></td>
     <td></td>
   </tr>`;
 
