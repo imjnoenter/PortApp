@@ -1174,7 +1174,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .topbar-left { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 .topbar-burger {
-  display: none; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
   background: var(--track); border: 1px solid var(--line);
   color: var(--ink); cursor: pointer;
@@ -1215,6 +1215,23 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 @media (max-width: 1024px) { .alloc-summary { grid-template-columns: 1fr; } }
 @media (max-width: 640px)  { .alloc-donuts  { grid-template-columns: 1fr; } }
 
+/* ── Manual collapse (desktop) ── */
+/* Wide screens treat the sidebar as a real grid column, so collapsing it reflows the content
+   rather than floating a drawer over it. Scoped to min-width so it can't override the ≤900px
+   rules below, which move .content-col into grid column 1 — a 0-width first column there
+   would squash the whole page. */
+@media (min-width: 901px) {
+  .app-shell { transition: grid-template-columns .22s var(--ease-out-quint); }
+  /* visibility is what takes the nav buttons out of the tab order once they're off-screen;
+     it flips back instantly on open but waits out the slide on close. */
+  .sidebar   { visibility: visible; transition: transform .22s var(--ease-out-quint), visibility 0s; }
+  .app-shell.sidebar-collapsed { grid-template-columns: 0 1fr; }
+  .app-shell.sidebar-collapsed .sidebar {
+    transform: translateX(-100%); visibility: hidden;
+    transition: transform .22s var(--ease-out-quint), visibility 0s .22s;
+  }
+}
+
 /* ── Responsive: sidebar becomes an off-canvas drawer ── */
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -1227,7 +1244,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
     box-shadow: var(--shadow-lg);
   }
   .app-shell.sidebar-open .sidebar { transform: none; }
-  .topbar-burger { display: flex; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
@@ -9370,6 +9386,9 @@ function renderTable(model) {
     return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
   });
   renderWeightBar(sorted);
+  // Share of cost across the rows actually on screen, so the Total Cost column always sums to
+  // 100% — it tracks the filter pills and the search box instead of the whole portfolio.
+  const costTotalShown = sorted.reduce((s, p) => s + (p.costBasis || 0), 0);
 
   const headers = [
     { key: 'symbol',       label: t('th_symbol'),        sort: true  },
@@ -9431,7 +9450,7 @@ function renderTable(model) {
       <td class="${totalUp?'cell-up':'cell-dn'}">${dc((totalUp?'+':'')+fmtCurr(p.pnl), fmtPct(p.pnlPct), totalUp?'cell-up':'cell-dn')}</td>
       <td>${dc(p.qty?.toFixed(4)||'—', null)}</td>
       <td>${dc(fmtCurr(p.avgPrice), null)}</td>
-      <td>${dc(fmtCurr(p.costBasis), null)}</td>
+      <td>${dc(fmtCurr(p.costBasis), costTotalShown > 0 ? (p.costBasis / costTotalShown * 100).toFixed(2) + '% of total' : null)}</td>
       <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.investWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(1)+'%' : p.investWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
       <td>${allocSparkline(p, model.investable)}</td>
       <td>${weekRange52Bar(p)}</td>
@@ -13620,8 +13639,20 @@ function setPage(page) {
   });
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed.v1';
+function sidebarCollapsed() {
+  try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
+}
 function toggleSidebar() {
-  document.querySelector('.app-shell')?.classList.toggle('sidebar-open');
+  const shell = document.querySelector('.app-shell');
+  if (!shell) return;
+  // ≤900px the sidebar is an overlay drawer you dismiss again in a moment, so that state is
+  // deliberately not remembered. Wider, it's a column the user chose to give up — which is.
+  if (window.matchMedia('(max-width: 900px)').matches) { shell.classList.toggle('sidebar-open'); return; }
+  const collapsed = shell.classList.toggle('sidebar-collapsed');
+  try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch {}
+  // The content column just changed width; let the charts re-fit once the slide has finished.
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 260);
 }
 function closeSidebar() {
   document.querySelector('.app-shell')?.classList.remove('sidebar-open');
@@ -13645,7 +13676,7 @@ function portfolioToggleHtml() {
 
 function buildShell() {
   document.getElementById('root').innerHTML = `
-  <div class="app-shell" data-page="dashboard">
+  <div class="app-shell${sidebarCollapsed() ? ' sidebar-collapsed' : ''}" data-page="dashboard">
     <aside class="sidebar">
       <div class="sidebar-brand">
         <div class="brand-mark" aria-label="Portfolio" onclick="openPicPicker(event)"><img src="${profileIconSrc()}" alt="Portfolio" style="width:100%;height:100%;border-radius:inherit;display:block;object-fit:cover;"><span class="pic-change-hint">Change</span></div>
