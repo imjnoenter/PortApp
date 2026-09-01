@@ -9149,6 +9149,9 @@ let sortKey = 'currentValue', sortDir = -1, searchTerm = '';
 // The Performance sub-tab sorts on its own columns (returns, volume, ETF stats) — none of
 // which the Overview table has — so it keeps its own sort state instead of sharing sortKey.
 let perfSortKey = 'currentValue', perfSortDir = -1;
+// Symbol and Last Price are the only sortable columns both sub-tabs have, so those are
+// the only ones setPosTab can carry across. Everything else stays per-tab.
+const POS_SHARED_SORT_KEYS = new Set(['symbol', 'price']);
 const PERF_METRIC_KEYS = new Set(['ytdRet', '1M', '3M', '1Y', '3Y', '5Y', 'expenseRatio', 'netAssets', 'holdingsCount']);
 // Multi-select: each group holds an array of chosen values; empty === "All".
 // Filters drive the Holdings table only — the Breakdowns donuts are independent.
@@ -9276,6 +9279,12 @@ function renderIndexReturns(quotes) {
 
 window.setPosTab = function(tab) {
   if (_posTab === tab) return;
+  // Keep a shared-column sort when switching sub-tabs so the rows don't silently reorder.
+  if (tab === 'performance') {
+    if (POS_SHARED_SORT_KEYS.has(sortKey)) { perfSortKey = sortKey; perfSortDir = sortDir; }
+  } else if (POS_SHARED_SORT_KEYS.has(perfSortKey)) {
+    sortKey = perfSortKey; sortDir = perfSortDir;
+  }
   _posTab = tab;
   document.querySelectorAll('.pos-sub-tab').forEach(b => b.classList.toggle('active', b.textContent.trim().toLowerCase().startsWith(tab.substring(0, 4))));
   renderTable(currentModel);
