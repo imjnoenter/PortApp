@@ -9146,13 +9146,13 @@ function tpBadge(sym, price) {
 
 // ── Render: positions table ───────────────────────────────────────────────────
 let sortKey = 'currentValue', sortDir = -1, searchTerm = '';
-// The Performance sub-tab sorts on its own columns (returns, volume, ETF stats) — none of
-// which the Overview table has — so it keeps its own sort state instead of sharing sortKey.
-let perfSortKey = 'currentValue', perfSortDir = -1;
-// Symbol and Last Price are the only sortable columns both sub-tabs have, so those are
-// the only ones setPosTab can carry across. Everything else stays per-tab.
-const POS_SHARED_SORT_KEYS = new Set(['symbol', 'price']);
+// Both Positions sub-tabs share sortKey/sortDir, so switching between Overview and Performance
+// never reorders the rows. Most columns are exclusive to one sub-tab; sorting by one of those
+// still orders the other table, it just has no header there to draw the arrow on.
 const PERF_METRIC_KEYS = new Set(['ytdRet', '1M', '3M', '1Y', '3Y', '5Y', 'expenseRatio', 'netAssets', 'holdingsCount']);
+// Every sortable column the Performance sub-tab has and Overview doesn't. Overview has to
+// resolve these itself now that the two share one sort — see renderTable's comparator.
+const PERF_ONLY_SORT_KEYS = new Set([...PERF_METRIC_KEYS, 'volume', 'marketCap']);
 // Multi-select: each group holds an array of chosen values; empty === "All".
 // Filters drive the Holdings table only — the Breakdowns donuts are independent.
 let filterState = { category: [], sector: [], industry: [], custom: [], myGroup: [] };
@@ -9279,12 +9279,6 @@ function renderIndexReturns(quotes) {
 
 window.setPosTab = function(tab) {
   if (_posTab === tab) return;
-  // Keep a shared-column sort when switching sub-tabs so the rows don't silently reorder.
-  if (tab === 'performance') {
-    if (POS_SHARED_SORT_KEYS.has(sortKey)) { perfSortKey = sortKey; perfSortDir = sortDir; }
-  } else if (POS_SHARED_SORT_KEYS.has(perfSortKey)) {
-    sortKey = perfSortKey; sortDir = perfSortDir;
-  }
   _posTab = tab;
   document.querySelectorAll('.pos-sub-tab').forEach(b => b.classList.toggle('active', b.textContent.trim().toLowerCase().startsWith(tab.substring(0, 4))));
   renderTable(currentModel);
@@ -9352,8 +9346,22 @@ function renderTable(model) {
   }
   filtered = applyFilters(model.positions);
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
+  // A sort picked on the Performance sub-tab lands here too. Those columns aren't in this table:
+  // the metric ones come off perfMetrics(), not the position, and all of them sink no-data rows
+  // to the bottom the way Performance does — otherwise one sort would order the two views
+  // differently, which is the whole thing sharing the sort is meant to avoid.
+  const perfVals = PERF_ONLY_SORT_KEYS.has(sortKey)
+    ? new Map(filtered.map(p => [p, PERF_METRIC_KEYS.has(sortKey) ? perfMetrics(p)[sortKey] : p[sortKey] ?? null]))
+    : null;
   const sorted = [...filtered].sort((a, b) => {
     if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
+    if (perfVals) {
+      const av = perfVals.get(a), bv = perfVals.get(b);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sortDir * (av - bv);
+    }
     if (sortKey === 'price') {
       const aPct = a.preMarketPct ?? a.postMarketPct ?? null;
       const bPct = b.preMarketPct ?? b.postMarketPct ?? null;
@@ -9502,15 +9510,15 @@ function renderPerformanceTable(model) {
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
   // Resolve the derived numbers once per render; the comparator and perfRow both read this.
   const metrics = new Map(filtered.map(p => [p, perfMetrics(p)]));
-  const sortVal = p => PERF_METRIC_KEYS.has(perfSortKey) ? metrics.get(p)[perfSortKey] : p[perfSortKey];
+  const sortVal = p => PERF_METRIC_KEYS.has(sortKey) ? metrics.get(p)[sortKey] : p[sortKey];
   const sorted = [...filtered].sort((a, b) => {
-    if (perfSortKey === 'symbol') return perfSortDir * a.symbol.localeCompare(b.symbol);
+    if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
     const av = sortVal(a), bv = sortVal(b);
     // No data sinks to the bottom either way — a missing 3-Yr must not outrank a real negative one.
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    return perfSortDir * (av - bv);
+    return sortDir * (av - bv);
   });
   if (showWatchlist && titleEl) titleEl.textContent = `${sorted.length} ${t('Watchlist')}`;
   renderWeightBar(showWatchlist ? [] : sorted);
@@ -9553,7 +9561,7 @@ function renderPerformanceTable(model) {
   );
 
   const thHTML = headers.map(h =>
-    h.key ? `<th style="text-align:${h.align}" onclick="sortPerfTable('${h.key}')">${h.label}${perfSortKey === h.key ? ' ' + (perfSortDir > 0 ? '↑' : '↓') : ''}</th>`
+    h.key ? `<th style="text-align:${h.align}" onclick="sortTable('${h.key}')">${h.label}${sortKey === h.key ? ' ' + (sortDir > 0 ? '↑' : '↓') : ''}</th>`
            : `<th style="text-align:${h.align};cursor:default">${h.label}</th>`
   ).join('');
 
@@ -9608,10 +9616,6 @@ function renderPerformanceTable(model) {
 
 window.sortTable = function(key) {
   if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
-  renderTable(currentModel);
-};
-window.sortPerfTable = function(key) {
-  if (perfSortKey === key) perfSortDir *= -1; else { perfSortKey = key; perfSortDir = -1; }
   renderTable(currentModel);
 };
 window.setWatchTblSort = function(key) {
