@@ -9253,10 +9253,25 @@ function toAddCell(p, investable) {
   return `<span class="to-add over">${fmtCurr(need)}</span>`;
 }
 
+// Tried in order. Neither provider is a superset of the other — parqet has QQQ but 404s on SOFI,
+// FPS and any dotted ticker like BRK.B; stockanalysis covers those but misses QQQ — so a miss
+// falls through to the next before giving up on the coloured initials. Both 404 properly on an
+// unknown symbol (rather than serving a placeholder), which is what makes onerror chaining work.
+const LOGO_SOURCES = [
+  s => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(s)}`,
+  s => `https://logos.stockanalysis.com/${encodeURIComponent(s.toLowerCase())}.svg`,
+];
+function logoFallback(img, symbol) {
+  const step = (+img.dataset.logoStep || 0) + 1;
+  img.dataset.logoStep = step;
+  if (step < LOGO_SOURCES.length) { img.src = LOGO_SOURCES[step](symbol); return; }
+  img.style.display = 'none';
+  img.nextElementSibling.style.display = 'flex';
+}
 function logoCell(symbol, color) {
   return `<div class="logo-wrap">
-    <img class="logo-img" loading="lazy" src="https://assets.parqet.com/logos/symbol/${symbol}"
-         alt="${symbol}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <img class="logo-img" loading="lazy" src="${LOGO_SOURCES[0](symbol)}"
+         alt="${symbol}" onerror="logoFallback(this,'${symbol}')">
     <div class="logo-fb" style="background:${color}">${symbol.slice(0,2)}</div>
   </div>`;
 }
