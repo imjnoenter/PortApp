@@ -1,4 +1,4 @@
-const CACHE = 'portfolio-v1';
+const CACHE = 'portfolio-v2';
 
 const PRECACHE = [
   './',
@@ -6,11 +6,18 @@ const PRECACHE = [
   'manifest.json',
 ];
 
-// Dynamic data hosts — always bypass cache
+// Dynamic data hosts — always bypass cache.
+// Anything polled on the refresh cadence MUST be listed here. Caching a quote endpoint is both
+// wrong (a stale price can be served on a network blip) and expensive on disk: Cache Storage does
+// not reclaim an overwritten entry immediately — it dooms it and purges when the cache backend
+// closes. A 114KB quote response rewritten every 60s therefore accrues roughly 1.3GB/week of
+// doomed entries in the Chrome profile on C: while the tab stays open, and only frees on close.
 const BYPASS = [
   'docs.google.com',
   'script.google.com',
   'corsproxy.io',
+  'quote.cnbc.com',      // live quotes + overnight futures, hit every 60s
+  'open.er-api.com',     // FX rate, hit every refresh
   'query1.finance.yahoo.com',
   'query2.finance.yahoo.com',
   'finance.yahoo.com',

@@ -12996,7 +12996,19 @@ async function triggerHistoryFetch(tickers, fromDate) {
   return await recordFetch(params, true);
 }
 
+// init() runs every 60s and calls this on every pass while benchmarkLoaded is false. Each call
+// used to start its own independent chain, and a chain is expensive: readHistory() pulls the
+// ENTIRE History sheet, the wait loop below re-pulls it every 4s for up to 2 minutes, and a failed
+// attempt schedules up to 4 more. Overlapping chains compounded that into a runaway — many MB of
+// fetched-and-parsed JSON per second, which is what grew Chrome to several GB over an afternoon.
+// One chain at a time; after a chain exhausts its retries, wait before starting a fresh one rather
+// than relaunching 60s later forever.
+let _bmInFlight = false, _bmGaveUpAt = 0;
+const BM_GIVEUP_COOLDOWN = 10 * 60 * 1000;
 async function loadBenchmark(retry = 0) {
+  if (_bmInFlight) return;
+  if (retry === 0 && _bmGaveUpAt && Date.now() - _bmGaveUpAt < BM_GIVEUP_COOLDOWN) return;
+  _bmInFlight = true;
   const MAX_RETRY = 4;
   const setStatus = msg => { const el = document.getElementById('benchmarkStatus'); if (el) el.textContent = msg; };
   const showChart = () => {
@@ -13081,8 +13093,13 @@ async function loadBenchmark(retry = 0) {
       if (!benchmarkLoaded) setStatus(`Fetching ${missing.length} ticker(s) via Apps Script… (this may take ~30s first time)`);
       await triggerHistoryFetch(missing, firstBuy.dateStr);
       const deadline = Date.now() + 120000;
+      // Back off between polls. readHistory() re-reads the WHOLE History sheet, so a flat 4s poll
+      // burns ~30 full reads per attempt just to notice a few tickers appear. Start fast, since
+      // Apps Script usually finishes inside ~30s, then ease off instead of hammering the sheet.
+      let pollWait = 4000;
       while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 4000));
+        await new Promise(r => setTimeout(r, pollWait));
+        pollWait = Math.min(pollWait * 1.6, 30000);
         hist = await readHistory();
         historyCache = hist;
         applyHist(hist);
@@ -13098,6 +13115,7 @@ async function loadBenchmark(retry = 0) {
         setStatus(`Not enough price data — retrying in ${wait}s…`);
         setTimeout(() => loadBenchmark(retry + 1), wait * 1000);
       } else {
+        _bmGaveUpAt = Date.now();
         setStatus(t('not_enough_data_msg'));
       }
     }
@@ -13107,9 +13125,12 @@ async function loadBenchmark(retry = 0) {
       setStatus(`Error: ${e.message} — retrying in ${wait}s…`);
       setTimeout(() => loadBenchmark(retry + 1), wait * 1000);
     } else {
+      _bmGaveUpAt = Date.now();
       setStatus(`${t('benchmark_error_msg')} ${e.message}`);
     }
     console.error(e);
+  } finally {
+    _bmInFlight = false;
   }
 }
 
