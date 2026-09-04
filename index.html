@@ -2013,7 +2013,7 @@ function _loadCfg() {
     const d = JSON.parse(raw);
     // Migrate: old single-profile format → multi-profile
     if (d.sheetId && !d.profiles) {
-      const migrated = { profiles: [{ id: 'p1', profileName: d.profileName || 'Portfolio', sheetId: d.sheetId, recordUrl: d.recordUrl, writeKey: d.writeKey }], activeProfileId: 'p1' };
+      const migrated = { profiles: [{ id: 'p1', profileName: d.profileName || 'Portfolio', sheetId: d.sheetId, recordUrl: d.recordUrl, writeKey: d.writeKey, ..._newProfilePrefs() }], activeProfileId: 'p1' };
       localStorage.setItem(_CFG_KEY, JSON.stringify(migrated));
       return migrated;
     }
@@ -2112,13 +2112,49 @@ function _applyActiveProfile() {
   _staticQuoteCache = {};
 }
 
-function _syncProfilePrefsToStorage() {
+// Per-account settings. Each profile carries its own copy; the flat localStorage keys are the
+// live values the app reads at boot. `inherit` = a newly created account copies the current
+// value instead of starting at the default (right for cosmetic prefs, wrong for anything that
+// names data in a specific sheet).
+const PROFILE_PREFS = [
+  // [localStorage key, profile field, default, inherit-on-create]
+  ['theme',    'theme',    'light', true],
+  ['lang',     'lang',     'EN',    true],
+  ['currency', 'currency', 'USD',   true],
+  ['tone',     'tone',     'warm',  true],
+  // Not inherited by a new account: AUTO re-detects for itself, and the last two name
+  // portfolios that only exist in one account's sheet.
+  ['priceSource.v1',      'priceSource',      'AUTO', false],
+  ['portfolioView.v1',    'portfolioView',    'ALL',  false],
+  ['hiddenPortfolios.v1', 'hiddenPortfolios', '[]',   false],
+];
+
+// Seed a complete pref set for a newly created profile.
+function _newProfilePrefs() {
+  const out = {};
+  PROFILE_PREFS.forEach(([k, f, d, inherit]) => {
+    out[f] = inherit ? (localStorage.getItem(k) ?? d) : d;
+  });
+  return out;
+}
+
+// Push the active profile's prefs into the flat localStorage keys the app reads at boot.
+// seedFromStorage=true (boot only): a profile with no stored prefs adopts what's currently in
+// localStorage — at boot those values genuinely belong to the active profile, so this backfills
+// configs saved before prefs were per-account. It MUST be false on a profile switch, or the
+// incoming account would inherit the outgoing one's settings.
+function _syncProfilePrefsToStorage(seedFromStorage = false) {
   const p = _activeProfile();
   if (!p) return;
-  if (p.theme)    localStorage.setItem('theme', p.theme);
-  if (p.lang)     localStorage.setItem('lang', p.lang);
-  if (p.currency) localStorage.setItem('currency', p.currency);
-  if (p.tone)     localStorage.setItem('tone', p.tone);
+  let dirty = false;
+  PROFILE_PREFS.forEach(([k, f, d]) => {
+    if (p[f] == null) {
+      p[f] = seedFromStorage ? (localStorage.getItem(k) ?? d) : d;
+      dirty = true;
+    }
+    localStorage.setItem(k, p[f]);
+  });
+  if (dirty) _saveCfg(_cfg);
 }
 
 // #reset hash clears config (escape hatch)
@@ -2135,7 +2171,7 @@ if (location.hash === '#reset') { localStorage.removeItem(_CFG_KEY); history.rep
     history.replaceState(null, '', location.pathname);
     return;
   }
-  const newProfile = { id: 'p' + Date.now(), profileName: nameParam, sheetId: sheetParam };
+  const newProfile = { id: 'p' + Date.now(), profileName: nameParam, sheetId: sheetParam, ..._newProfilePrefs() };
   const newCfg = existing
     ? { ...existing, profiles: [...existing.profiles, newProfile], activeProfileId: newProfile.id }
     : { profiles: [newProfile], activeProfileId: newProfile.id };
@@ -2144,7 +2180,7 @@ if (location.hash === '#reset') { localStorage.removeItem(_CFG_KEY); history.rep
 })();
 
 let _cfg = _loadCfg();
-_syncProfilePrefsToStorage();
+_syncProfilePrefsToStorage(true);
 let _u   = (() => { const a = _activeProfile(); return a ? _buildUrls(a) : {}; })();
 let SHEET_URL       = _u.SHEET_URL       || '';
 let TRANSACTION_URL = _u.TRANSACTION_URL || '';
@@ -2763,7 +2799,18 @@ let _futuresCache      = {};   // cached overnight index-futures quotes, keyed b
 let actionModalPort    = 'Long-Term'; // portfolio governing the action modal tabs
 let currency = localStorage.getItem('currency') || 'USD';
 let fxRate   = 1;
-let priceSource = localStorage.getItem('priceSource.v1') === 'CNBC' ? 'CNBC' : 'FINNHUB';
+// 'AUTO' | 'FINNHUB' | 'CNBC'. AUTO resolves at quote time — CNBC once the Quotes sheet shows
+// Finnhub isn't delivering (see _finnhubDead), Finnhub until then. An absent key means the user
+// never picked a source, so existing installs land on AUTO; an explicit past pick is preserved.
+let priceSource = /^(FINNHUB|CNBC)$/.test(localStorage.getItem('priceSource.v1')) ? localStorage.getItem('priceSource.v1') : 'AUTO';
+
+// Finnhub-delivery detection for AUTO. Two consecutive market-hours cycles where a *fresh* Quotes
+// sheet prices zero portfolio symbols means the key is missing, expired, rate-limited, or the
+// trigger was never installed — CNBC is right in all of those. Session-scoped: resets on reload,
+// which is when a newly added key would take effect anyway.
+let _finnhubDead = false;
+let _finnhubZeroCycles = 0;
+const _cnbcOwnsPrice = () => priceSource === 'CNBC' || (priceSource === 'AUTO' && _finnhubDead);
 let donutChartInst = null;
 const _sectorExpanded   = new Set();
 const _industryExpanded = new Set();
@@ -8508,7 +8555,7 @@ async function fetchQuotes(symbols) {
     // accepted and tagged 'OVERNIGHT' (not 'PRE'/'POST') so the holdings table skips it.
     const extLive = isExtendedHours();
     const extNight = isOvernight();
-    const cnbcWins = priceSource === 'CNBC';
+    const cnbcWins = _cnbcOwnsPrice();
     // CNBC now owns the price, so the sheet's write time no longer describes what's shown —
     // drop the 'sheet' source or the freshness badge would claim a timestamp that isn't the data's.
     if (cnbcWins && Object.keys(cnbc).length) _lastQuoteSource = { type: 'cnbc' };
@@ -8534,6 +8581,12 @@ async function fetchQuotes(symbols) {
 async function _fetchQuotesBase(symbols) {
   if (!symbols.length) return {};
 
+  // Once detection has proven Finnhub isn't delivering, the sheet holds nothing but index rows and
+  // both Yahoo paths are dead in production — skip the gviz read and the doomed requests. Deliberately
+  // narrower than _cnbcOwnsPrice(): a user who *pinned* CNBC keeps the sheet as a fallback for when
+  // the CNBC request itself fails.
+  if (priceSource === 'AUTO' && _finnhubDead) { _lastQuoteSource = { type: 'cnbc' }; return {}; }
+
   // Market hours: read from Quotes sheet; fetch anything missing from Yahoo
   if (isMarketOpen()) {
     const fresh = await fetchSheetQuotes();
@@ -8553,6 +8606,15 @@ async function _fetchQuotesBase(symbols) {
           missingFromSheet.push(s);
         }
       });
+      // AUTO detection: a fresh sheet that prices zero portfolio symbols means Finnhub isn't
+      // delivering (index rows still get written by the Apps Script's separate Yahoo block, which
+      // is why the sheet looks fresh). Two consecutive cycles, so one rate-limit blip won't flip it.
+      const portSyms = symbols.filter(s => !s.startsWith('^'));
+      if (portSyms.length && !portSyms.some(s => fresh.quotes[s]?.regularMarketPrice > 0)) {
+        if (++_finnhubZeroCycles >= 2 && !_finnhubDead) { _finnhubDead = true; _updatePriceSourceHint(); }
+      } else {
+        _finnhubZeroCycles = 0;
+      }
       const toYahoo = [...missingFromSheet, ...needsStatic];
       if (toYahoo.length) {
         const yahooData = await fetchYahooBatch(toYahoo);
@@ -12570,7 +12632,9 @@ function getHiddenPorts() {
   try { return JSON.parse(localStorage.getItem('hiddenPortfolios.v1') || '[]'); } catch { return []; }
 }
 function setHiddenPorts(arr) {
-  localStorage.setItem('hiddenPortfolios.v1', JSON.stringify(arr));
+  const v = JSON.stringify(arr);
+  localStorage.setItem('hiddenPortfolios.v1', v);
+  const p = _activeProfile(); if (p) { p.hiddenPortfolios = v; _saveCfg(_cfg); }
 }
 function renderPortVisToggles() {
   const el = document.getElementById('portVisToggles');
@@ -12722,13 +12786,20 @@ window.toggleCurrency = function() {
   }
 };
 
+// The settings dropdown is built once by buildShell() (first load only), so the Auto hint has to be
+// updated in place — it can't be re-rendered when detection flips mid-session.
+function _updatePriceSourceHint() {
+  const h = document.getElementById('priceSourceHint');
+  if (h) h.textContent = priceSource !== 'AUTO' ? '' : (_finnhubDead ? 'Auto → CNBC' : 'Auto → Finnhub');
+}
+
 window.setPriceSource = function(src) {
-  priceSource = src === 'CNBC' ? 'CNBC' : 'FINNHUB';
+  priceSource = (src === 'CNBC' || src === 'FINNHUB') ? src : 'AUTO';
   localStorage.setItem('priceSource.v1', priceSource);
-  const finBtn = document.getElementById('priceSourceFinnhubBtn');
-  const cnbcBtn = document.getElementById('priceSourceCnbcBtn');
-  if (finBtn) finBtn.classList.toggle('active', priceSource === 'FINNHUB');
-  if (cnbcBtn) cnbcBtn.classList.toggle('active', priceSource === 'CNBC');
+  const p = _activeProfile(); if (p) { p.priceSource = priceSource; _saveCfg(_cfg); }
+  [['priceSourceAutoBtn', 'AUTO'], ['priceSourceFinnhubBtn', 'FINNHUB'], ['priceSourceCnbcBtn', 'CNBC']]
+    .forEach(([id, v]) => { const b = document.getElementById(id); if (b) b.classList.toggle('active', priceSource === v); });
+  _updatePriceSourceHint();
   init();
 };
 
@@ -13785,8 +13856,9 @@ function buildShell() {
               <button class="theme-btn" id="toneBtn" onclick="toggleTone()" title="Toggle warm/cool tone"></button>
             </div>
             <div class="settings-row">
-              <span class="settings-row-label">${t('price_source_label') || 'Prices'}</span>
+              <span class="settings-row-label">${t('price_source_label') || 'Prices'}<span id="priceSourceHint" style="display:block;font-weight:400;font-size:9px;color:var(--muted)">${priceSource==='AUTO' ? (_finnhubDead ? 'Auto → CNBC' : 'Auto → Finnhub') : ''}</span></span>
               <div class="lang-toggle" title="Choose live-price source">
+                <button class="lang-seg${priceSource==='AUTO'?' active':''}" id="priceSourceAutoBtn" onclick="setPriceSource('AUTO')">Auto</button>
                 <button class="lang-seg${priceSource==='FINNHUB'?' active':''}" id="priceSourceFinnhubBtn" onclick="setPriceSource('FINNHUB')">Finnhub</button>
                 <button class="lang-seg${priceSource==='CNBC'?' active':''}" id="priceSourceCnbcBtn" onclick="setPriceSource('CNBC')">CNBC</button>
               </div>
@@ -14272,12 +14344,7 @@ window.submitSetup = function() {
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
     _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else if (_setupMode === 'add') {
-    const newProfile = { id: 'p' + Date.now(), ...profileData,
-      theme:    localStorage.getItem('theme')    || 'light',
-      lang:     localStorage.getItem('lang')     || 'EN',
-      currency: localStorage.getItem('currency') || 'USD',
-      tone:     localStorage.getItem('tone')     || 'warm',
-    };
+    const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
     if (!newProfile.writeKey) newProfile.writeKey = '';
     _cfg.profiles.push(newProfile);
     _cfg.activeProfileId = newProfile.id;
@@ -14288,7 +14355,7 @@ window.submitSetup = function() {
     _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
   } else {
     // 'first' — brand new setup
-    const newProfile = { id: 'p' + Date.now(), ...profileData };
+    const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
     _cfg = { profiles: [newProfile], activeProfileId: newProfile.id };
     _saveCfg(_cfg);
     _applyActiveProfile();
@@ -14367,7 +14434,7 @@ window.switchToProfile = function(profileId) {
   if (!_cfg || _cfg.activeProfileId === profileId) return;
   _cfg.activeProfileId = profileId;
   _saveCfg(_cfg);
-  _syncProfilePrefsToStorage();
+  _syncProfilePrefsToStorage(false);
   location.reload();
 };
 
@@ -15348,6 +15415,7 @@ window.setPortfolioView = function(port) {
   if (port === activePortfolio) return;
   activePortfolio = port;
   localStorage.setItem('portfolioView.v1', port);
+  const p = _activeProfile(); if (p) { p.portfolioView = port; _saveCfg(_cfg); }
   document.querySelectorAll('.port-toggle-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.port === port));
   applyPortfolioView();
@@ -15384,6 +15452,10 @@ async function init() {
     // Guard a stale saved view that no longer exists in this sheet's registry.
     if (activePortfolio !== 'ALL' && !_portfolioRegistry.some(p => p.name === activePortfolio)) {
       activePortfolio = 'ALL'; localStorage.setItem('portfolioView.v1', 'ALL');
+      // Persist to the profile too — it's the source of truth now, so leaving the stale name there
+      // would re-trigger this reset on every load instead of once. (Named `prof` to stay clear of
+      // the `p` arrow param in the condition above.)
+      const prof = _activeProfile(); if (prof) { prof.portfolioView = 'ALL'; _saveCfg(_cfg); }
     }
     // Pre-migration: no Portfolios sheet → seed Long-Term cash from the old Claude row-1 location.
     if (_portfolioRegistry[0]?._fallback && _allRows[0]) {
