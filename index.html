@@ -9465,8 +9465,9 @@ function renderTable(model) {
   renderWeightBar(sorted);
   // Share of the whole portfolio's cost, deliberately not the visible rows: a symbol's % has to
   // stay put when the filter pills or search narrow the table. So the column only sums to 100%
-  // when nothing is filtered out.
-  const costTotalAll = model.positions.reduce((s, p) => s + (p.costBasis || 0), 0);
+  // when nothing is filtered out. Cash is in the denominator and gets its own row below, so the
+  // column reads as a share of total capital rather than of deployed capital only.
+  const costTotalAll = model.positions.reduce((s, p) => s + (p.costBasis || 0), 0) + (model.rawCash || 0);
 
   const headers = [
     { key: 'symbol',       label: t('th_symbol'),        sort: true  },
@@ -9545,7 +9546,8 @@ function renderTable(model) {
       </div>
       <div><div class="asset-sym">Cash</div><div class="asset-name">Raw cash · not invested</div></div>
     </div></td>
-    <td colspan="7"></td>
+    <td colspan="6"></td>
+    <td>${dc(fmtCurr(model.rawCash), costTotalAll > 0 ? (model.rawCash / costTotalAll * 100).toFixed(2) + '% of total' : null, 'cell-mut')}</td>
     <td>${dc(fmtCurr(model.rawCash), cashPct.toFixed(1)+'%', 'cell-mut')}</td>
     <td>${dc(fmtCurr(model.cashResPct * model.totalCurrent)+' reserved', (model.cashResPct*100).toFixed(0)+'% target', 'cell-mut')}</td>
     <td></td>
