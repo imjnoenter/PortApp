@@ -7638,6 +7638,18 @@ function parseRows(table) {
     const c = row.c[i];
     return c == null ? null : c.v;
   };
+  // gviz types a column from its cell contents, so a single text-formatted or apostrophe-prefixed
+  // cell can make the whole numeric column arrive as strings. A string qty survives every `> 0`
+  // check (they coerce) and then dies on p.qty.toFixed(), taking the whole load down. Coerce here
+  // so downstream code gets a number or null — never a numeric-looking string. Blank stays null:
+  // watchlist detection keys off `qty != null`, and 0 would read as a held position.
+  const numCell = (row, label) => {
+    const v = cell(row, label);
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return v;
+    const n = Number(String(v).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
   return table.rows.map(r => {
     const rawSymbol = cell(r, "Symbol");
     const sheetSector = cell(r, "Sector");
@@ -7656,15 +7668,15 @@ function parseRows(table) {
       category: cell(r, "Category"),
       custom:   cell(r, "Custom"),
       myGroup:  cell(r, "My Group"),
-      qty:      cell(r, "Qty"),
-      avgPrice: cell(r, "Avg price"),
-      target:   cell(r, "Target Allocation"),
-      price:    cell(r, "Current price"),
-      marketCap: cell(r, "Market Cap"),
-      cash:     cell(r, "Cash"),
-      cashRes:  cell(r, "Cash Reserves"),
-      fcd:      cell(r, "FCD"),
-      usd:      cell(r, "USD"),
+      qty:      numCell(r, "Qty"),
+      avgPrice: numCell(r, "Avg price"),
+      target:   numCell(r, "Target Allocation"),
+      price:    numCell(r, "Current price"),
+      marketCap: numCell(r, "Market Cap"),
+      cash:     numCell(r, "Cash"),
+      cashRes:  numCell(r, "Cash Reserves"),
+      fcd:      numCell(r, "FCD"),
+      usd:      numCell(r, "USD"),
     };
   }).filter(r => r.symbol);
 }
