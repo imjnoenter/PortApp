@@ -1971,6 +1971,23 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .am-watch-opt:hover { background: var(--hover); }
 .am-watch-empty { padding: 8px; font-size: 11px; color: var(--muted); text-align: center; }
 
+/* Background-save failure toast — only shown once the modal that started the save has closed. */
+.am-toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--sp-5) + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
+  display: flex; align-items: center; gap: var(--sp-3);
+  max-width: calc(100vw - 32px);
+  background: var(--card); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 12px;
+}
+.am-toast-msg { color: var(--loss); }
+.am-toast-close { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
+.am-toast-close:hover { color: var(--ink); }
+
 .am-range:focus-visible, .am-pct-input:focus-visible, .am-lock:focus-visible, .am-btn:focus-visible, .am-seg-btn:focus-visible, .am-icon-btn:focus-visible, .am-sort-btn:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
 
 @media (max-width: 700px) {
@@ -2582,6 +2599,7 @@ const I18N = {
     am_no_changes: "No changes", am_save_1: "Save 1 change", am_save_n: "Save {n} changes", am_saving: "Saving…",
     am_saved: "Saved {n} ✓", am_not_found: "not found",
     am_fallback: "saved one by one — redeploy Apps Script for faster saves",
+    am_syncing: "syncing to sheet…", am_err_sync: "Couldn't save {n} targets", am_retry: "Retry",
     am_err_readonly: "Saving is off for this view-only link", am_err_busy: "The sheet is busy — try again in a moment",
     am_err_generic: "Couldn't save. Your changes are still here.",
     am_discard_q: "Discard {n} unsaved changes?", am_switch_q: "Discard {n} changes and switch to {port}?",
@@ -2862,6 +2880,7 @@ const I18N = {
     am_no_changes: "ไม่มีการเปลี่ยนแปลง", am_save_1: "บันทึก 1 รายการ", am_save_n: "บันทึก {n} รายการ", am_saving: "กำลังบันทึก…",
     am_saved: "บันทึกแล้ว {n} ✓", am_not_found: "ไม่พบ",
     am_fallback: "บันทึกทีละรายการ — อัปเดต Apps Script เพื่อบันทึกเร็วขึ้น",
+    am_syncing: "กำลังซิงก์กับชีต…", am_err_sync: "บันทึกเป้าหมาย {n} รายการไม่สำเร็จ", am_retry: "ลองใหม่",
     am_err_readonly: "ลิงก์ดูอย่างเดียว บันทึกไม่ได้", am_err_busy: "ชีตกำลังทำงาน ลองใหม่อีกครั้ง",
     am_err_generic: "บันทึกไม่สำเร็จ การแก้ไขยังอยู่",
     am_discard_q: "ทิ้งการแก้ไข {n} รายการที่ยังไม่บันทึก?", am_switch_q: "ทิ้งการแก้ไข {n} รายการแล้วเปลี่ยนไป {port}?",
@@ -14955,56 +14974,154 @@ function allocGroups(rows, field) {
   return [...map.values()].sort((a, b) => b.target - a.target);
 }
 
-// Batch save — one `updateTargets` call for every changed row instead of one `updateSymbol` per
-// stock (the modal can touch dozens at once; per-row calls were slow and could fail half-way). Falls
-// back to the old per-row path only if the backend hasn't been redeployed with the new action yet
-// ("Unknown action"), so this pass doesn't force an immediate apps_script redeploy.
-async function allocSaveTargets(port, rows) {
-  if (isReadOnly()) return { ok: false, error: 'read-only' };
-  const changed = allocChanged(rows);
-  if (!changed.length) return { ok: true, saved: 0, missing: [], nothing: true };
-
-  const commit = row => {
-    row.saved = row.target;
-    const ar = _allRows.find(r => r.symbol === row.sym && (r.portfolio || DEFAULT_PORT) === port);
-    if (ar) ar.target = row.target;
-  };
+// Pure network sender — no side effects on rows/_allRows/allocMgr (the caller, amSave, commits
+// optimistically before this even starts and reconciles afterward — see allocRunJob). One
+// `updateTargets` call for every changed row instead of one `updateSymbol` per stock (the modal can
+// touch dozens at once; per-row calls were slow and could fail half-way). Falls back to the old
+// per-row path only if the backend hasn't been redeployed with the new action yet ("Unknown
+// action"). `pairs` = `[{sym, target}]`; returns `{ ok, saved, missing:[sym], failed:[sym], fallback? }`.
+async function allocSendTargets(port, pairs) {
+  if (isReadOnly()) return { ok: false, error: 'read-only', failed: pairs.map(p => p.sym) };
 
   const res = await recordFetch(new URLSearchParams({
     action: 'updateTargets', portfolio: port,
-    targets: changed.map(r => r.sym + ':' + r.target).join(','),
+    targets: pairs.map(p => p.sym + ':' + p.target).join(','),
   }), true);
 
   if (res?.ok) {
-    const missing = res.missing || [];
-    changed.forEach(row => { if (!missing.includes(row.sym)) commit(row); });
-    return { ok: true, saved: res.saved, missing };
+    return { ok: true, saved: res.saved, missing: res.missing || [], failed: [] };
   }
 
   if (res && /Unknown action/i.test(res.error || '')) {
-    let saved = 0, failed = 0;
-    for (const row of changed) {
+    const failed = [];
+    let saved = 0;
+    for (const p of pairs) {
       const r2 = await recordFetch(new URLSearchParams({
-        action: 'updateSymbol', symbol: row.sym, target: row.target, portfolio: port,
+        action: 'updateSymbol', symbol: p.sym, target: p.target, portfolio: port,
       }), true);
-      if (r2?.ok) { commit(row); saved++; } else { failed++; }
+      if (r2?.ok) saved++; else failed.push(p.sym);
     }
-    return { ok: failed === 0, saved, missing: [], fallback: true, failed };
+    return { ok: failed.length === 0, saved, missing: [], fallback: true, failed };
   }
 
-  return { ok: false, error: res?.error || 'no-response' };
+  return { ok: false, error: res?.error || 'no-response', failed: pairs.map(p => p.sym) };
 }
 
 // ── Allocation Management: modal ─────────────────────────────────────────────
 // UI on top of the pure engine above. `allocMgr` is the modal's whole live state;
 // nothing here mutates rows except through the engine functions (allocSetTarget,
 // allocScaleGroup, ...), so undo/redo and the 100%-cap invariant stay centralized there.
-let allocMgr = null; // { port, model, rows, hist, sort:{key,dir}, order:[sym], groupBy, filter, scaleMax, confirm, saving, hover }
+let allocMgr = null; // { port, model, rows, hist, sort:{key,dir}, order:[sym], groupBy, filter, scaleMax, confirm, hover }
 let amPieCharts = {}; // filled by renderAllocPies() in pass 3 — declared here so pass 2 can destroy them
 
 function amDestroyPies() {
   Object.values(amPieCharts).forEach(c => { try { c.destroy(); } catch(_) {} });
   amPieCharts = {};
+}
+
+// ── Save (optimistic) ────────────────────────────────────────────────────────
+// Save commits to rows/_allRows and re-renders IMMEDIATELY, then the Apps Script round trip (1-3s,
+// can't go under 1s) runs in the background via allocRunJob — the UI never waits on it. Each job
+// only touches the app-wide re-render (applyPortfolioView) once it's actually needed: right away if
+// the modal is closed and something had to be reverted, or deferred to closeAllocMgmt if the modal
+// is still open (see _allocAppDirty) — no need to redraw the whole app while the user is still in it.
+let _allocJobSeq = 0;
+let _allocPending = new Map();  // jobId -> job, only while its network call is in flight
+let _allocAppDirty = false;     // true once an optimistic commit has landed and the app hasn't redrawn yet
+let _allocBeforeUnloadBound = false;
+function _allocEnsureBeforeUnload() {
+  if (_allocBeforeUnloadBound) return;
+  _allocBeforeUnloadBound = true;
+  window.addEventListener('beforeunload', e => {
+    if (_allocPending.size) { e.preventDefault(); e.returnValue = ''; }
+  });
+}
+// Tiny DOM wrapper so the background job logic (allocRunJob) stays testable without a real DOM.
+function amSetStatus(html) {
+  const el = document.getElementById('amStatus');
+  if (el) el.innerHTML = html;
+}
+// Persistent (until dismissed/retried) toast for a failed background save once the modal that
+// started it has already closed — a transient auto-dismiss toast would be easy to miss.
+function allocShowSyncToast(job, badSyms) {
+  let toast = document.getElementById('allocSyncToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'allocSyncToast';
+    toast.className = 'am-toast';
+    toast.setAttribute('role', 'status');
+    document.body.appendChild(toast);
+  }
+  const pairs = job.pairs.filter(p => badSyms.includes(p.sym));
+  toast.innerHTML = `<span class="am-toast-msg">${escHtml(t('am_err_sync').replace('{n}', pairs.length))}</span>
+    <button type="button" class="am-btn" id="allocToastRetry">${escHtml(t('am_retry'))}</button>
+    <button type="button" class="am-toast-close" id="allocToastClose" aria-label="${escHtml(t('am_discard'))}">×</button>`;
+  document.getElementById('allocToastRetry').onclick = () => {
+    toast.remove();
+    pairs.forEach(pair => {
+      const ar = _allRows.find(r => r.symbol === pair.sym && (r.portfolio || DEFAULT_PORT) === job.port);
+      if (ar) ar.target = pair.target;
+    });
+    applyPortfolioView();
+    allocRunJob({ id: ++_allocJobSeq, port: job.port, pairs });
+  };
+  document.getElementById('allocToastClose').onclick = () => toast.remove();
+}
+// Sends one job's targets in the background and reconciles afterward. Never touches anything the
+// optimistic commit in amSave already updated UNLESS that value is still exactly what THIS job set
+// it to — a newer edit (or a newer job) always wins over an older job's failure.
+async function allocRunJob(job) {
+  _allocEnsureBeforeUnload();
+  _allocPending.set(job.id, job);
+  const res = await allocSendTargets(job.port, job.pairs.map(({ sym, target }) => ({ sym, target })));
+  _allocPending.delete(job.id);
+
+  const bad = new Set([...(res.missing || []), ...(res.failed || [])]);
+  const modalOpenSamePort = !!(allocMgr && allocMgr.port === job.port);
+  let reverted = false;
+
+  if (bad.size) {
+    job.pairs.forEach(pair => {
+      if (!bad.has(pair.sym)) return;
+      const ar = _allRows.find(r => r.symbol === pair.sym && (r.portfolio || DEFAULT_PORT) === job.port);
+      if (ar && ar.target === pair.target) { ar.target = pair.prev; reverted = true; }
+      if (modalOpenSamePort) {
+        const row = allocMgr.rows.find(r => r.sym === pair.sym);
+        if (row && row.saved === pair.target) { row.saved = pair.prev; reverted = true; }
+      }
+    });
+    if (reverted) {
+      if (modalOpenSamePort) { amRenderRows(); amUpdateBudget(); amUpdateHistButtons(); }
+      else applyPortfolioView();
+    }
+  }
+
+  if (!bad.size) {
+    if (modalOpenSamePort && _allocPending.size === 0) {
+      let html = `<span style="color:var(--gain)">${escHtml(t('am_saved').replace('{n}', res.saved))}</span>`;
+      if (res.fallback) html += ` <span style="color:var(--gain)">· ${escHtml(t('am_fallback'))}</span>`;
+      amSetStatus(html);
+    }
+    return;
+  }
+
+  const failedSyms = res.failed || [];
+  if (failedSyms.length) {
+    if (modalOpenSamePort) {
+      amSetStatus(`<span style="color:var(--loss)">${escHtml(t('am_err_sync').replace('{n}', bad.size))}</span> <button type="button" class="am-btn" onclick="amSave()">${escHtml(t('am_retry'))}</button>`);
+    } else {
+      allocShowSyncToast(job, failedSyms);
+    }
+    return;
+  }
+
+  // Missing only (no outright failures) — the targets sheet-side just doesn't have those rows.
+  const missingSyms = res.missing || [];
+  if (modalOpenSamePort) {
+    amSetStatus(`<span style="color:var(--honey)">· ${escHtml(t('am_not_found'))}: ${escHtml(missingSyms.join(', '))}</span>`);
+  } else {
+    allocShowSyncToast(job, missingSyms);
+  }
 }
 
 // ── Pies ──────────────────────────────────────────────────────────────────────────
@@ -15328,7 +15445,6 @@ function amLoad(port) {
     filter: null,
     scaleMax: amCalcScaleMax(rows),
     confirm: null,
-    saving: false,
     hover: null, // {sym} | {field,key} | null — drives the pie/row linked highlight, see renderAllocPies
   };
 }
@@ -15355,6 +15471,9 @@ window.closeAllocMgmt = function(force) {
   amDestroyPies();
   allocMgr = null;
   overlay?.classList.remove('open');
+  // The optimistic Save path never redraws the whole app while the modal is open (that full
+  // redraw is part of what made Save feel slow) — do it now, once, on the way out.
+  if (_allocAppDirty) { _allocAppDirty = false; applyPortfolioView(); }
 };
 
 // ── Confirm strip (replaces window.confirm() so it can host "Keep editing" too) ──────────────
@@ -15789,9 +15908,11 @@ function amUpdateSaveButton() {
   if (!btn) return;
   const n    = allocChanged(allocMgr.rows).length;
   const over = allocTotal(allocMgr.rows) > 1 + ALLOC_EPS;
-  btn.disabled = n === 0 || over || allocMgr.saving;
-  btn.textContent = allocMgr.saving ? t('am_saving')
-    : n === 0 ? t('am_no_changes')
+  // Never disabled just because a save is in flight — Save commits optimistically and returns
+  // immediately, so the user can keep editing and fire another save right away; each background
+  // job only ever carries its own pairs.
+  btn.disabled = n === 0 || over;
+  btn.textContent = n === 0 ? t('am_no_changes')
     : n === 1 ? t('am_save_1')
     : t('am_save_n').replace('{n}', n);
 }
@@ -15989,39 +16110,34 @@ function amBindOverlay() {
 }
 
 // ── Save ──────────────────────────────────────────────────────────────────────────
-window.amSave = async function() {
-  if (!allocMgr || allocMgr.saving) return;
-  allocMgr.saving = true;
-  amUpdateSaveButton();
-  const statusEl = document.getElementById('amStatus');
-  const res = await allocSaveTargets(allocMgr.port, allocMgr.rows);
-  allocMgr.saving = false;
+// Optimistic: commits to rows/_allRows and re-renders synchronously, then fires the Apps Script
+// round trip (allocRunJob) in the background without awaiting it — see the block above amDestroyPies
+// for the job-tracking globals and the reconciliation logic. The 1-3s round trip can't go under
+// 1s, so the only way to make Save feel instant is to stop the UI waiting on it.
+window.amSave = function() {
+  if (!allocMgr) return;
+  const changed = allocChanged(allocMgr.rows);
+  if (!changed.length) return;
+  if (allocTotal(allocMgr.rows) > 1 + ALLOC_EPS) return; // Save is already disabled in this state
+  if (isReadOnly()) { amSetStatus(`<span style="color:var(--loss)">${escHtml(t('am_err_readonly'))}</span>`); return; }
 
-  if (res.ok) {
-    if (statusEl) {
-      let html = `<span style="color:var(--gain)">${escHtml(t('am_saved').replace('{n}', res.saved))}</span>`;
-      if (res.missing?.length) html += ` <span style="color:var(--honey)">· ${escHtml(t('am_not_found'))}: ${escHtml(res.missing.join(', '))}</span>`;
-      if (res.fallback) html += ` <span style="color:var(--gain)">· ${escHtml(t('am_fallback'))}</span>`;
-      statusEl.innerHTML = html;
-    }
-    allocMgr.hist = allocHistoryNew();
-    applyPortfolioView(); // destroys every Chart.js instance, including these pies
-    allocMgr.model = modelForPort(allocMgr.port);
-    allocMgr.rows.forEach(r => {
-      const p = findPosIn(allocMgr.model, r.sym);
-      if (p) { r.now = p.investWeightPct || 0; r.value = p.currentValue || 0; }
-    });
-    amRenderRows();
-    amUpdateBudget();
-    amUpdateHistButtons();
-    renderAllocPies();
-  } else {
-    const key = res.error === 'read-only' ? 'am_err_readonly' : res.error === 'busy' ? 'am_err_busy' : 'am_err_generic';
-    let text = t(key);
-    if (key === 'am_err_generic') text += ` (${res.error})`;
-    if (statusEl) statusEl.innerHTML = `<span style="color:var(--loss)">${escHtml(text)}</span>`;
-    amUpdateSaveButton();
-  }
+  const port = allocMgr.port;
+  const job = { id: ++_allocJobSeq, port, pairs: changed.map(r => ({ sym: r.sym, target: r.target, prev: r.saved })) };
+
+  changed.forEach(row => {
+    row.saved = row.target;
+    const ar = _allRows.find(r => r.symbol === row.sym && (r.portfolio || DEFAULT_PORT) === port);
+    if (ar) ar.target = row.target;
+  });
+  allocMgr.hist = allocHistoryNew();
+  _allocAppDirty = true;
+  amRenderRows();
+  amUpdateBudget();
+  amUpdateHistButtons();
+  renderAllocPies();
+  amSetStatus(`<span style="color:var(--gain)">${escHtml(t('am_saved').replace('{n}', job.pairs.length))}</span> <span style="color:var(--muted)">· ${escHtml(t('am_syncing'))}</span>`);
+
+  allocRunJob(job);
 };
 
 // ── Multi-portfolio view rendering ────────────────────────────────────────────
