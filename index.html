@@ -2350,7 +2350,8 @@ const I18N = {
     fcd_label: "FCD", usd_label: "USD",
     cash_cap_label: "cap", cash_cap_over: "Over cap by", cash_cap_used: "Used",
     cash_cap_unfunded: "more allowed, no cash for it",
-    cash_cap_hint: "Trade % caps Trade at that share of your total portfolio. Its cash card shows the unused headroom. Reserve % does not apply to it.",
+    cash_reserve_dip: "Dips into reserve by",
+    cash_split_label: "Split", cash_split_error: "must total 100%",
     add_contribution: "Add Contribution", deposit: "Deposit", withdraw: "Withdraw",
     contrib_note: "Note", contrib_amount: "Amount",
     contrib_rate_label: "Rate", contrib_amount_error: "Enter a valid amount.",
@@ -2601,7 +2602,8 @@ const I18N = {
     fcd_label: "FCD", usd_label: "USD",
     cash_cap_label: "เพดาน", cash_cap_over: "เกินเพดาน", cash_cap_used: "ใช้ไป",
     cash_cap_unfunded: "ยังลงทุนได้ แต่เงินสดไม่พอ",
-    cash_cap_hint: "Trade % คือเพดานของพอร์ต Trade เทียบกับพอร์ตรวมทั้งหมด ช่องเงินสดของ Trade จะแสดงวงเงินที่เหลือ และไม่ใช้ Reserve %",
+    cash_reserve_dip: "ใช้เงินสำรองไป",
+    cash_split_label: "สัดส่วน", cash_split_error: "ต้องรวมเป็น 100%",
     add_contribution: "เพิ่มเงินเข้า/ออก", deposit: "ฝากเงิน", withdraw: "ถอนเงิน",
     contrib_note: "หมายเหตุ", contrib_amount: "จำนวนเงิน",
     contrib_rate_label: "อัตราแลกเปลี่ยน", contrib_amount_error: "กรุณากรอกจำนวนเงินให้ถูกต้อง",
@@ -2881,16 +2883,20 @@ function updateTxAllocationBars(shares, price) {
     : (tickerEl?.value || '');
   if (!sym || sym === '__custom__') { barsEl.innerHTML = ''; return; }
 
-  const pos       = currentModel.positions.find(p => p.symbol === sym)
-                 || (currentModel.sgovPos?.symbol === sym ? currentModel.sgovPos : null);
+  // Target dollars/weights are the trade's own portfolio's (tradeModalPort), not the ALL blend —
+  // pos, currTotal and investable all have to come from that same model or target vs. weight
+  // comparisons below drift against each other.
+  const tc        = targetCtxFor(sym, tradeModalPort);
+  const model     = tc.model;
+  const pos       = tc.pos;
   const currValue = pos?.currentValue ?? 0;
   const isSell    = txType === 'Sell';
   const tradeVal  = shares * price;
   const addValue  = isSell ? -Math.min(tradeVal, currValue) : tradeVal;
   const newValue  = Math.max(0, currValue + addValue);
-  const currTotal = currentModel.totalCurrent;
+  const currTotal = model.totalCurrent;
   const newTotal  = isSell ? currTotal : currTotal + tradeVal; // sell: cash absorbs, total same
-  const investable = currentModel.investable;
+  const investable = model.investable;
   const target    = pos?.target != null ? pos.target * 100 : null;
   const targetAmt = target != null ? (pos.target * investable) : null;
 
@@ -3221,18 +3227,21 @@ window.updateTxCashPreview = function() {
       el.innerHTML = `<span style="color:var(--muted)">Balance: ${fmtCurr(bal)}</span><br><span style="color:${after<0?'var(--loss)':'var(--muted)'}">−${fmtCurr(buyTotal)} → ${fmtCurr(after)}</span>${feeNote}`;
     }
   });
-  // Cap warning for a capped portfolio. Shown in red like an overdrawn balance is, and like that
-  // one it never blocks the submit — the trade already happened at the broker.
+  // Limit + reserve warnings. Red like an overdrawn balance, and like that one they never block
+  // the submit — the trade already happened at the broker.
   const capEl = document.getElementById('txCapNote');
   if (!capEl) return;
-  const cap = Number(_portRow(txActivePort())?.capPct) || 0;
   // Buys only — a Sell shrinks the portfolio and a Dividend adds no shares, so neither can breach.
-  if (!cap || txType !== 'Buy' || tv <= 0) { capEl.innerHTML = ''; return; }
-  const capDollar = cap * _totalPortfolioValue();
-  const after     = _portStockValue(txActivePort()) + tv;
-  capEl.innerHTML = after > capDollar
+  if (txType !== 'Buy' || tv <= 0) { capEl.innerHTML = ''; return; }
+  const port      = txActivePort();
+  const capDollar = _limitDollar(port);
+  const after     = _poolStockValue(port) + tv;   // LT and ETF are checked against one shared limit
+  const lines = [after > capDollar
     ? `<span style="color:var(--loss)">${t('cash_cap_over')} ${fmtCurr(after - capDollar)}</span> <span style="color:var(--muted)">(${fmtCurr(after)} / ${fmtCurr(capDollar)})</span>`
-    : `<span style="color:var(--muted)">${t('cash_cap_used')} ${fmtCurr(after)} / ${fmtCurr(capDollar)}</span>`;
+    : `<span style="color:var(--muted)">${t('cash_cap_used')} ${fmtCurr(after)} / ${fmtCurr(capDollar)}</span>`];
+  const dip = _reserveDollar() - (_walletTotal().cash - buyTotal);
+  if (dip > 0) lines.push(`<span style="color:var(--loss)">${t('cash_reserve_dip')} ${fmtCurr(dip)}</span>`);
+  capEl.innerHTML = lines.join('<br>');
 };
 
 // Which portfolio the transaction belongs to: action modal → actionModalPort; standalone tx modal
@@ -4137,8 +4146,9 @@ window.openSymbolDetail = function(sym) {
   const color = colorFor(sym);
   const plan  = getPlan(sym) || {};
   const { tranches=[], sl, note } = plan;
-  const td      = getTargetDollar(pos, currentModel);
-  const currPct = getCurrentPct(pos, currentModel);
+  const tc      = targetCtxFor(sym);
+  const td      = tc.pos ? getTargetDollar(tc.pos, tc.model) : 0;
+  const currPct = tc.pos ? getCurrentPct(tc.pos, tc.model) : 0;
 
   const trancheRows = tranches.map((t, i) => {
     const dollar = getTrancheDollar(i, tranches, currPct, td);
@@ -4545,19 +4555,29 @@ window.openTxHistory = function(sym) {
 };
 
 // ── Edit Cash modal ───────────────────────────────────────────────────────────
+// One shared wallet, so there is nothing to switch between — the form edits the wallet, the one
+// universal Reserve %, Trade's limit (a share of the whole), and every split portfolio's share of
+// (whole − reserve), which must total 100%. See Portfolio limits in CLAUDE.md.
 window.openEditCash = function() {
   if (!currentModel) return;
   const overlay = document.getElementById('editCashModal');
   if (!overlay) return;
-  // One shared wallet, so there is nothing to switch between — the form edits the wallet directly.
-  // Reserve % belongs to the uncapped portfolios (Long-Term/ETF); Trade % is the cap on CAP_PORT.
   const r0   = _portRow(_cashPort());
   const w    = _walletTotal();
   const fcd  = Number(w.fcd) || 0;
   const usd  = Number(w.usd) || 0;
   const cash = fcd + usd;
-  const resPct = (Number(r0.cashRes) || 0) * 100;
-  const capPct = (Number(_portRow(CAP_PORT)?.capPct) || 0) * 100;
+  const resPct   = +((Number(r0.cashRes) || 0) * 100).toFixed(4);
+  const tradePct = +((Number(_portRow(CAP_PORT)?.capPct) || 0) * 100).toFixed(4);
+  const shares     = _splitShares();
+  const splitRows  = _portfolioRegistry.filter(p => p.name !== CAP_PORT && p.name !== 'ETF');
+  const splitFields = splitRows.map((p, i) => `
+    <div class="tx-field">
+      <label class="tx-label">${escHtml(p.name)} %</label>
+      <input class="tx-input editCashSplitInput" id="editCashSplit_${i}" data-port="${escHtml(p.name)}" type="number" step="any" min="0" max="100" value="${+((shares[p.name] || 0) * 100).toFixed(4)}" oninput="updateCashPreview()">
+    </div>`);
+  let splitHtml = '';
+  for (let i = 0; i < splitFields.length; i += 2) splitHtml += `<div class="tx-row2">${splitFields[i]}${splitFields[i + 1] || ''}</div>`;
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
     <div class="tx-header">
       <div class="tx-title">${t('edit_cash_title')}</div>
@@ -4566,7 +4586,7 @@ window.openEditCash = function() {
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">BEFORE</div>
       <div><strong>${fmtCurr(cash)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span></div>
-      <div style="color:var(--muted);margin-top:2px">Reserve target: ${resPct.toFixed(1)}% · ${CAP_PORT}: ${capPct.toFixed(1)}%</div>
+      <div style="color:var(--muted);margin-top:2px">Reserve: ${resPct.toFixed(1)}% · ${CAP_PORT}: ${tradePct.toFixed(1)}%</div>
     </div>
     <div class="tx-row2">
       <div class="tx-field">
@@ -4585,44 +4605,65 @@ window.openEditCash = function() {
       </div>
       <div class="tx-field">
         <label class="tx-label">${CAP_PORT} %</label>
-        <input class="tx-input" id="editCashCap" type="number" step="any" min="0" max="100" value="${capPct}" oninput="updateCashPreview()">
+        <input class="tx-input" id="editCashCap" type="number" step="any" min="0" max="100" value="${tradePct}" oninput="updateCashPreview()">
       </div>
     </div>
-    <div style="color:var(--muted);font-size:10px;margin:-8px 0 14px">${t('cash_cap_hint')}</div>
+    ${splitHtml}
+    <div id="editCashSplitSum" style="font-size:10px;margin:-8px 0 14px"></div>
     <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:14px;font-size:12px">
       <div style="color:var(--muted);font-size:10px;margin-bottom:4px">AFTER</div>
       <div id="editCashAfter"><strong>${fmtCurr(cash)}</strong></div>
     </div>
-    <button class="tx-submit" onclick="submitEditCash()">Save to Google Sheet</button>
+    <button class="tx-submit" id="editCashSubmit" onclick="submitEditCash()">Save to Google Sheet</button>
     <div class="tx-status" id="editCashStatus"></div>
   </div>`;
   overlay.classList.add('open');
+  updateCashPreview();
 };
 
 window.updateCashPreview = function() {
-  const fcd  = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
-  const usd  = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
-  const res  = parseFloat(document.getElementById('editCashReserve')?.value) || 0;
-  const cap  = parseFloat(document.getElementById('editCashCap')?.value) || 0;
-  const el   = document.getElementById('editCashAfter');
+  const fcd   = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
+  const usd   = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
+  const res   = parseFloat(document.getElementById('editCashReserve')?.value) || 0;
+  const trade = parseFloat(document.getElementById('editCashCap')?.value) || 0;
+  const splits = [...document.querySelectorAll('.editCashSplitInput')]
+    .map(el => ({ port: el.dataset.port, pct: parseFloat(el.value) || 0 }));
+  const sum = splits.reduce((s, x) => s + x.pct, 0);
+  const ok  = Math.abs(sum - 100) < 0.01;
+  const sumEl = document.getElementById('editCashSplitSum');
+  if (sumEl) sumEl.innerHTML = ok
+    ? `<span style="color:var(--muted)">${t('cash_split_label')}: ${sum.toFixed(1)}% ✓</span>`
+    : `<span style="color:var(--loss)">${t('cash_split_label')}: ${sum.toFixed(1)}% — ${t('cash_split_error')}</span>`;
+  const btn = document.getElementById('editCashSubmit');
+  if (btn) btn.disabled = !ok;
+  const el = document.getElementById('editCashAfter');
   if (!el) return;
-  // What the cap works out to in dollars right now, so the % isn't an abstract number.
-  const capNote = cap > 0 ? ` · ${CAP_PORT}: ${cap.toFixed(1)}% (${fmtCurr(cap / 100 * _totalPortfolioValue())})` : '';
-  el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">Reserve target: ${res.toFixed(1)}%${capNote}</div>`;
+  const whole        = _totalPortfolioValue() - _walletTotal().cash + fcd + usd;
+  const reserveDollar = res / 100 * whole;
+  const tradeDollar   = trade / 100 * whole;
+  const splitParts = splits.map(x => `${escHtml(x.port)} ${fmtCurr(x.pct / 100 * (whole - reserveDollar))}`);
+  el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">${splitParts.join(' · ')} · ${CAP_PORT} ${fmtCurr(tradeDollar)} · Reserve ${fmtCurr(reserveDollar)}</div>`;
 };
 
 window.submitEditCash = async function() {
-  const fcd = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
-  const usd = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
+  const fcd   = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
+  const usd   = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
   const cashRes = (parseFloat(document.getElementById('editCashReserve')?.value) || 0) / 100;
   const capPct  = (parseFloat(document.getElementById('editCashCap')?.value) || 0) / 100;
+  const splits = [...document.querySelectorAll('.editCashSplitInput')]
+    .map(el => ({ port: el.dataset.port, pct: parseFloat(el.value) || 0 }));
+  const sum = splits.reduce((s, x) => s + x.pct, 0);
+  if (Math.abs(sum - 100) >= 0.01) return;
   const statusEl = document.getElementById('editCashStatus');
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   try {
-    // Two rows: the wallet + reserve live on the cash port, the cap on CAP_PORT's own row.
+    // Wallet + reserve live on the cash port; Trade's limit on its own row; each split port's share
+    // on its own row (Long-Term's split write is a second, separate call to that same row).
     await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: _cashPort(), fcd, usd, cashRes }));
     if (_portfolioRegistry.some(p => p.name === CAP_PORT))
       await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: CAP_PORT, capPct }));
+    for (const s of splits)
+      await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: s.port, capPct: s.pct / 100 }));
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
     setTimeout(() => {
       document.getElementById('editCashModal')?.classList.remove('open');
@@ -4651,17 +4692,8 @@ window.openAddContribution = function(row) {
   const editing = row != null ? _contribList.find(c => c.row === row) : null;
   if (row != null && !editing) return;
   _contribDerivedDirty = !!editing;
-  // A capped portfolio has no wallet and no deposit baseline of its own — tagging a contribution
-  // to it would measure real deposited baht against a cap, so those rows belong to the cash port.
-  const _contribPortOf = p => (Number(_portRow(p)?.capPct) || 0) > 0 ? _cashPort() : p;
-  const editPort = editing ? _contribPortOf(editing.portfolio)
-                 : (activePortfolio === 'ALL' || activePortfolio === 'ETF') ? DEFAULT_PORT : _contribPortOf(activePortfolio);
-  const contribPorts = _portfolioRegistry.filter(p => !((Number(p.capPct) || 0) > 0));
-  const portSel = contribPorts.length > 1
-    ? `<div class="tx-field"><label class="tx-label">${t('portfolio')}</label>
-        <select class="tx-input" id="contribPort" onchange="updateContribPreview()">
-          ${contribPorts.map(p=>`<option value="${p.name}"${p.name===editPort?' selected':''}>${p.name}</option>`).join('')}
-        </select></div>` : `<input type="hidden" id="contribPort" value="${editPort}">`;
+  // Every portfolio has a limit now, so a deposit belongs to the whole account, not one portfolio.
+  const portSel = `<input type="hidden" id="contribPort" value="${escHtml(editing ? editing.portfolio : DEFAULT_PORT)}">`;
   const isWithdraw = editing?.type === 'Withdraw';
   overlay.innerHTML = `<div class="tx-modal" onclick="event.stopPropagation()" style="max-width:360px">
     <div class="tx-header">
@@ -5672,7 +5704,10 @@ function renderActionCharts(sym, previewValue, overrideCat) {
 
   if (isAllocMode) {
     // ── Allocation mode: use target % values ──────────────────────────────
-    const investable = currentModel.investable;
+    // Must match the investable basis updateActionCategoryChange/updateActionChartsPreview used to
+    // turn the typed target % into previewValue$, or converting it back to a % here drifts from
+    // what the user actually typed.
+    const investable = (planState.model || currentModel).investable;
     const editedTgt  = previewValue != null && investable > 0
       ? previewValue / investable * 100
       : (pos.target || 0) * 100;
@@ -5780,25 +5815,29 @@ function renderActionCharts(sym, previewValue, overrideCat) {
 
 window.updateActionCategoryChange = function() {
   const sym = actionModalSym;
-  const pos = findPos(sym);
+  // Portfolio-scoped model for this modal (matches renderActionTabContent/PLAN tab), not the ALL blend.
+  const model = planState.model || currentModel;
+  const pos = findPosIn(model, sym) || findPos(sym);
   if (!pos) return;
   const newCat  = document.getElementById('editCategory')?.value || pos.category || 'Other';
   const tgt     = parseFloat(document.getElementById('editTargetPct')?.value);
-  const planned = (!isNaN(tgt) && currentModel?.investable > 0)
-    ? (tgt / 100) * currentModel.investable : (pos.currentValue ?? 0);
+  const planned = (!isNaN(tgt) && model?.investable > 0)
+    ? (tgt / 100) * model.investable : (pos.currentValue ?? 0);
   renderActionCharts(sym, planned, newCat);
 };
 
 window.updateActionChartsPreview = function() {
   const sym = actionModalSym;
-  const pos = findPos(sym);
+  // Portfolio-scoped model for this modal (matches renderActionTabContent/PLAN tab), not the ALL blend.
+  const model = planState.model || currentModel;
+  const pos = findPosIn(model, sym) || findPos(sym);
   if (!pos || !actionChart1) return;
 
   if (actionModalTab === 'allocation') {
     // Allocation mode: full re-render (Available slice must update too)
     const tgt = parseFloat(document.getElementById('editTargetPct')?.value);
-    const planned = (!isNaN(tgt) && currentModel?.investable > 0)
-      ? (tgt / 100) * currentModel.investable : null;
+    const planned = (!isNaN(tgt) && model?.investable > 0)
+      ? (tgt / 100) * model.investable : null;
     renderActionCharts(sym, planned);
     return;
   }
@@ -5840,6 +5879,20 @@ function findPosIn(model, sym) {
   return model.positions.find(p => p.symbol === sym)
       || (model.sgovPos?.symbol === sym ? model.sgovPos : null)
       || model.watchlist.find(w => w.symbol === sym) || null;
+}
+
+// Target dollars are a share of the symbol's OWN portfolio's total, never the ALL blend — that
+// total holds every other portfolio's stocks too. Outside ALL the active model already is that
+// portfolio. Memoised because the ALL positions table asks once per row; a new currentModel or
+// quote map invalidates it.
+let _portModelMemo = { base: null, quotes: null, byPort: {} };
+function targetCtxFor(sym, port) {
+  if (activePortfolio !== 'ALL') return { model: currentModel, pos: findPosIn(currentModel, sym) };
+  if (_portModelMemo.base !== currentModel || _portModelMemo.quotes !== _lastQuotes)
+    _portModelMemo = { base: currentModel, quotes: _lastQuotes, byPort: {} };
+  const p = port || defaultPortFor(sym);
+  const m = _portModelMemo.byPort[p] || (_portModelMemo.byPort[p] = modelForPort(p));
+  return { model: m, pos: findPosIn(m, sym) };
 }
 
 window.openActionModal = function(sym, port) {
@@ -6253,8 +6306,8 @@ function renderActionTabContent() {
     setTimeout(() => {
       // Initial render uses current target as planned value
       const initTgt = parseFloat(document.getElementById('editTargetPct')?.value);
-      const initVal = (!isNaN(initTgt) && currentModel?.investable > 0)
-        ? (initTgt / 100) * currentModel.investable
+      const initVal = (!isNaN(initTgt) && actionModel?.investable > 0)
+        ? (initTgt / 100) * actionModel.investable
         : null;
       renderActionCharts(sym, initVal);
     }, 0);
@@ -6633,9 +6686,15 @@ async function savePlanToSheet(sym, tranches, sl, note, trimTranches = [], portf
   if (!hasAnyReal && !sl && !note && !realTrims.length) {
     return clearPlanFromSheet(sym, portfolio);
   }
-  const pos     = currentModel?.positions.find(p => p.symbol === sym);
-  const td      = getTargetDollar(pos, currentModel);
-  const currPct = getCurrentPct(pos, currentModel);
+  // Target dollars are the saving portfolio's own — not the ALL blend — with the historical
+  // currentModel lookup as a fallback for a symbol modelForPort can't find (e.g. an ETF-tab
+  // symbol whose plan is saved under Long-Term).
+  const pm      = modelForPort(portfolio);
+  const pmPos   = findPosIn(pm, sym);
+  const pos     = pmPos || currentModel?.positions.find(p => p.symbol === sym);
+  const model   = pmPos ? pm : currentModel;
+  const td      = getTargetDollar(pos, model);
+  const currPct = getCurrentPct(pos, model);
   // Trim trailing blank tranches but preserve blank ones mid-sequence (cleared = executed)
   const writeTranches = [...tranches];
   while (writeTranches.length > 0 && writeTranches[writeTranches.length-1].price == null && (writeTranches[writeTranches.length-1].cumPct ?? 0) === 0) writeTranches.pop();
@@ -7332,9 +7391,8 @@ async function ensureGicsMap() {
 
 // ── Portfolios registry ───────────────────────────────────────────────────────
 const DEFAULT_PORT = 'Long-Term';
-// The one portfolio the Edit Cash card writes a CapPct to. Storage stays generic — cashCtxFor
-// caps any registry row whose CapPct > 0 — but the card needs a fixed target to write the very
-// first value to, before any row is capped yet.
+// The one portfolio measured as a limit on the WHOLE portfolio, overlapping every other row.
+// Every other non-ETF row is instead a split share of (whole − reserve) — see _limitDollar.
 const CAP_PORT = 'Trade';
 // Used pre-migration (no Portfolios sheet) so the app still loads as a single portfolio.
 const _fallbackRegistry = () => [{ id: DEFAULT_PORT, name: DEFAULT_PORT, color: '#4ade80', cash: 0, cashRes: 0, fcd: 0, usd: 0, capPct: 0, _fallback: true }];
@@ -7398,19 +7456,47 @@ function _portStockValue(port) {
   return _allRows.reduce((s, r) => s + ((r.portfolio || DEFAULT_PORT) === port ? _rowValue(r) : 0), 0);
 }
 
-// Cash context fed into buildModel. Uncapped ports (Long-Term, ETF, ALL) share the whole wallet.
-// A capped port (CapPct > 0) holds no wallet at all: its cash is the unused headroom under its cap,
-// which recomputeValuation derives per tick because it moves with prices. Reserve % is an
-// uncapped-portfolio idea — a cap is already a hard ceiling, so a capped port gets cashRes 0.
+// ── Portfolio limits (see Shared Cash Pool in CLAUDE.md) ─────────────────────
+// Trade is a risk limit on the WHOLE portfolio that overlaps the rest. Every other row is a share of
+// (whole − reserve), and those shares total 100%. ETF has no limit of its own — it is one pool with
+// Long-Term, so both tabs count both portfolios' stocks against Long-Term's limit.
+const _limitPort = port => port === 'ETF' ? DEFAULT_PORT : port;
+const _poolPorts = port => _limitPort(port) === DEFAULT_PORT ? [DEFAULT_PORT, 'ETF'] : [_limitPort(port)];
+const _poolStockValue = port => _poolPorts(port).reduce((s, p) => s + _portStockValue(p), 0);
+
+// The one reserve %, a share of the whole portfolio. Stored on Long-Term's row with the wallet.
+function _reservePct() { return Number(_portRow(DEFAULT_PORT)?.cashRes) || 0; }
+function _reserveDollar() { return _reservePct() * _totalPortfolioValue(); }
+// The wallet minus the reserve — the most cash any tab can show, so the reserve is never spendable.
+function _spendableWallet() { return Math.max(0, _walletTotal().cash - _reserveDollar()); }
+
+// Split portfolios (everything but Trade and ETF) → their share. A single row left blank takes
+// whatever the others don't claim, so a sheet that only ever set Growth still totals 100%.
+function _splitShares() {
+  const rows = _portfolioRegistry.filter(p => p.name !== CAP_PORT && p.name !== 'ETF');
+  const out = {};
+  rows.forEach(p => { out[p.name] = p.capPct > 0 ? p.capPct : 0; });
+  const blanks = rows.filter(p => !(p.capPct > 0));
+  if (blanks.length === 1) out[blanks[0].name] = Math.max(0, 1 - rows.reduce((s, p) => s + out[p.name], 0));
+  return out;
+}
+// A portfolio's limit as a fraction: Trade's of the whole, a split port's of (whole − reserve).
+function _limitPct(port) {
+  const lp = _limitPort(port);
+  return lp === CAP_PORT ? (Number(_portRow(CAP_PORT)?.capPct) || 0) : (_splitShares()[lp] ?? 0);
+}
+function _limitDollar(port) {
+  const total = _totalPortfolioValue();
+  return _limitPort(port) === CAP_PORT ? _limitPct(port) * total : _limitPct(port) * (total - _reserveDollar());
+}
+
+// Cash context fed into buildModel. ALL holds the whole wallet and the universal reserve. Every
+// portfolio tab has a limit instead: its cash is the room left under it, which recomputeValuation
+// derives per tick because the limit moves with prices. A tab gets cashRes 0 — the reserve is
+// already taken out of the wallet before any tab sees it.
 function cashCtxFor(portId) {
-  const w = _walletTotal();
-  if (portId === 'ALL') {
-    const lt = _portfolioRegistry.find(p => p.name === DEFAULT_PORT);
-    return { ...w, cashRes: lt?.cashRes ?? (_portfolioRegistry[0]?.cashRes ?? 0) };
-  }
-  const r = _portRow(portId === 'ETF' ? DEFAULT_PORT : portId);
-  if (r.capPct > 0) return { cash: 0, fcd: 0, usd: 0, cashRes: 0, capPct: r.capPct, walletTotal: w.cash };
-  return { ...w, cashRes: r.cashRes };
+  if (portId === 'ALL') return { ..._walletTotal(), cashRes: _reservePct() };
+  return { cash: 0, fcd: 0, usd: 0, cashRes: 0, capPct: _limitPct(portId), port: portId };
 }
 
 // Transfer-Out / Transfer-In rows move shares between portfolios with no realized P&L.
@@ -7755,9 +7841,9 @@ function rowsForView(portId) {
 
 // Recompute everything derived from p.price. Shared by buildModel and attachQuotes so the
 // valuation math exists in exactly one place. Reads cashResPct/totalInvested from the model (they
-// don't depend on price) rather than recomputing them. totalCash is read the same way for an
-// uncapped portfolio, but re-derived here for a capped one — its cap is a share of a total that
-// moves with every tick. See Shared Cash Pool in CLAUDE.md.
+// don't depend on price) rather than recomputing them. totalCash is read the same way for ALL, but
+// re-derived here for a portfolio tab — its limit is a share of a total that moves with every tick.
+// See Shared Cash Pool in CLAUDE.md.
 function recomputeValuation(model) {
   const { positions, totalInvested } = model;
   positions.forEach(p => {
@@ -7766,15 +7852,18 @@ function recomputeValuation(model) {
     p.pnlPct       = p.costBasis ? p.pnl / p.costBasis * 100 : 0;
   });
   const stockTotal = positions.reduce((s, p) => s + p.currentValue, 0);
-  // A capped portfolio's cash is what its cap still allows, not a balance it holds. Bounded below
-  // by 0 (already past the cap) and above by the wallet (the cap can allow more than there is money
-  // for). Derived here, not in buildModel, because the cap moves with every quote tick.
-  if (model.capPct != null) {
-    model.capDollar   = model.capPct * _totalPortfolioValue();
-    const allowed     = model.capDollar - stockTotal;
-    model.rawCash     = model.totalCash = Math.max(0, Math.min(allowed, model.walletTotal));
-    model.capOver     = allowed < 0 ? -allowed : 0;                                      // deployed past the cap
-    model.capUnfunded = allowed > model.walletTotal ? allowed - model.walletTotal : 0;   // allowed, but no cash for it
+  // A portfolio tab's cash is what its limit still allows, not a balance it holds. Bounded below by
+  // 0 (already past the limit) and above by the spendable wallet (the limit can allow more than
+  // there is money for, or more than the reserve leaves spendable). Derived here, not in buildModel,
+  // because the limit moves with every quote tick.
+  if (model.port) {
+    model.capDollar   = _limitDollar(model.port);
+    model.capUsed     = stockTotal + _poolStockValue(model.port) - _portStockValue(model.port); // + the pool partner's stocks (LT↔ETF)
+    const allowed     = model.capDollar - model.capUsed;
+    const spendable   = _spendableWallet();
+    model.rawCash     = model.totalCash = Math.max(0, Math.min(allowed, spendable));
+    model.capOver     = allowed < 0 ? -allowed : 0;                          // deployed past the limit
+    model.capUnfunded = allowed > spendable ? allowed - spendable : 0;       // allowed, but no spendable cash for it
   }
   const totalCash    = model.totalCash;
   const totalCurrent = stockTotal + totalCash;
@@ -7823,7 +7912,7 @@ function buildModel(rows, cashCtx) {
 
   const model = {
     positions, watchlist, sgovPos: null, rawCash, rawFcd, rawUsd, cashResPct,
-    totalCash, totalInvested, capPct, walletTotal: cashCtx?.walletTotal ?? 0,
+    totalCash, totalInvested, capPct, port: cashCtx?.port ?? null,
   };
   recomputeValuation(model);
   positions.sort((a, b) => b.currentValue - a.currentValue);
@@ -8020,7 +8109,7 @@ function renderStatCards(model, txData) {
           ? `<span style="color:var(--loss)">${t('cash_cap_over')} ${fmtCurr(model.capOver)}</span>`
         : model.capUnfunded > 0
           ? `${fmtCurr(model.capUnfunded)} ${t('cash_cap_unfunded')}`
-          : `${t('cash_cap_used')} ${fmtCurr(Math.max(0, model.capDollar - model.totalCash))} / ${fmtCurr(model.capDollar)}`
+          : `${t('cash_cap_used')} ${fmtCurr(model.capUsed)} / ${fmtCurr(model.capDollar)}`
       }</div>` : `
     <div class="sc-sub mut"><span style="display:inline-block">${cashPct.toFixed(1)}% ·&nbsp;</span><span style="display:inline-block">${t('target')} ${((model.cashResPct||0)*100).toFixed(0)}%</span></div>
     <div class="sc-detail">${t('fcd_label')}: ${fmtCurr(model.rawFcd||0)} · ${t('usd_label')}: ${fmtCurr(model.rawUsd||0)}</div>`}`);
@@ -9508,6 +9597,13 @@ function renderTable(model) {
   function stockRow(p, num) {
     const color = colorFor(p.symbol);
     const totalUp = p.pnl >= 0;
+    // In ALL, target % / allocation bar come from the symbol's own portfolio, not the ALL blend
+    // (see targetCtxFor) — everything else in the row still uses the merged position p. targetCtxFor
+    // uses findPosIn, which also searches watchlist rows — those have no investWeightPct, so guard
+    // on that rather than truthiness or a watchlist hit would throw on .toFixed below.
+    const tc = activePortfolio === 'ALL' ? targetCtxFor(p.symbol) : null;
+    const allocPos   = tc?.pos?.investWeightPct != null ? tc.pos : p;
+    const allocModel = allocPos === p ? model : tc.model;
 
     // Last price + pre/post market
     let priceSub = null, priceSubCls = 'cell-mut';
@@ -9542,8 +9638,8 @@ function renderTable(model) {
       <td>${dc(p.qty?.toFixed(4)||'—', null)}</td>
       <td>${dc(fmtCurr(p.avgPrice), null)}</td>
       <td>${dc(fmtCurr(p.costBasis), costTotalAll > 0 ? (p.costBasis / costTotalAll * 100).toFixed(2) + '% of total' : null)}</td>
-      <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', p.target!=null ? p.investWeightPct.toFixed(1)+'% / '+(p.target*100).toFixed(1)+'%' : p.investWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
-      <td>${allocSparkline(p, model.investable)}</td>
+      <td>${dc('<strong>'+fmtCurr(p.currentValue)+'</strong>', allocPos.target!=null ? allocPos.investWeightPct.toFixed(1)+'% / '+(allocPos.target*100).toFixed(1)+'%' : allocPos.investWeightPct.toFixed(1)+'%', 'cell-mut')}</td>
+      <td>${allocSparkline(allocPos, allocModel.investable)}</td>
       <td>${weekRange52Bar(p)}</td>
       <td><span style="font-size:11px;color:var(--muted)">${p.category||'—'}</span></td>
     </tr>`;
@@ -12065,24 +12161,23 @@ function applyContribChange(){
   renderContribPanel();
   if (currentModel) renderStatCards(currentModel);
 }
+// A portfolio tab's total is its stocks plus the room under its limit, not money deposited — so
+// contributions only apply to the whole account (ALL). Every other tab reports zero, which pushes
+// the Total Return card into its existing USD-baseline branch there.
 function netContributedForView(){
-  const ports = activePortfolio==='ALL' ? Object.keys(_contribCache) : [contribPortForView()];
+  if (activePortfolio !== 'ALL') return { depositTHB: 0, withdrawUSD: 0 };
   let depositTHB=0, withdrawUSD=0;
-  for(const p of ports){ const b=_contribCache[p]; if(b){ depositTHB+=b.depositTHB; withdrawUSD+=b.withdrawUSD; } }
+  for(const p of Object.keys(_contribCache)){ const b=_contribCache[p]; depositTHB+=b.depositTHB; withdrawUSD+=b.withdrawUSD; }
   return { depositTHB, withdrawUSD };
 }
-// ETF has no contributions of its own — it shares Long-Term's, matching the coercion
-// openAddContribution already applies when writing.
-function contribPortForView(){ return activePortfolio === 'ETF' ? DEFAULT_PORT : activePortfolio; }
 
 // ── Cash In / Out panel (Activity page) ──────────────────────────────────────
 // The ledger behind the Total Return card's baht baseline: deposits in, withdrawals out, with
-// the Net line reproducing exactly the netContribTHB that card divides by.
+// the Net line reproducing exactly the netContribTHB that card divides by. Contributions belong
+// to the whole account, not one portfolio, so every tab sees the same full list.
 function contribRowsForView(){
-  const list = activePortfolio === 'ALL'
-    ? _contribList : _contribList.filter(c => c.portfolio === contribPortForView());
   // Newest first — the row you want to correct is nearly always the one you just entered.
-  return [...list].sort((a,b) => (b.date || '').localeCompare(a.date || '') || b.row - a.row);
+  return [..._contribList].sort((a,b) => (b.date || '').localeCompare(a.date || '') || b.row - a.row);
 }
 
 // What deleting this row would do to the benchmark baseline, in the same baht terms the Net
@@ -14712,9 +14807,10 @@ function updateAllocTarget(sym, newTarget, skipInput) {
   if (skipInput !== 'all') { const el = document.getElementById('allocInAll'); if (el) el.value = all.toFixed(1); }
   if (skipInput !== 'cat') { const el = document.getElementById('allocInCat'); if (el) el.value = cat.toFixed(1); }
   if (skipInput !== 'sec') { const el = document.getElementById('allocInSec'); if (el) el.value = sec.toFixed(1); }
-  // Update bar in-place
-  const _pos = [...(currentModel?.positions||[]), ...(currentModel?.sgovPos?[currentModel.sgovPos]:[])].find(p=>p.symbol===sym);
-  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, _pos?.investWeightPct||0, currentModel?.investable||0, _pos?.currentValue||0);
+  // Update bar in-place. Target dollars are the symbol's own portfolio's, not the ALL blend.
+  const tcBar = targetCtxFor(sym);
+  const _pos = tcBar.pos;
+  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, _pos?.investWeightPct||0, tcBar.model?.investable||0, _pos?.currentValue||0);
   const wf = document.getElementById('allocWeightFill');
   const wk = document.getElementById('allocWeightTick');
   const wl = document.getElementById('allocWeightLeft');
@@ -14777,10 +14873,11 @@ function renderAllocInfoArea() {
   if (!tgt) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Select a symbol</div>'; return; }
   const { all, cat, sec } = getAllocLinked(sym);
   const color = colorFor(sym);
-  // Actual position data
-  const pos = [...(currentModel?.positions||[]), ...(currentModel?.sgovPos?[currentModel.sgovPos]:[])].find(p=>p.symbol===sym);
+  // Actual position data — the symbol's own portfolio's, not the ALL blend.
+  const tc = targetCtxFor(sym);
+  const pos = tc.pos;
   const actualPct    = pos?.investWeightPct || 0;
-  const investable   = currentModel?.investable || 0;
+  const investable   = tc.model?.investable || 0;
   const currentVal   = pos?.currentValue || 0;
   const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, actualPct, investable, currentVal);
   el.innerHTML = `
