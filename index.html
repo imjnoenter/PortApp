@@ -1910,7 +1910,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .am-pie-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); text-align: center; margin-bottom: 4px; }
 .am-pie-box { position: relative; aspect-ratio: 1; max-width: 100%; }
 
-.am-list-head { display: grid; grid-template-columns: 10px minmax(84px,1.1fr) 52px minmax(140px,3fr) 88px 76px 52px 28px; gap: var(--sp-2); padding: 0 4px 6px; }
+.am-list-head { display: grid; grid-template-columns: 10px minmax(84px,1.1fr) 52px minmax(140px,3fr) 100px 76px 52px 28px; gap: var(--sp-2); padding: 0 4px 6px; }
 .am-list-head .am-sort-btn:nth-child(1) { grid-column: 2; }
 .am-list-head .am-sort-btn:nth-child(2) { grid-column: 3; }
 .am-list-head .am-sort-btn:nth-child(3) { grid-column: 5; }
@@ -1921,7 +1921,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .am-rows { display: flex; flex-direction: column; }
 .am-row, .am-group {
   display: grid;
-  grid-template-columns: 10px minmax(84px, 1.1fr) 52px minmax(140px, 3fr) 88px 76px 52px 28px;
+  grid-template-columns: 10px minmax(84px, 1.1fr) 52px minmax(140px, 3fr) 100px 76px 52px 28px;
   grid-template-areas: "dot sym now slider pct dollar drift lock";
   align-items: center; gap: var(--sp-2);
   padding: 6px 4px; border-radius: var(--radius-sm);
@@ -1949,7 +1949,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .am-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--card); border: 2px solid var(--am-c, var(--terracotta)); box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: grab; }
 .am-pct { grid-area: pct; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .am-pct-wrap { position: relative; display: flex; align-items: center; }
-.am-pct-input { width: 64px; padding: 5px 20px 5px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--ink); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; outline: none; }
+.am-pct-input { width: 84px; padding: 5px 20px 5px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--ink); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; outline: none; -moz-appearance: textfield; appearance: textfield; }
+.am-pct-input::-webkit-outer-spin-button, .am-pct-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .am-pct-input:focus { border-color: var(--terracotta); background: var(--card); }
 .am-pct-suffix { position: absolute; right: 6px; font-size: 10px; color: var(--muted); pointer-events: none; }
 .am-changed-dot { display: none; width: 5px; height: 5px; border-radius: 50%; background: var(--terracotta); margin-right: 3px; flex-shrink: 0; }
