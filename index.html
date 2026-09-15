@@ -1699,8 +1699,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .action-pulse { animation: action-pulse 1.1s ease-in-out infinite; font-weight: 700; }
 .action-tab-btn { flex: 1; padding: 8px 4px; border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .15s; letter-spacing: .4px; text-transform: uppercase; }
 .action-tab-btn.active { background: var(--terracotta); color: var(--btn-fg); }
-@keyframes allocFlash { 0%,100%{opacity:1} 50%{opacity:.2} }
-.alloc-flash { animation: allocFlash 1s ease-in-out infinite; }
 .action-tab-btn:hover:not(.active) { background: var(--hover); color: var(--ink); }
 
 /* ── Tweaks panel ── */
@@ -1873,19 +1871,125 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 #wbTip { padding: 8px 12px;  box-shadow: 0 4px 12px rgba(0,0,0,.3); }
 #hpTip { padding: 10px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.4); min-width: 200px; }
 
-/* ── Allocation Management modal — responsive ── */
-.alloc-body-grid  { display:grid; grid-template-columns:320px 1fr; gap:16px; flex:1; overflow:hidden; min-height:0; }
-.alloc-sym-opt:hover  { background: var(--hover); }
-.alloc-pos-row        { border-radius: var(--radius-sm); transition: background .12s; }
-.alloc-pos-row:hover  { background: var(--hover) !important; }
-@media (max-width:860px) {
-  .alloc-modal-wrap  { overflow-y:auto !important; max-height:calc(100vh - 60px) !important; }
-  .alloc-body-grid   { grid-template-columns:1fr !important; overflow:visible !important; flex:none !important; }
-  .alloc-left-panel  { overflow:visible !important; min-height:0; }
-  .alloc-sym-list    { max-height:240px; flex:none !important; }
-  .alloc-donuts-panel { grid-template-rows:auto auto !important; overflow:visible !important; }
-  .alloc-donuts-row  { grid-template-columns:1fr !important; height:auto !important; }
-  .alloc-donuts-row > .card { height:400px; }
+/* ── Allocation Management modal ── */
+.am-modal { max-width: 1280px; width: calc(100vw - 32px); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; padding: var(--sp-5); }
+.am-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-3); flex-shrink: 0; }
+.am-head-title { display: flex; align-items: center; gap: var(--sp-2); }
+.am-head-actions { display: flex; align-items: center; gap: var(--sp-2); }
+.am-port-select { font-size: 12px; font-weight: 600; padding: 5px 8px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--track); color: var(--ink); cursor: pointer; }
+.am-icon-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); cursor: pointer; transition: background .12s; }
+.am-icon-btn:hover:not(:disabled) { background: var(--hover); }
+.am-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.am-save-btn { width: auto; margin: 0; padding: 8px 16px; font-size: 12px; }
+
+.am-confirm { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); background: var(--track); border: 1px solid var(--honey); border-radius: var(--radius-sm); font-size: 12px; flex-shrink: 0; }
+.am-confirm span { flex: 1; }
+
+.am-budget { flex-shrink: 0; margin-bottom: var(--sp-3); }
+.am-budget-bar { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+.am-budget-fill { height: 100%; background: var(--terracotta); border-radius: 5px; transition: width .2s var(--ease-out-quint), background .2s; }
+@keyframes amFlash { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.am-flash { animation: amFlash .35s var(--ease-out-quint) 2; }
+.am-budget-text { margin-top: 6px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+
+.am-toolbar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-3); flex-shrink: 0; }
+.am-seg { display: flex; background: var(--track); border-radius: var(--radius-pill); padding: 3px; gap: 2px; }
+.am-seg-btn { padding: 5px 10px; border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 11px; font-weight: 600; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
+.am-seg-btn.active { background: var(--terracotta); color: var(--btn-fg); }
+.am-quick { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.am-quick-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.am-btn { padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--ink); font-family: var(--font-ui); font-size: 11px; font-weight: 600; cursor: pointer; transition: background .12s; }
+.am-btn:hover { background: var(--hover); }
+.am-btn-danger { border-color: var(--loss); color: var(--loss); }
+.am-chip { margin-left: auto; padding: 5px 10px; border-radius: var(--radius-pill); border: 1px solid var(--terracotta); background: color-mix(in oklab, var(--terracotta) 12%, var(--card)); color: var(--terracotta); font-size: 11px; font-weight: 600; cursor: pointer; }
+
+.am-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 40%); gap: var(--sp-4); min-height: 0; flex: 1; }
+.am-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.am-pies { min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-content: start; }
+.am-pie-card { background: var(--card); border: 1px solid var(--card-edge); border-radius: var(--radius-sm); padding: var(--sp-2); display: flex; flex-direction: column; }
+.am-pie-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); text-align: center; margin-bottom: 4px; }
+.am-pie-box { position: relative; aspect-ratio: 1; max-width: 100%; }
+
+.am-list-head { display: grid; grid-template-columns: 10px minmax(84px,1.1fr) 52px minmax(140px,3fr) 88px 76px 52px 28px; gap: var(--sp-2); padding: 0 4px 6px; }
+.am-list-head .am-sort-btn:nth-child(1) { grid-column: 2; }
+.am-list-head .am-sort-btn:nth-child(2) { grid-column: 3; }
+.am-list-head .am-sort-btn:nth-child(3) { grid-column: 5; }
+.am-list-head .am-sort-btn:nth-child(4) { grid-column: 7; }
+.am-sort-btn { border: none; background: transparent; padding: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); cursor: pointer; text-align: left; }
+.am-sort-btn.active { color: var(--ink); }
+
+.am-rows { display: flex; flex-direction: column; }
+.am-row, .am-group {
+  display: grid;
+  grid-template-columns: 10px minmax(84px, 1.1fr) 52px minmax(140px, 3fr) 88px 76px 52px 28px;
+  grid-template-areas: "dot sym now slider pct dollar drift lock";
+  align-items: center; gap: var(--sp-2);
+  padding: 6px 4px; border-radius: var(--radius-sm);
+  transition: background .12s;
+}
+.am-row:hover { background: var(--hover); }
+.am-row.am-hl, .am-group.am-hl { background: var(--hover); }
+.am-group { border-top: 1px solid var(--line); background: var(--track); font-weight: 600; margin-top: 4px; }
+.am-dot { grid-area: dot; width: 8px; height: 8px; border-radius: 50%; background: var(--am-c, var(--terracotta)); flex-shrink: 0; }
+.am-row.watch .am-dot { background: transparent; border: 2px solid var(--am-c, var(--muted)); box-sizing: border-box; }
+.am-sym { grid-area: sym; display: flex; flex-direction: column; min-width: 0; }
+.am-sym strong { font-size: 12px; }
+.am-name { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-now { grid-area: now; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
+.am-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.am-slider { grid-area: slider; position: relative; height: 22px; display: flex; align-items: center; }
+.am-track { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.am-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--am-c, var(--terracotta)); border-radius: 3px; }
+.am-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .6; }
+.am-over { position: absolute; top: 0; bottom: 0; background-image: repeating-linear-gradient(45deg, var(--line) 0, var(--line) 2px, transparent 2px, transparent 5px); opacity: .7; }
+.am-range { position: relative; width: 100%; height: 22px; margin: 0; background: transparent; appearance: none; -webkit-appearance: none; cursor: pointer; }
+.am-range::-webkit-slider-runnable-track { background: transparent; height: 22px; }
+.am-range::-moz-range-track { background: transparent; height: 22px; }
+.am-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--card); border: 2px solid var(--am-c, var(--terracotta)); box-shadow: 0 1px 3px rgba(0,0,0,.25); margin-top: -5px; cursor: grab; }
+.am-range::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--card); border: 2px solid var(--am-c, var(--terracotta)); box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: grab; }
+.am-pct { grid-area: pct; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.am-pct-wrap { position: relative; display: flex; align-items: center; }
+.am-pct-input { width: 64px; padding: 5px 20px 5px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--ink); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; text-align: right; outline: none; }
+.am-pct-input:focus { border-color: var(--terracotta); background: var(--card); }
+.am-pct-suffix { position: absolute; right: 6px; font-size: 10px; color: var(--muted); pointer-events: none; }
+.am-changed-dot { display: none; width: 5px; height: 5px; border-radius: 50%; background: var(--terracotta); margin-right: 3px; flex-shrink: 0; }
+.am-row.changed .am-changed-dot { display: inline-block; }
+.am-old { border: none; background: transparent; color: var(--muted); text-decoration: line-through; font-size: 9px; font-family: var(--font-mono); cursor: pointer; padding: 0; }
+.am-old:hover { color: var(--terracotta); }
+.am-dollar { grid-area: dollar; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); text-align: right; }
+.am-drift { grid-area: drift; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); text-align: right; }
+.am-lock { grid-area: lock; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); }
+.am-lock:hover { background: var(--hover); color: var(--ink); }
+.am-lock[aria-pressed="true"] { color: var(--terracotta); }
+
+.am-add-watch { margin-top: var(--sp-2); position: relative; }
+.am-add-watch-btn { width: 100%; text-align: left; }
+.am-watch-picker { position: absolute; z-index: var(--z-dropdown); left: 0; right: 0; margin-top: 4px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); padding: var(--sp-2); }
+.am-watch-list { max-height: 180px; overflow-y: auto; margin-top: 6px; }
+.am-watch-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; }
+.am-watch-opt:hover { background: var(--hover); }
+.am-watch-empty { padding: 8px; font-size: 11px; color: var(--muted); text-align: center; }
+
+.am-range:focus-visible, .am-pct-input:focus-visible, .am-lock:focus-visible, .am-btn:focus-visible, .am-seg-btn:focus-visible, .am-icon-btn:focus-visible, .am-sort-btn:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+
+@media (max-width: 700px) {
+  .am-modal { max-width: 100vw; width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; }
+  .am-head { position: sticky; top: 0; background: var(--card); z-index: var(--z-sticky); padding-top: max(var(--sp-3), env(safe-area-inset-top, 0px)); }
+  .am-budget { position: sticky; top: 0; background: var(--card); z-index: var(--z-sticky); padding-top: 4px; }
+  .am-body { grid-template-columns: 1fr; display: flex; flex-direction: column; overflow: visible; }
+  .am-pies { order: -1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; grid-template-columns: none; }
+  .am-pie-card { flex: 0 0 78%; scroll-snap-align: start; }
+  .am-row, .am-group {
+    grid-template-columns: 10px 1fr auto 28px;
+    grid-template-areas:
+      "dot sym pct lock"
+      "slider slider slider slider"
+      "now dollar drift drift";
+    row-gap: 4px;
+  }
+  .am-now, .am-dollar, .am-drift { font-size: 10px; }
+  .am-range::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -9px; }
+  .am-range::-moz-range-thumb { width: 24px; height: 24px; }
 }
 
 /* ── Account switcher ── */
@@ -2465,12 +2569,25 @@ const I18N = {
     my_plans_title: "My Plans",
     transactions_title: "Transactions", dividend_breakdown_title: "Dividend Breakdown",
     refresh_failed: "Refresh failed", loading_portfolio_msg: "Loading portfolio…",
-    alloc_management_title: "Allocation Management",
-    search_positions_placeholder: "Search positions & watchlist…",
-    all_positions_label: "All Positions", save_all_sheet_btn: "Save All to Sheet",
     select_symbol_hint: "Select a symbol", pct_all_stocks_label: "% of All Stocks",
-    nothing_changed_msg: "Nothing changed", all_saved_msg: "All saved ✓",
+    all_saved_msg: "All saved ✓",
     no_items_to_add: "No items to add",
+    // Allocation Management modal
+    am_title: "Allocation", am_allocated: "allocated", am_unallocated: "unallocated", am_fully: "Fully allocated",
+    am_over: "Over by", am_over_hint: "lower something to save", am_group_by: "Group by", am_none: "None",
+    am_quick: "Quick", am_match: "Match current", am_equal: "Equal weight", am_fill: "Fill the rest", am_reset: "Reset",
+    am_col_symbol: "Symbol", am_col_now: "Now", am_col_target: "Target", am_col_drift: "Drift",
+    am_watch_tag: "watch", am_add_watch: "+ Add from watchlist", am_search: "Search symbol…",
+    am_no_changes: "No changes", am_save_1: "Save 1 change", am_save_n: "Save {n} changes", am_saving: "Saving…",
+    am_saved: "Saved {n} ✓", am_not_found: "not found",
+    am_fallback: "saved one by one — redeploy Apps Script for faster saves",
+    am_err_readonly: "Saving is off for this view-only link", am_err_busy: "The sheet is busy — try again in a moment",
+    am_err_generic: "Couldn't save. Your changes are still here.",
+    am_discard_q: "Discard {n} unsaved changes?", am_switch_q: "Discard {n} changes and switch to {port}?",
+    am_keep: "Keep editing", am_discard: "Discard", am_undo: "Undo", am_redo: "Redo",
+    am_lock: "Lock", am_revert: "Revert to saved",
+    am_pie_target: "Target Allocation", am_pie_category: "Category", am_pie_custom: "Custom", am_pie_mygroup: "My Group",
+    am_untagged: "Untagged", am_unalloc_slice: "Unallocated", am_cash: "Cash", am_clear_filter: "Clear filter",
     weekend_status: "Weekend", closed_status: "Closed",
     pre_market_status: "Pre-Market", market_open_status: "Market Open",
     after_hours_status: "After Hours", tap_back_hint: "↩ tap center to go back",
@@ -2732,14 +2849,25 @@ const I18N = {
     dividend_breakdown_title: "สรุปข้อมูลเงินปันผล",
     refresh_failed: "รีเฟรชข้อมูลล้มเหลว",
     loading_portfolio_msg: "กำลังโหลดข้อมูลพอร์ตการลงทุน…",
-    // Allocation Management Modal
-    alloc_management_title: "จัดการสัดส่วนการลงทุน",
-    search_positions_placeholder: "ค้นหาสินทรัพย์ที่ถืออยู่ & รายการเฝ้ามอง…",
-    all_positions_label: "สินทรัพย์ทั้งหมด",
-    save_all_sheet_btn: "บันทึกทั้งหมดลง Sheet",
     select_symbol_hint: "เลือกชื่อย่อหุ้น", pct_all_stocks_label: "% ของหุ้นทั้งหมด",
-    nothing_changed_msg: "ไม่มีการเปลี่ยนแปลง", all_saved_msg: "บันทึกข้อมูลทั้งหมดแล้ว ✓",
+    all_saved_msg: "บันทึกข้อมูลทั้งหมดแล้ว ✓",
     no_items_to_add: "ไม่มีรายการให้เพิ่ม",
+    // Allocation Management modal
+    am_title: "สัดส่วนการลงทุน", am_allocated: "จัดสรรแล้ว", am_unallocated: "ยังไม่จัดสรร", am_fully: "จัดสรรครบแล้ว",
+    am_over: "เกิน", am_over_hint: "ลดบางตัวก่อนบันทึก", am_group_by: "จัดกลุ่มตาม", am_none: "ไม่จัดกลุ่ม",
+    am_quick: "ทางลัด", am_match: "ตามสัดส่วนปัจจุบัน", am_equal: "แบ่งเท่ากัน", am_fill: "เติมส่วนที่เหลือ", am_reset: "รีเซ็ต",
+    am_col_symbol: "หุ้น", am_col_now: "ปัจจุบัน", am_col_target: "เป้าหมาย", am_col_drift: "ส่วนต่าง",
+    am_watch_tag: "เฝ้าดู", am_add_watch: "+ เพิ่มจากรายการเฝ้าดู", am_search: "ค้นหาหุ้น…",
+    am_no_changes: "ไม่มีการเปลี่ยนแปลง", am_save_1: "บันทึก 1 รายการ", am_save_n: "บันทึก {n} รายการ", am_saving: "กำลังบันทึก…",
+    am_saved: "บันทึกแล้ว {n} ✓", am_not_found: "ไม่พบ",
+    am_fallback: "บันทึกทีละรายการ — อัปเดต Apps Script เพื่อบันทึกเร็วขึ้น",
+    am_err_readonly: "ลิงก์ดูอย่างเดียว บันทึกไม่ได้", am_err_busy: "ชีตกำลังทำงาน ลองใหม่อีกครั้ง",
+    am_err_generic: "บันทึกไม่สำเร็จ การแก้ไขยังอยู่",
+    am_discard_q: "ทิ้งการแก้ไข {n} รายการที่ยังไม่บันทึก?", am_switch_q: "ทิ้งการแก้ไข {n} รายการแล้วเปลี่ยนไป {port}?",
+    am_keep: "แก้ไขต่อ", am_discard: "ทิ้ง", am_undo: "เลิกทำ", am_redo: "ทำซ้ำ",
+    am_lock: "ล็อก", am_revert: "กลับไปค่าที่บันทึก",
+    am_pie_target: "สัดส่วนเป้าหมาย", am_pie_category: "หมวดหมู่", am_pie_custom: "กำหนดเอง", am_pie_mygroup: "กลุ่มของฉัน",
+    am_untagged: "ไม่มีแท็ก", am_unalloc_slice: "ยังไม่จัดสรร", am_cash: "เงินสด", am_clear_filter: "ล้างตัวกรอง",
     // Market Clock / Status
     weekend_status: "ตลาดปิด", closed_status: "ตลาดปิด",
     pre_market_status: "ก่อนตลาดเปิด (Pre-Market)", market_open_status: "ตลาดเปิด",
@@ -9847,8 +9975,7 @@ const DONUT_DEFAULTS = /*EDITMODE-BEGIN*/{
   "showShadow": false,
   "animationMs": 650,
   "planBtnStyle": "compact",
-  "gaugeLabels": "badge",
-  "allocDonut": "cozy"
+  "gaugeLabels": "badge"
 }/*EDITMODE-END*/;
 window.donutTweaks = { ...DONUT_DEFAULTS };
 document.body.dataset.planBtn = DONUT_DEFAULTS.planBtnStyle;
@@ -12862,6 +12989,9 @@ function rerenderAllCharts() {
     renderPnLChartFromTrades(filtered);
   }
   if (nwData) renderNetWorthChart(nwData);
+  // Allocation Management's pies are Chart.js instances too — the blanket destroy above already
+  // killed them, so pick the theme/tone's new token colors up by rebuilding from scratch.
+  if (allocMgr) { amDestroyPies(); renderAllocPies(); }
   drawClock();
 }
 
@@ -14590,864 +14720,1307 @@ function setRefreshing(on) {
   if (btn) btn.classList.toggle('refreshing', on);
 }
 
-// ── Allocation Management ─────────────────────────────────────────────────────
-let allocMgmtState  = null; // { selectedSym, targets:{sym:{target,category,sector,name}} }
-let allocChartInsts = {};
+// ── Allocation Management: state engine ──────────────────────────────────────
+// Pure (no DOM) so the modal's rules — the 100% cap, group scaling, the quick buttons, undo — live in
+// one testable place. A target is a fraction of the portfolio tab's investable total; the targets sum
+// to at most 1, and 1 − sum is "Unallocated" (planned cash). See Allocation Management in CLAUDE.md.
+const ALLOC_EPS = 1e-6;
+const allocRound = v => Math.round(v * 10000) / 10000;           // 0.01% precision
+const allocGroupKey = (row, field) => field === 'category' ? (row.category || 'Other') : (row[field] || 'Untagged');
+const allocTotal = rows => rows.reduce((s, r) => s + r.target, 0);
+const allocChanged = rows => rows.filter(r => Math.abs(r.target - r.saved) > ALLOC_EPS);
+// The most this row can hold without pushing the portfolio past 100%.
+const allocRoomFor = (rows, sym) => { const r = rows.find(x => x.sym === sym); return r ? Math.max(0, 1 - (allocTotal(rows) - r.target)) : 0; };
 
-function destroyAllocCharts() {
-  Object.values(allocChartInsts).forEach(c => { try { c.destroy(); } catch(_) {} });
-  allocChartInsts = {};
+// Rounding a set of proportional shares to 0.01% precision can drift the group's sum a hair past its
+// target (or past 100% overall) even though every individual clamp was correct. Trim that dust off
+// the largest unlocked row in the affected set rather than let it silently accumulate across edits.
+function _allocTrimExcess(rows, affectedSyms) {
+  const excess = allocTotal(rows) - 1;
+  if (excess <= ALLOC_EPS) return;
+  const pool = rows.filter(r => (!affectedSyms || affectedSyms.includes(r.sym)) && !r.locked);
+  if (!pool.length) return;
+  pool.sort((a, b) => b.target - a.target);
+  pool[0].target = allocRound(Math.max(0, pool[0].target - excess));
+}
+
+// Positions + watchlist rows (target > 0) for one portfolio tab, sorted by target desc / symbol asc.
+function allocBuildRows(model) {
+  const rows = [];
+  const posSyms = new Set();
+  (model.positions || []).forEach(p => {
+    posSyms.add(p.symbol);
+    rows.push({
+      sym: p.symbol, name: p.name || p.symbol, isPos: true,
+      category: p.category || 'Other', custom: p.custom || '', myGroup: p.myGroup || '',
+      now: p.investWeightPct || 0, value: p.currentValue || 0,
+      saved: p.target ?? 0, target: p.target ?? 0, locked: false,
+    });
+  });
+  (model.watchlist || []).forEach(w => {
+    if (posSyms.has(w.symbol)) return;
+    const t = w.target ?? 0;
+    if (!(t > 0)) return;
+    rows.push({
+      sym: w.symbol, name: w.name || w.symbol, isPos: false,
+      category: w.category || 'Other', custom: w.custom || '', myGroup: w.myGroup || '',
+      now: 0, value: 0, saved: t, target: t, locked: false,
+    });
+  });
+  rows.sort((a, b) => (b.target - a.target) || (a.sym < b.sym ? -1 : a.sym > b.sym ? 1 : 0));
+  return rows;
+}
+
+// Watchlist entries not already represented as a row, for "+ Add from watchlist".
+function allocWatchCandidates(model, rows) {
+  const have = new Set(rows.map(r => r.sym));
+  return (model.watchlist || []).filter(w => !have.has(w.symbol)).map(w => ({ sym: w.symbol, name: w.name || w.symbol }));
+}
+
+// Appends one watchlist entry as a target-0 row; no-op if already present or not on the watchlist.
+function allocAddWatch(model, rows, sym) {
+  if (rows.some(r => r.sym === sym)) return rows;
+  const w = (model.watchlist || []).find(x => x.symbol === sym);
+  if (!w) return rows;
+  rows.push({
+    sym: w.symbol, name: w.name || w.symbol, isPos: false,
+    category: w.category || 'Other', custom: w.custom || '', myGroup: w.myGroup || '',
+    now: 0, value: 0, saved: w.target ?? 0, target: w.target ?? 0, locked: false,
+  });
+  return rows;
+}
+
+// Direct edit of one row's target (works on locked rows too — locking only guards group ops/quick
+// buttons). Clamped to the room left under the 100% cap; `capped` tells the caller the request was
+// trimmed so it can flash a hint instead of silently eating the input.
+function allocSetTarget(rows, sym, fraction) {
+  const r = rows.find(x => x.sym === sym);
+  if (!r) return { rows, capped: false };
+  const room = allocRoomFor(rows, sym);
+  const capped = fraction > room + ALLOC_EPS;
+  r.target = allocRound(Math.max(0, Math.min(fraction, room)));
+  _allocTrimExcess(rows, [sym]);
+  return { rows, capped };
+}
+
+// Rescales one group (category/custom/myGroup) to a new combined target, distributing the delta
+// across its unlocked members in proportion to their current targets (equally if they're all 0).
+// Locked members keep their target and count toward the group's floor.
+function allocScaleGroup(rows, field, key, newSum) {
+  const members = rows.filter(r => allocGroupKey(r, field) === key);
+  if (!members.length) return rows;
+  const unlocked = members.filter(r => !r.locked);
+  if (!unlocked.length) return rows;
+  const lockedSum = members.filter(r => r.locked).reduce((s, r) => s + r.target, 0);
+  const others = allocTotal(rows) - members.reduce((s, r) => s + r.target, 0);
+  const clampedSum = Math.max(lockedSum, Math.min(newSum, 1 - others));
+  const want = clampedSum - lockedSum;
+  const unlockedSum = unlocked.reduce((s, r) => s + r.target, 0);
+  if (unlockedSum > ALLOC_EPS) {
+    unlocked.forEach(r => { r.target = Math.max(0, r.target * want / unlockedSum); });
+  } else {
+    const each = want / unlocked.length;
+    unlocked.forEach(r => { r.target = Math.max(0, each); });
+  }
+  unlocked.forEach(r => { r.target = allocRound(r.target); });
+  _allocTrimExcess(rows, unlocked.map(r => r.sym));
+  return rows;
+}
+
+// Sets every unlocked row's target to its current live weight, then (if that pushes the total over
+// 100%, e.g. because cash was spent since targets were last saved) scales the unlocked rows down
+// proportionally so the total fits. Locked rows are left exactly as they are.
+function allocMatchCurrent(rows) {
+  const unlocked = rows.filter(r => !r.locked);
+  if (!unlocked.length) return rows;
+  const lockedSum = rows.filter(r => r.locked).reduce((s, r) => s + r.target, 0);
+  unlocked.forEach(r => { r.target = Math.max(0, (r.now || 0) / 100); });
+  const unlockedSum = unlocked.reduce((s, r) => s + r.target, 0);
+  const available = Math.max(0, 1 - lockedSum);
+  if (unlockedSum > available + ALLOC_EPS && unlockedSum > 0) {
+    const scale = available / unlockedSum;
+    unlocked.forEach(r => { r.target = r.target * scale; });
+  }
+  unlocked.forEach(r => { r.target = allocRound(r.target); });
+  _allocTrimExcess(rows, unlocked.map(r => r.sym));
+  return rows;
+}
+
+// Splits the unlocked rows' own combined target equally among them (Unallocated is untouched); if
+// they're all currently 0, splits the Unallocated space itself equally instead.
+function allocEqualWeight(rows) {
+  const unlocked = rows.filter(r => !r.locked);
+  if (!unlocked.length) return rows;
+  const combined = unlocked.reduce((s, r) => s + r.target, 0);
+  if (combined > ALLOC_EPS) {
+    const each = combined / unlocked.length;
+    unlocked.forEach(r => { r.target = allocRound(each); });
+  } else {
+    const lockedSum = rows.filter(r => r.locked).reduce((s, r) => s + r.target, 0);
+    const each = Math.max(0, 1 - lockedSum) / unlocked.length;
+    unlocked.forEach(r => { r.target = allocRound(each); });
+  }
+  _allocTrimExcess(rows, unlocked.map(r => r.sym));
+  return rows;
+}
+
+// Distributes whatever's left of the 100% cap across the unlocked rows in proportion to their
+// current targets (equally if they're all 0), so the total lands on 1.
+function allocFillRest(rows) {
+  const unlocked = rows.filter(r => !r.locked);
+  if (!unlocked.length) return rows;
+  const rest = Math.max(0, 1 - allocTotal(rows));
+  const unlockedSum = unlocked.reduce((s, r) => s + r.target, 0);
+  if (unlockedSum > ALLOC_EPS) {
+    unlocked.forEach(r => { r.target = r.target + rest * (r.target / unlockedSum); });
+  } else {
+    const each = rest / unlocked.length;
+    unlocked.forEach(r => { r.target = each; });
+  }
+  unlocked.forEach(r => { r.target = allocRound(r.target); });
+  _allocTrimExcess(rows, unlocked.map(r => r.sym));
+  return rows;
+}
+
+// Every row back to its last-saved target. Locks are left as the user set them.
+function allocResetAll(rows) {
+  rows.forEach(r => { r.target = r.saved; });
+  return rows;
+}
+
+// One row back to its last-saved target, capped by room the way a direct edit would be.
+function allocRevertRow(rows, sym) {
+  const r = rows.find(x => x.sym === sym);
+  if (!r) return rows;
+  return allocSetTarget(rows, sym, r.saved).rows;
+}
+
+// Undo/redo — snapshots are plain {sym: target} maps, not row-array clones, so history entries stay
+// cheap even with a large portfolio.
+const allocSnapshot = rows => { const snap = {}; rows.forEach(r => { snap[r.sym] = r.target; }); return snap; };
+function allocApplySnapshot(rows, snap) {
+  rows.forEach(r => { if (Object.prototype.hasOwnProperty.call(snap, r.sym)) r.target = snap[r.sym]; });
+  return rows;
+}
+const allocHistoryNew = () => ({ past: [], future: [] });
+// Callers push the PRE-change snapshot before mutating rows (a drag pushes once, at grab).
+function allocPush(hist, rows) {
+  hist.past.push(allocSnapshot(rows));
+  if (hist.past.length > 100) hist.past.shift();
+  hist.future = [];
+}
+function allocUndo(hist, rows) {
+  if (!hist.past.length) return false;
+  hist.future.push(allocSnapshot(rows));
+  allocApplySnapshot(rows, hist.past.pop());
+  return true;
+}
+function allocRedo(hist, rows) {
+  if (!hist.future.length) return false;
+  hist.past.push(allocSnapshot(rows));
+  allocApplySnapshot(rows, hist.future.pop());
+  return true;
+}
+
+// Ordered symbol list for a column header sort. dir: 1 asc, -1 desc; ties always break by symbol asc.
+function allocSortOrder(rows, key, dir) {
+  const val = r => {
+    if (key === 'symbol') return r.sym;
+    if (key === 'now')    return r.now || 0;
+    if (key === 'target') return r.target;
+    if (key === 'drift')  return (r.target * 100) - (r.now || 0);
+    return 0;
+  };
+  return [...rows].sort((a, b) => {
+    const av = val(a), bv = val(b);
+    if (av === bv) return a.sym < b.sym ? -1 : a.sym > b.sym ? 1 : 0;
+    if (key === 'symbol') return dir * (av < bv ? -1 : 1);
+    return dir * (av - bv);
+  }).map(r => r.sym);
+}
+
+// Rows grouped by category/custom/myGroup, ordered by combined target desc — backs the group-scaling
+// UI (each group's slider/input operates on the combined `target`/`now`, not a single row).
+function allocGroups(rows, field) {
+  const map = new Map();
+  rows.forEach(r => {
+    const key = allocGroupKey(r, field);
+    if (!map.has(key)) map.set(key, { key, syms: [], target: 0, now: 0 });
+    const g = map.get(key);
+    g.syms.push(r.sym);
+    g.target += r.target;
+    g.now += (r.now || 0);
+  });
+  return [...map.values()].sort((a, b) => b.target - a.target);
+}
+
+// Batch save — one `updateTargets` call for every changed row instead of one `updateSymbol` per
+// stock (the modal can touch dozens at once; per-row calls were slow and could fail half-way). Falls
+// back to the old per-row path only if the backend hasn't been redeployed with the new action yet
+// ("Unknown action"), so this pass doesn't force an immediate apps_script redeploy.
+async function allocSaveTargets(port, rows) {
+  if (isReadOnly()) return { ok: false, error: 'read-only' };
+  const changed = allocChanged(rows);
+  if (!changed.length) return { ok: true, saved: 0, missing: [], nothing: true };
+
+  const commit = row => {
+    row.saved = row.target;
+    const ar = _allRows.find(r => r.symbol === row.sym && (r.portfolio || DEFAULT_PORT) === port);
+    if (ar) ar.target = row.target;
+  };
+
+  const res = await recordFetch(new URLSearchParams({
+    action: 'updateTargets', portfolio: port,
+    targets: changed.map(r => r.sym + ':' + r.target).join(','),
+  }), true);
+
+  if (res?.ok) {
+    const missing = res.missing || [];
+    changed.forEach(row => { if (!missing.includes(row.sym)) commit(row); });
+    return { ok: true, saved: res.saved, missing };
+  }
+
+  if (res && /Unknown action/i.test(res.error || '')) {
+    let saved = 0, failed = 0;
+    for (const row of changed) {
+      const r2 = await recordFetch(new URLSearchParams({
+        action: 'updateSymbol', symbol: row.sym, target: row.target, portfolio: port,
+      }), true);
+      if (r2?.ok) { commit(row); saved++; } else { failed++; }
+    }
+    return { ok: failed === 0, saved, missing: [], fallback: true, failed };
+  }
+
+  return { ok: false, error: res?.error || 'no-response' };
+}
+
+// ── Allocation Management: modal ─────────────────────────────────────────────
+// UI on top of the pure engine above. `allocMgr` is the modal's whole live state;
+// nothing here mutates rows except through the engine functions (allocSetTarget,
+// allocScaleGroup, ...), so undo/redo and the 100%-cap invariant stay centralized there.
+let allocMgr = null; // { port, model, rows, hist, sort:{key,dir}, order:[sym], groupBy, filter, scaleMax, confirm, saving, hover }
+let amPieCharts = {}; // filled by renderAllocPies() in pass 3 — declared here so pass 2 can destroy them
+
+function amDestroyPies() {
+  Object.values(amPieCharts).forEach(c => { try { c.destroy(); } catch(_) {} });
+  amPieCharts = {};
+}
+
+// ── Pies ──────────────────────────────────────────────────────────────────────────
+// Dims a slice color for the linked-highlight effect. Every color this modal feeds a slice is
+// either a 6-digit hex from colorFor()/CAT_DONUT_COLORS, or an rgb()/rgba() string resolved from
+// a CSS custom property by css() — canvas needs a real color string either way (CLAUDE.md's
+// "Chart.js can't use CSS vars" exception), so this can't lean on color-mix() like the DOM CSS does.
+function amDim(color) {
+  if (typeof color !== 'string') return color;
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color + '55';
+  const m = color.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (m) return `rgba(${m[1]},${m[2]},${m[3]},0.33)`;
+  return color;
+}
+
+// Group keys in first-appearance order along the frozen row order, 'Untagged' forced last (it
+// never appears for category — allocGroupKey falls back to 'Other' there, which keeps its natural
+// position). Shared by renderAllocPies and the hover/click slice-index lookups so all three always
+// agree on what index N means.
+function amGroupKeysInOrder(rows, order, field) {
+  const seen = new Set(), keys = [];
+  order.forEach(sym => {
+    const r = rows.find(x => x.sym === sym);
+    if (!r) return;
+    const k = allocGroupKey(r, field);
+    if (!seen.has(k)) { seen.add(k); keys.push(k); }
+  });
+  const ui = keys.indexOf('Untagged');
+  if (ui >= 0 && ui !== keys.length - 1) { keys.splice(ui, 1); keys.push('Untagged'); }
+  return keys;
+}
+
+// Same color a group key gets on the Breakdowns page: CATEGORY_DONUT.color for category
+// (CAT_DONUT_COLORS[key] with a colorFor(key) fallback), colorFor(key) directly for
+// custom/myGroup (matches CUSTOM_DONUT/MYGROUP_DONUT's `color: colorFor`) — see CAT_DONUT_COLORS.
+function amPieColorForGroup(field, key) {
+  if (key === 'Untagged') return css('--muted');
+  if (field === 'category') return CAT_DONUT_COLORS[key] || colorFor(key);
+  return colorFor(key);
+}
+
+function amPieOrderFor(id) {
+  if (id === 'amPie_category') return { kind: 'group', field: 'category' };
+  if (id === 'amPie_custom')   return { kind: 'group', field: 'custom' };
+  if (id === 'amPie_myGroup')  return { kind: 'group', field: 'myGroup' };
+  return { kind: 'target', field: null };
+}
+
+// What (if anything) a given pie should highlight for the current allocMgr.hover. Returns null
+// when that pie shows no dimming at all. sym-hover maps onto every pie (target by sym, group pies
+// by that row's own key in their field); field/key-hover (from a .am-group row or a group-pie
+// slice) only lights up the ONE group pie whose field matches — Target and the other two group
+// pies stay full-color, per spec.
+function amPieHighlightInfo(kind, field) {
+  const h = allocMgr?.hover;
+  if (!h) return null;
+  if (h.sym != null) {
+    if (kind === 'target') return { type: 'sym', value: h.sym };
+    const row = allocMgr.rows.find(r => r.sym === h.sym);
+    return row ? { type: 'key', value: allocGroupKey(row, field) } : null;
+  }
+  if (h.field != null) {
+    if (kind === 'target' || field !== h.field) return null;
+    return { type: 'key', value: h.key };
+  }
+  return null;
+}
+
+function amSetHover(next) {
+  if (!allocMgr) return;
+  const cur = allocMgr.hover;
+  const same = cur === next || (!!cur && !!next && cur.sym === next.sym && cur.field === next.field && cur.key === next.key);
+  if (same) return;
+  allocMgr.hover = next;
+  amApplyRowHighlight();
+  amSchedulePies();
+}
+function amApplyRowHighlight() {
+  document.querySelectorAll('#amRows .am-hl').forEach(el => el.classList.remove('am-hl'));
+  const h = allocMgr?.hover;
+  if (!h) return;
+  if (h.sym != null) {
+    const el = document.querySelector(`#amRows .am-row[data-sym="${CSS.escape(h.sym)}"]`);
+    if (el) el.classList.add('am-hl');
+  } else if (h.field != null && allocMgr.groupBy === h.field) {
+    const el = document.querySelector(`#amRows .am-group[data-group="${CSS.escape(h.key)}"]`);
+    if (el) el.classList.add('am-hl');
+  }
+}
+
+function amHandlePieHover(id, elements) {
+  if (!allocMgr) return;
+  if (!elements.length) { amSetHover(null); return; }
+  const idx = elements[0].index;
+  const info = amPieOrderFor(id);
+  const order = allocMgr.order.filter(sym => allocMgr.rows.some(r => r.sym === sym));
+  if (info.kind === 'target') {
+    const sym = order[idx];
+    amSetHover(sym ? { sym } : null);
+  } else {
+    const key = amGroupKeysInOrder(allocMgr.rows, order, info.field)[idx];
+    amSetHover(key !== undefined ? { field: info.field, key } : null);
+  }
+}
+// Target slice → scroll/focus that row. Group slice → toggle the list filter (clicking the
+// already-active filter's slice clears it). The Unallocated/Cash slice (index === length) is inert.
+function amHandlePieClick(id, elements) {
+  if (!allocMgr || !elements.length) return;
+  const idx = elements[0].index;
+  const info = amPieOrderFor(id);
+  const order = allocMgr.order.filter(sym => allocMgr.rows.some(r => r.sym === sym));
+  if (info.kind === 'target') {
+    const sym = order[idx];
+    if (sym) amFocusRow(sym);
+  } else {
+    const key = amGroupKeysInOrder(allocMgr.rows, order, info.field)[idx];
+    if (key === undefined) return;
+    if (allocMgr.filter && allocMgr.filter.field === info.field && allocMgr.filter.key === key) amClearFilter();
+    else amSetFilter(info.field, key);
+  }
+}
+function amFocusRow(sym) {
+  const el = document.querySelector(`#amRows .am-row[data-sym="${CSS.escape(sym)}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  el.querySelector('.am-pct-input')?.focus();
+}
+
+function amPieAriaLabel(defId, info, totalTargetFrac, stockCount) {
+  if (info.kind === 'target') {
+    const n = stockCount;
+    return `${t('am_pie_target')}: ${(totalTargetFrac * 100).toFixed(1)}% ${t('am_allocated')}, ${n} ${n === 1 ? 'stock' : 'stocks'}`;
+  }
+  const key = defId === 'amPie_category' ? 'am_pie_category' : defId === 'amPie_custom' ? 'am_pie_custom' : 'am_pie_mygroup';
+  return t(key);
+}
+
+// Local (not the shared donutOuterLabels — that plugin reads a global window.donutTweaks toggle
+// and threshold shared with the Breakdowns page donuts, draws a connector line + percent line, and
+// can't be given a per-chart fixed 4% cutoff or plain-text-only rendering without changing it for
+// every other donut on the page too). Dataset 0 (the outer/target ring) only.
+const amPieLabels = {
+  id: 'amPieLabels',
+  afterDatasetsDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    if (!meta?.data?.length) return;
+    const data = chart.data.datasets[0].data;
+    const total = data.reduce((s, v) => s + (v || 0), 0) || 100;
+    const ctx = chart.ctx;
+    ctx.save();
+    meta.data.forEach((arc, i) => {
+      const val = data[i] || 0;
+      if (total > 0 && val / total * 100 < 4) return;
+      const mid = (arc.startAngle + arc.endAngle) / 2;
+      const r = arc.outerRadius + 8;
+      const x = arc.x + Math.cos(mid) * r, y = arc.y + Math.sin(mid) * r;
+      ctx.font = '600 10px ' + (css('--font-ui') || 'sans-serif');
+      ctx.fillStyle = css('--ink');
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = Math.cos(mid) >= 0 ? 'left' : 'right';
+      ctx.fillText(chart.data.labels[i], x, y);
+    });
+    ctx.restore();
+  }
+};
+// Target-pie-only centre readout.
+const amPieCenterPlugin = {
+  id: 'amPieCenter',
+  afterDatasetsDraw(chart) {
+    if (!allocMgr) return;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta?.data?.length) return;
+    const arc = meta.data[0];
+    const totalPct = allocTotal(allocMgr.rows) * 100;
+    const over = totalPct > 100 + ALLOC_EPS * 100;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 18px ' + (css('--font-mono') || 'monospace');
+    ctx.fillStyle = over ? css('--loss') : css('--ink');
+    ctx.fillText(totalPct.toFixed(1) + '%', arc.x, arc.y - 7);
+    ctx.font = '400 10px ' + (css('--font-ui') || 'sans-serif');
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(t('am_allocated'), arc.x, arc.y + 11);
+    ctx.restore();
+  }
+};
+
+// Called after every state change (throttled — see amSchedulePies). Four two-ring doughnuts —
+// outer ring = target %, inner ring = current weight %, sharing one Unallocated/Cash final slice
+// so all four always foot to the same whole-portfolio total.
+function renderAllocPies() {
+  if (!allocMgr) return;
+  const { rows, model } = allocMgr;
+  const order = allocMgr.order.filter(sym => rows.some(r => r.sym === sym));
+  const totalTarget = allocTotal(rows);
+  const totalNow    = rows.reduce((s, r) => s + (r.now || 0), 0);
+  const unallocPct  = Math.max(0, (1 - totalTarget) * 100);
+  const cashPct     = Math.max(0, 100 - totalNow);
+
+  AM_PIE_DEFS.forEach(def => {
+    const canvas = document.getElementById(def.id);
+    if (!canvas) return;
+    const info = amPieOrderFor(def.id);
+
+    let labels, ids, outerData, innerData, outerColors, innerColors;
+    if (info.kind === 'target') {
+      labels = order.slice();
+      ids = order.map(sym => ({ sym }));
+      outerData = order.map(sym => (rows.find(r => r.sym === sym)?.target || 0) * 100);
+      innerData = order.map(sym => rows.find(r => r.sym === sym)?.now || 0);
+      outerColors = order.map(sym => colorFor(sym));
+      innerColors = outerColors.slice();
+    } else {
+      const keys = amGroupKeysInOrder(rows, order, info.field);
+      labels = keys.map(k => info.field === 'category' ? t(k) : (k === 'Untagged' ? t('am_untagged') : k));
+      ids = keys.map(k => ({ key: k }));
+      outerData = keys.map(k => rows.filter(r => allocGroupKey(r, info.field) === k).reduce((s, r) => s + r.target * 100, 0));
+      innerData = keys.map(k => rows.filter(r => allocGroupKey(r, info.field) === k).reduce((s, r) => s + (r.now || 0), 0));
+      outerColors = keys.map(k => amPieColorForGroup(info.field, k));
+      innerColors = outerColors.slice();
+    }
+
+    labels.push(t('am_unalloc_slice'));
+    ids.push(null);
+    outerData.push(unallocPct);
+    innerData.push(cashPct);
+    outerColors.push(css('--line'));
+    innerColors.push(css('--line'));
+
+    const hl = amPieHighlightInfo(info.kind, info.field);
+    if (hl) {
+      outerColors = outerColors.map((c, i) => (ids[i] && ids[i][hl.type] === hl.value) ? c : amDim(c));
+      innerColors = innerColors.map((c, i) => (ids[i] && ids[i][hl.type] === hl.value) ? c : amDim(c));
+    }
+
+    // One callback for both rings — keyed by dataIndex so either ring's arc at position i shows
+    // the same line (spec: "not by ring").
+    const tipText = labels.map((label, i) => {
+      if (!ids[i]) {
+        const dollar = fmtCurr(unallocPct / 100 * (model.investable || 0));
+        return `${label} ${unallocPct.toFixed(1)}% (${dollar}) · ${t('am_cash')} ${t('am_col_now')} ${cashPct.toFixed(1)}%`;
+      }
+      const targetPct = outerData[i], nowPct = innerData[i];
+      const dollar = fmtCurr(targetPct / 100 * (model.investable || 0));
+      const drift = targetPct - nowPct;
+      const driftStr = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%';
+      return `${label} · ${t('am_col_target')} ${targetPct.toFixed(1)}% (${dollar}) · ${t('am_col_now')} ${nowPct.toFixed(1)}% · ${driftStr}`;
+    });
+    const tooltipCb = c => ` ${tipText[c.dataIndex]}`;
+
+    const existing = amPieCharts[def.id];
+    if (existing && JSON.stringify(existing.data.labels) === JSON.stringify(labels)) {
+      existing.data.datasets[0].data = outerData;
+      existing.data.datasets[0].backgroundColor = outerColors;
+      existing.data.datasets[1].data = innerData;
+      existing.data.datasets[1].backgroundColor = innerColors;
+      existing.options.plugins.tooltip.callbacks.label = tooltipCb;
+      existing.update('none');
+    } else {
+      if (existing) existing.destroy();
+      const plugins = [amPieLabels];
+      if (def.id === 'amPie_target') plugins.push(amPieCenterPlugin);
+      amPieCharts[def.id] = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [
+            { data: outerData, backgroundColor: outerColors, weight: 3, borderWidth: 2, borderColor: css('--card') },
+            { data: innerData, backgroundColor: innerColors, weight: 1, borderWidth: 2, borderColor: css('--card') },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '42%',
+          animation: false,
+          layout: { padding: 14 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: { label: tooltipCb },
+              backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding: 8, cornerRadius: 8,
+              titleFont: { family: css('--font-display'), size: 12, weight: '600' },
+              bodyFont:  { family: css('--font-ui'), size: 11 },
+            },
+          },
+          onHover: (event, elements) => amHandlePieHover(def.id, elements),
+          onClick: (event, elements) => amHandlePieClick(def.id, elements),
+        },
+        plugins,
+      });
+      canvas.addEventListener('mouseleave', () => amSetHover(null));
+    }
+    canvas.setAttribute('aria-label', amPieAriaLabel(def.id, info, totalTarget, order.length));
+  });
+}
+
+let _amPieRaf = null;
+function amSchedulePies() {
+  if (_amPieRaf) return;
+  _amPieRaf = requestAnimationFrame(() => { _amPieRaf = null; renderAllocPies(); });
+}
+
+function ceilTo5(x) { return Math.ceil(x / 5) * 5; }
+// A common slider max for the whole list so bars are visually comparable. Recomputed only on
+// load/full-rerender — never mid-drag, so handles don't jump under the user's cursor.
+function amCalcScaleMax(rows) {
+  let m = 0;
+  rows.forEach(r => { m = Math.max(m, r.target, r.saved, (r.now || 0) / 100); });
+  return Math.min(100, Math.max(10, ceilTo5(m * 100 * 1.4)));
+}
+
+function amLoad(port) {
+  const model = modelForPort(port);
+  const rows  = allocBuildRows(model);
+  allocMgr = {
+    port, model, rows,
+    hist: allocHistoryNew(),
+    sort: { key: 'target', dir: -1 },
+    order: rows.map(r => r.sym),
+    groupBy: 'none',
+    filter: null,
+    scaleMax: amCalcScaleMax(rows),
+    confirm: null,
+    saving: false,
+    hover: null, // {sym} | {field,key} | null — drives the pie/row linked highlight, see renderAllocPies
+  };
 }
 
 window.openAllocMgmt = function() {
   if (!currentModel) return;
-  allocMgmtState = { selectedSym: null, targets: {}, origTargets: {} };
-  const allPos  = [...currentModel.positions, ...(currentModel.sgovPos ? [currentModel.sgovPos] : [])];
-  const wlItems = (currentModel.watchlist || []).filter(w => !allPos.find(p => p.symbol === w.symbol));
-  allPos.forEach(p => {
-    allocMgmtState.targets[p.symbol]     = { target: p.target ?? 0, category: p.category || 'Other', sector: p.sector || 'Other', custom: p.custom || '', myGroup: p.myGroup || '', name: p.name || p.symbol, isPos: true };
-    allocMgmtState.origTargets[p.symbol] = p.target ?? 0;
-  });
-  wlItems.forEach(w => {
-    allocMgmtState.targets[w.symbol]     = { target: w.target ?? 0, category: w.category || 'Other', sector: w.sector || 'Other', custom: w.custom || '', myGroup: w.myGroup || '', name: w.name || w.symbol, isPos: false };
-    allocMgmtState.origTargets[w.symbol] = w.target ?? 0;
-  });
-  allocMgmtState.selectedSym = allPos[0]?.symbol || null;
-  // Fixed sort orders (positions first by target, watchlist appended)
-  const sortByTarget = arr => [...arr].sort((a,b) => (b.target||0)-(a.target||0)).map(p=>p.symbol);
-  allocMgmtState.symOrder = [...sortByTarget(allPos), ...sortByTarget(wlItems)];
-  allocMgmtState.catOrders = {};
-  [...new Set([...allPos, ...wlItems].map(p => p.category||'Other'))].forEach(cat => {
-    allocMgmtState.catOrders[cat] = [...allPos,...wlItems].filter(p=>(p.category||'Other')===cat).sort((a,b)=>(b.target||0)-(a.target||0)).map(p=>p.symbol);
-  });
-
+  const port = activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
+  amLoad(port);
   const overlay = document.getElementById('allocMgmtModal');
   if (!overlay) return;
-
-  const mkOpt = (p, tag) => `<div class="alloc-sym-opt" data-sym="${p.symbol}" onclick="selectAllocSym('${p.symbol}')"
-    style="padding:7px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px">
-    <div style="width:8px;height:8px;border-radius:50%;background:${colorFor(p.symbol)};flex-shrink:0"></div>
-    <strong style="color:var(--ink)">${p.symbol}</strong>
-    <span style="color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name||''}</span>
-    ${tag ? `<span style="font-size:9px;font-weight:700;color:var(--muted);margin-left:auto;flex-shrink:0">${tag}</span>` : ''}
-  </div>`;
-  const opts = [...allPos.map(p => mkOpt(p,'')), ...wlItems.map(w => mkOpt(w,'Watch'))].join('');
-
-  overlay.innerHTML = `<div class="tx-modal alloc-modal-wrap" style="max-width:1140px;width:calc(100vw - 32px);max-height:calc(100vh - 40px);overflow:hidden;display:flex;flex-direction:column" onclick="event.stopPropagation()">
-    <div class="tx-header" style="flex-shrink:0">
-      <div style="font-size:15px;font-weight:700">${t('alloc_management_title')}</div>
-      <button class="tx-close" onclick="closeAllocMgmt()">×</button>
-    </div>
-    <div class="alloc-body-grid">
-      <!-- LEFT -->
-      <div class="alloc-left-panel" style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
-        <!-- Fixed: symbol picker + info area -->
-        <div style="flex-shrink:0;display:flex;flex-direction:column;gap:10px;padding-bottom:8px">
-          <div style="position:relative">
-            <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">${t('symbol_label')}</label>
-            <input id="allocSymSearch" class="tx-input" placeholder="${t('search_positions_placeholder')}" autocomplete="off" style="width:100%"
-              oninput="filterAllocSymList(this.value)"
-              onfocus="document.getElementById('allocSymDrop').style.display='block'">
-            <div id="allocSymDrop" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:var(--z-dropdown);background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);max-height:180px;overflow-y:auto;box-shadow:var(--shadow-lg)">${opts}</div>
-          </div>
-          <div id="allocInfoArea"></div>
-        </div>
-        <!-- Scrollable: All Positions list only -->
-        <div class="alloc-sym-list" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px">
-          <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">${t('all_positions_label')}</div>
-          <div id="allocPosList"></div>
-        </div>
-        <!-- Fixed: save button -->
-        <div style="flex-shrink:0;padding-top:10px;border-top:1px solid var(--line);margin-top:4px">
-          <button class="tx-submit" onclick="saveAllocToSheet()">${t('save_all_sheet_btn')}</button>
-          <div class="tx-status" id="allocSaveStatus"></div>
-        </div>
-      </div>
-      <!-- RIGHT: 6 donuts (3-column) -->
-      <div class="alloc-donuts-panel" style="display:grid;grid-template-rows:1fr 1fr;gap:12px;min-height:0;overflow:hidden">
-        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;min-height:0">
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">Category Breakdown</div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocCatChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_cat" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">Sector Breakdown</div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocSecChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_sec" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">Custom Breakdown</div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocCustomChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_cus" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-        </div>
-        <div class="alloc-donuts-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;min-height:0">
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div id="allocAllTitle" style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0"></div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocAllChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_all" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div id="allocCatSymTitle" style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0"></div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocCatSymChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_sym" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-          <div class="card" style="padding:12px;margin:0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;text-align:center;margin-bottom:4px;flex-shrink:0">My Group Breakdown</div>
-            <div style="flex:1;position:relative;min-height:0"><canvas id="allocMyGroupChart"></canvas></div>
-            <div style="text-align:center;height:14px;flex-shrink:0;margin-top:2px"><span id="allocFL_myg" style="font-size:9px;font-weight:700;display:none"></span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>`;
-
+  amBindOverlay();
+  amRender();
   overlay.classList.add('open');
-  overlay.addEventListener('click', e => {
-    if (!e.target.closest('#allocSymSearch')   && !e.target.closest('#allocSymDrop'))
-      document.getElementById('allocSymDrop')?.style && (document.getElementById('allocSymDrop').style.display = 'none');
-    if (!e.target.closest('#allocWatchSearch') && !e.target.closest('#allocWatchDrop'))
-      document.getElementById('allocWatchDrop')?.style && (document.getElementById('allocWatchDrop').style.display = 'none');
-  });
-  setTimeout(() => renderAllocMgmt(), 0);
 };
 
-window.closeAllocMgmt = function() {
-  destroyAllocCharts();
-  allocMgmtState = null;
-  document.getElementById('allocMgmtModal')?.classList.remove('open');
-};
-
-window.selectAllocSym = function(sym) {
-  if (!allocMgmtState?.targets[sym]) return;
-  allocMgmtState.selectedSym = sym;
-  const inp = document.getElementById('allocSymSearch');
-  if (inp) inp.value = sym;
-  const drop = document.getElementById('allocSymDrop');
-  if (drop) drop.style.display = 'none';
-  renderAllocMgmt();
-};
-
-window.filterAllocWatchList = function(q) {
-  const drop = document.getElementById('allocWatchDrop');
-  if (!drop || !currentModel?.watchlist) return;
-  drop.style.display = 'block';
-  const available = currentModel.watchlist.filter(w =>
-    !allocMgmtState?.targets[w.symbol] &&
-    (!q || w.symbol.toUpperCase().includes(q.toUpperCase()) || (w.name||'').toUpperCase().includes(q.toUpperCase()))
-  );
-  drop.innerHTML = available.length
-    ? available.map(w => `<div class="alloc-sym-opt" onclick="addAllocWatchSym('${w.symbol}')"
-        style="padding:7px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px">
-        <div style="width:8px;height:8px;border-radius:50%;background:${colorFor(w.symbol)};flex-shrink:0"></div>
-        <strong style="color:var(--ink)">${w.symbol}</strong>
-        <span style="color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.name||''}</span>
-      </div>`).join('')
-    : '<div style="padding:8px 10px;color:var(--muted);font-size:11px">No items to add</div>';
-};
-
-window.addAllocWatchSym = function(sym) {
-  if (!allocMgmtState || allocMgmtState.targets[sym]) return;
-  const w = currentModel?.watchlist.find(x => x.symbol === sym);
-  if (!w) return;
-  const entry = { target: w.target ?? 0, category: w.category || 'Other', sector: w.sector || 'Other', name: w.name || sym };
-  allocMgmtState.targets[sym]      = entry;
-  allocMgmtState.origTargets[sym]  = entry.target;
-  // Append to fixed sort orders
-  allocMgmtState.symOrder.push(sym);
-  const cat = entry.category;
-  if (!allocMgmtState.catOrders[cat]) allocMgmtState.catOrders[cat] = [];
-  allocMgmtState.catOrders[cat].push(sym);
-  // Clear search
-  const inp = document.getElementById('allocWatchSearch');
-  if (inp) inp.value = '';
-  document.getElementById('allocWatchDrop').style.display = 'none';
-  selectAllocSym(sym);
-};
-
-window.filterAllocSymList = function(q) {
-  const drop = document.getElementById('allocSymDrop');
-  if (!drop) return;
-  drop.style.display = 'block';
-  drop.querySelectorAll('.alloc-sym-opt').forEach(el => {
-    el.style.display = (!q || el.dataset.sym.toUpperCase().includes(q.toUpperCase())) ? '' : 'none';
-  });
-};
-
-function calcAllocBar(sym, targetPct, actualPct, investable, currentVal) {
-  const targetDollar = (targetPct / 100) * investable;
-  const pctOfTarget  = targetDollar > 0 ? currentVal / targetDollar * 100 : 0;
-  const scaleMax     = Math.max(pctOfTarget, 100);
-  return {
-    barFillW:        (pctOfTarget / scaleMax * 100).toFixed(1),
-    barTickL:        (100 / scaleMax * 100).toFixed(1),
-    barTargetDollar: targetDollar,
-    barOverWeight:   actualPct > targetPct,
-  };
-}
-
-function getAllocLinked(sym) {
-  const t = allocMgmtState.targets[sym];
-  if (!t) return { all: 0, cat: 0, sec: 0 };
-  const sum = fn => Object.values(allocMgmtState.targets).filter(fn).reduce((s, x) => s + x.target, 0);
-  const catSum = sum(x => x.category === t.category);
-  const secSum = sum(x => x.sector   === t.sector);
-  return {
-    all: t.target * 100,
-    cat: catSum > 0 ? t.target / catSum * 100 : 0,
-    sec: secSum > 0 ? t.target / secSum * 100 : 0,
-  };
-}
-
-function updateAllocTarget(sym, newTarget, skipInput) {
-  if (!allocMgmtState?.targets[sym]) return;
-  allocMgmtState.targets[sym].target = Math.max(0, Math.round(newTarget * 10000) / 10000);
-  const { all, cat, sec } = getAllocLinked(sym);
-  if (skipInput !== 'all') { const el = document.getElementById('allocInAll'); if (el) el.value = all.toFixed(1); }
-  if (skipInput !== 'cat') { const el = document.getElementById('allocInCat'); if (el) el.value = cat.toFixed(1); }
-  if (skipInput !== 'sec') { const el = document.getElementById('allocInSec'); if (el) el.value = sec.toFixed(1); }
-  // Update bar in-place. Target dollars are the symbol's own portfolio's, not the ALL blend.
-  const tcBar = targetCtxFor(sym);
-  const _pos = tcBar.pos;
-  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, _pos?.investWeightPct||0, tcBar.model?.investable||0, _pos?.currentValue||0);
-  const wf = document.getElementById('allocWeightFill');
-  const wk = document.getElementById('allocWeightTick');
-  const wl = document.getElementById('allocWeightLeft');
-  const wr = document.getElementById('allocWeightRight');
-  if (wf) { wf.style.width = barFillW + '%'; wf.style.background = barOverWeight ? 'var(--loss)' : colorFor(sym); }
-  if (wk) wk.style.left = barTickL + '%';
-  if (wl) wl.textContent = `${(_pos?.investWeightPct||0).toFixed(1)}% / ${all.toFixed(1)}%`;
-  if (wr) wr.textContent = `${fmtCurr(_pos?.currentValue||0)} / ${fmtCurr(barTargetDollar)}`;
-  // Keep drag overlay in sync with latest state
-  if (window._allocDragInfo?.sym === sym) {
-    const td = allocMgmtState.targets[sym];
-    const sumBy = fn => Object.values(allocMgmtState.targets).filter(fn).reduce((s, x) => s + x.target * 100, 0);
-    window._allocDragInfo = {
-      sym, pct: allocMgmtState.targets[sym].target * 100,
-      category: td.category, categoryPct: sumBy(x => x.category === td.category),
-      sector:   td.sector,   sectorPct:   sumBy(x => x.sector   === td.sector),
-    };
-  }
-  renderAllocPosList();
-  renderAllocDonuts();
-}
-
-window.onAllocInputAll = function(val) {
-  const sym = allocMgmtState?.selectedSym; if (!sym) return;
-  const pct = parseFloat(val); if (isNaN(pct)) return;
-  updateAllocTarget(sym, pct / 100, 'all');
-};
-window.onAllocInputCat = function(val) {
-  const sym = allocMgmtState?.selectedSym; if (!sym) return;
-  const t = allocMgmtState.targets[sym];
-  const pct = parseFloat(val) / 100; if (isNaN(pct) || pct < 0) return;
-  const others = Object.entries(allocMgmtState.targets)
-    .filter(([s, x]) => s !== sym && x.category === t.category)
-    .reduce((s, [, x]) => s + x.target, 0);
-  const newT = pct >= 1 ? others * 99 : pct >= 0 ? (pct * others) / (1 - pct) : 0;
-  updateAllocTarget(sym, newT, 'cat');
-};
-window.onAllocInputSec = function(val) {
-  const sym = allocMgmtState?.selectedSym; if (!sym) return;
-  const t = allocMgmtState.targets[sym];
-  const pct = parseFloat(val) / 100; if (isNaN(pct) || pct < 0) return;
-  const others = Object.entries(allocMgmtState.targets)
-    .filter(([s, x]) => s !== sym && x.sector === t.sector)
-    .reduce((s, [, x]) => s + x.target, 0);
-  const newT = pct >= 1 ? others * 99 : (pct * others) / (1 - pct);
-  updateAllocTarget(sym, newT, 'sec');
-};
-
-function renderAllocMgmt() {
-  renderAllocInfoArea();
-  renderAllocPosList();
-  renderAllocDonuts();
-}
-
-function renderAllocInfoArea() {
-  const el = document.getElementById('allocInfoArea');
-  if (!el || !allocMgmtState) return;
-  const sym = allocMgmtState.selectedSym;
-  const tgt = sym ? allocMgmtState.targets[sym] : null;
-  if (!tgt) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">Select a symbol</div>'; return; }
-  const { all, cat, sec } = getAllocLinked(sym);
-  const color = colorFor(sym);
-  // Actual position data — the symbol's own portfolio's, not the ALL blend.
-  const tc = targetCtxFor(sym);
-  const pos = tc.pos;
-  const actualPct    = pos?.investWeightPct || 0;
-  const investable   = tc.model?.investable || 0;
-  const currentVal   = pos?.currentValue || 0;
-  const { barFillW, barTickL, barTargetDollar, barOverWeight } = calcAllocBar(sym, all, actualPct, investable, currentVal);
-  el.innerHTML = `
-    <div style="padding:8px 10px;background:var(--track);border-radius:var(--radius-sm);font-size:11px;display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">
-      <span style="color:var(--muted)">${t('category_label')} <strong style="color:var(--ink)">${t(tgt.category)}</strong></span>
-      <span style="color:var(--muted)">${t('sector_label')} <strong style="color:var(--ink)">${t(tgt.sector)}</strong></span>
-    </div>
-    <div style="margin-bottom:10px">
-      <div style="position:relative;height:8px;background:var(--line);border-radius:4px;overflow:visible;margin-bottom:4px">
-        <div id="allocWeightFill" style="height:100%;width:${barFillW}%;background:${barOverWeight?'var(--loss)':color};border-radius:4px;max-width:100%"></div>
-        <div id="allocWeightTick" style="position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.7;left:${barTickL}%;border-radius:1px"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:2px">
-        <span id="allocWeightLeft"  style="color:var(--muted)">${actualPct.toFixed(1)}% / ${all.toFixed(1)}%</span>
-        <span id="allocWeightRight" style="color:var(--muted)">${fmtCurr(currentVal)} / ${fmtCurr(barTargetDollar)}</span>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:11px">
-      <span style="color:var(--muted);white-space:nowrap">% of All Stocks</span>
-      <div class="tranche-input-wrap has-suffix" style="max-width:90px">
-        <input class="tranche-input" id="allocInAll" type="number" step="0.1" min="0" max="100" value="${all.toFixed(1)}" oninput="onAllocInputAll(this.value)">
-        <span class="ti-suffix">%</span>
-      </div>
-      <span style="color:var(--muted);white-space:nowrap">% of ${t(tgt.category)}</span>
-      <div class="tranche-input-wrap has-suffix" style="max-width:90px">
-        <input class="tranche-input" id="allocInCat" type="number" step="0.1" min="0" max="100" value="${cat.toFixed(1)}" oninput="onAllocInputCat(this.value)">
-        <span class="ti-suffix">%</span>
-      </div>
-      <span style="color:var(--muted);white-space:nowrap">% of ${t(tgt.sector)}</span>
-      <div class="tranche-input-wrap has-suffix" style="max-width:90px">
-        <input class="tranche-input" id="allocInSec" type="number" step="0.1" min="0" max="100" value="${sec.toFixed(1)}" oninput="onAllocInputSec(this.value)">
-        <span class="ti-suffix">%</span>
-      </div>
-    </div>`;
-}
-
-function renderAllocPosList() {
-  const el = document.getElementById('allocPosList');
-  if (!el || !allocMgmtState) return;
-  const selected = allocMgmtState.selectedSym;
-  const order = allocMgmtState.symOrder || Object.keys(allocMgmtState.targets);
-  const entries = order
-    .map(sym => [sym, allocMgmtState.targets[sym]])
-    .filter(([, t]) => t && (t.isPos || t.target > 0));
-  const maxT = Math.max(...entries.map(([, t]) => t.target), 0.001);
-  el.innerHTML = entries.map(([sym, t]) => {
-    const color = colorFor(sym);
-    const isSel = sym === selected;
-    return `<div class="alloc-pos-row" onclick="selectAllocSym('${sym}')" style="display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;background:${isSel ? 'var(--hover)' : 'transparent'}">
-      <div style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div>
-      <div style="font-size:11px;font-weight:${isSel ? 700 : 500};min-width:44px;color:${isSel ? color : 'var(--ink)'}">${sym}</div>
-      <div style="flex:1;height:4px;background:var(--line);border-radius:2px;overflow:hidden">
-        <div style="height:100%;width:${(t.target / maxT * 100).toFixed(1)}%;background:${color};opacity:${isSel ? 1 : .55};border-radius:2px"></div>
-      </div>
-      <div style="font-size:10px;font-weight:${isSel ? 700 : 400};color:${isSel ? color : 'var(--muted)'};min-width:34px;text-align:right">${(t.target * 100).toFixed(1)}%</div>
-    </div>`;
-  }).join('');
-}
-
-function renderAllocDonuts() {
-  if (!allocMgmtState) return;
-  const sym = allocMgmtState.selectedSym;
-  const t = sym ? allocMgmtState.targets[sym] : null;
-  const CAT_COLORS = { 'Big Name': '#6b7eb8', 'Wait for sell': '#b56a8a', 'Medium Cap': '#f59e0b', 'Small Cap': '#7aa3b8', 'Growth': '#22c55e', 'Dividend': '#d4825e', 'Other': '#9ca85a' };
-  const SEC_PALETTE = ['#6b7eb8','#8a5a7e','#c79038','#6b8e5a','#7aa3b8','#b56a8a','#9ca85a','#d4825e','#8a7458','#9a7aa3'];
-  const sectorColorMap = {};
-  [...new Set(Object.values(allocMgmtState.targets).map(x => x.sector))].forEach((s, i) => {
-    sectorColorMap[s] = SEC_PALETTE[i % SEC_PALETTE.length];
-  });
-
-  const allocCozyPlugin = {
-    id: 'allocCozy',
-    beforeDatasetDraw(chart) {
-      // Soft warm shadow behind the donut
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      ctx.save();
-      ctx.shadowColor = 'rgba(196,106,74,.15)';
-      ctx.shadowBlur = 18;
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, (arc.innerRadius + arc.outerRadius) / 2, 0, Math.PI * 2);
-      ctx.lineWidth = arc.outerRadius - arc.innerRadius;
-      ctx.strokeStyle = 'transparent';
-      ctx.stroke();
-      ctx.restore();
-    },
-    afterDatasetsDraw(chart) {
-      // Decorative inner ring
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, arc.innerRadius - 3, 0, Math.PI * 2);
-      ctx.strokeStyle = css('--line-soft');
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.6;
-      ctx.stroke();
-      // Warm dot pattern (4 dots around center)
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = css('--terracotta');
-      [0, Math.PI/2, Math.PI, Math.PI*1.5].forEach(a => {
-        const r = arc.innerRadius * 0.4;
-        ctx.beginPath();
-        ctx.arc(arc.x + Math.cos(a)*r, arc.y + Math.sin(a)*r, 2, 0, Math.PI*2);
-        ctx.fill();
-      });
-      ctx.restore();
-    }
-  };
-
-  const allocThinPlugin = {
-    id: 'allocThin',
-    afterDatasetsDraw(chart) {
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      // Outer decorative ring
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, arc.outerRadius + 4, 0, Math.PI * 2);
-      ctx.strokeStyle = css('--line');
-      ctx.lineWidth = 0.5;
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
-      ctx.restore();
-      // Inner decorative ring
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, arc.innerRadius - 4, 0, Math.PI * 2);
-      ctx.strokeStyle = css('--line');
-      ctx.lineWidth = 0.5;
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([4, 4]);
-      ctx.stroke();
-      ctx.restore();
-      // Crosshair tick marks at 0°, 90°, 180°, 270°
-      ctx.save();
-      ctx.strokeStyle = css('--muted');
-      ctx.lineWidth = 0.8;
-      ctx.globalAlpha = 0.3;
-      [0, Math.PI/2, Math.PI, Math.PI*1.5].forEach(a => {
-        ctx.beginPath();
-        ctx.moveTo(arc.x + Math.cos(a)*(arc.outerRadius+2), arc.y + Math.sin(a)*(arc.outerRadius+2));
-        ctx.lineTo(arc.x + Math.cos(a)*(arc.outerRadius+8), arc.y + Math.sin(a)*(arc.outerRadius+8));
-        ctx.stroke();
-      });
-      ctx.restore();
-    }
-  };
-
-  const allocBoldPlugin = {
-    id: 'allocBold',
-    beforeDatasetDraw(chart) {
-      // Heavy warm shadow
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      ctx.save();
-      ctx.shadowColor = 'rgba(58,42,28,.18)';
-      ctx.shadowBlur = 24;
-      ctx.shadowOffsetY = 4;
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, (arc.innerRadius + arc.outerRadius) / 2, 0, Math.PI * 2);
-      ctx.lineWidth = arc.outerRadius - arc.innerRadius;
-      ctx.strokeStyle = 'transparent';
-      ctx.stroke();
-      ctx.restore();
-    },
-    afterDatasetsDraw(chart) {
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const arc = meta.data[0];
-      // Inner filled circle background (cozy warm center)
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, arc.innerRadius - 1, 0, Math.PI * 2);
-      const cg = ctx.createRadialGradient(arc.x, arc.y, 0, arc.x, arc.y, arc.innerRadius);
-      cg.addColorStop(0, css('--card'));
-      cg.addColorStop(1, css('--track'));
-      ctx.fillStyle = cg;
-      ctx.fill();
-      ctx.restore();
-      // Bold ring highlight on top edge
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(arc.x, arc.y, arc.outerRadius, Math.PI * 1.1, Math.PI * 1.9);
-      ctx.strokeStyle = 'rgba(255,255,255,.18)';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.stroke();
-      ctx.restore();
-    }
-  };
-
-  const allocLabelPlugin = {
-    id: 'allocLabels',
-    afterDatasetsDraw(chart) {
-      const ctx = chart.ctx;
-      const meta = chart.getDatasetMeta(0);
-      if (!meta?.data?.length) return;
-      const total = chart.data.datasets[0].data.reduce((s, v) => s + (v||0), 0);
-      if (!total) return;
-      ctx.save();
-
-      // Symbol labels inside each arc
-      meta.data.forEach((arc, i) => {
-        const value = chart.data.datasets[0].data[i];
-        if (!value || value / total < 0.05) return;
-        const label = chart.data.labels[i];
-        const angle = (arc.startAngle + arc.endAngle) / 2;
-        const midR  = (arc.innerRadius + arc.outerRadius) / 2;
-        const x = arc.x + Math.cos(angle) * midR;
-        const y = arc.y + Math.sin(angle) * midR;
-        ctx.font = '600 9px ' + (css('--font-display') || 'serif');
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,.5)';
-        ctx.shadowBlur = 3;
-        ctx.fillStyle = '#fff';
-        ctx.fillText(label, x, y);
-        ctx.shadowBlur = 0;
-      });
-
-      // Center text during drag — content depends on which donut
-      if (window._allocDragInfo && meta.data[0]) {
-        const info = window._allocDragInfo;
-        const id   = chart.canvas.id;
-        const line1 = id === 'allocCatChart' ? (info.category || '')
-                    : id === 'allocSecChart' ? (info.sector   || '')
-                    : info.sym;
-        const line2 = id === 'allocCatChart' ? (info.categoryPct || 0).toFixed(1) + '%'
-                    : id === 'allocSecChart' ? (info.sectorPct   || 0).toFixed(1) + '%'
-                    : (info.pct || 0).toFixed(1) + '%';
-        const cx = meta.data[0].x;
-        const cy = meta.data[0].y;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowBlur = 0;
-        ctx.font = '600 12px ' + (css('--font-display') || 'serif');
-        ctx.fillStyle = css('--ink');
-        ctx.fillText(line1, cx, cy - 8);
-        ctx.font = '500 10px ' + (css('--font-mono') || 'monospace');
-        ctx.fillStyle = css('--ink-soft');
-        ctx.fillText(line2, cx, cy + 9);
-      }
-
-      ctx.restore();
-    }
-  };
-
-  // Returns { chart, fresh } — fresh=true means newly created (attach drag); false means updated in-place (skip)
-  const mkDonut = (id, labels, data, colors, bw, bc, onClick, tooltipCb) => {
-    const defaultTip = c => `  ${c.label}: ${Number(c.raw).toFixed(1)}%`;
-    const canvas = document.getElementById(id);
-    if (!canvas) return { chart: null, fresh: false };
-
-    // ── Style presets ────────────────────────────────────────────
-    const style = window.donutTweaks?.allocDonut || 'cozy';
-    let cutout, borderRadius, spacing, layoutPad, borderWArr, borderCArr;
-
-    if (style === 'thin') {
-      cutout       = '74%';
-      borderRadius = 2;
-      spacing      = 3;
-      layoutPad    = 36;
-      borderWArr   = bw.map(b => b ? 2.5 : 0.5);
-      borderCArr   = bc.map((c, i) => bw[i] ? css('--card') : css('--line-soft'));
-    } else if (style === 'bold') {
-      cutout       = '38%';
-      borderRadius = 10;
-      spacing      = 4;
-      layoutPad    = 28;
-      borderWArr   = bw.map(b => b ? 3 : 1);
-      borderCArr   = bc.map((c, i) => bw[i] ? css('--card') : 'rgba(255,255,255,.25)');
-    } else {
-      // "cozy" (default) — warm, rounded, medium ring
-      cutout       = '56%';
-      borderRadius = 6;
-      spacing      = 2;
-      layoutPad    = 32;
-      borderWArr   = bw;
-      borderCArr   = bc;
-    }
-
-    const existing = allocChartInsts[id];
-    if (existing && JSON.stringify(existing.data.labels) === JSON.stringify(labels)) {
-      existing.data.datasets[0].data             = data;
-      existing.data.datasets[0].backgroundColor  = colors;
-      existing.data.datasets[0].borderColor      = borderCArr;
-      existing.data.datasets[0].borderWidth      = borderWArr;
-      existing.data.datasets[0].borderRadius      = borderRadius;
-      existing.data.datasets[0].spacing            = spacing;
-      existing.options.cutout                      = cutout;
-      existing.options.layout.padding              = layoutPad;
-      if (tooltipCb) existing.options.plugins.tooltip.callbacks.label = tooltipCb;
-      existing.update('none');
-      return { chart: existing, fresh: false };
-    }
-    if (existing) existing.destroy();
-    const plugins = [allocLabelPlugin];
-    if (style === 'cozy')  plugins.push(allocCozyPlugin);
-    if (style === 'thin')  plugins.push(allocThinPlugin);
-    if (style === 'bold')  plugins.push(allocBoldPlugin);
-    const chart = new Chart(canvas.getContext('2d'), {
-      type: 'doughnut',
-      data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: borderCArr, borderWidth: borderWArr, hoverBorderWidth: 0, borderRadius, spacing }] },
-      options: {
-        responsive: true, maintainAspectRatio: false, cutout,
-        animation: false,
-        layout: { padding: layoutPad },
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: tooltipCb || defaultTip },
-            backgroundColor: css('--tooltip-bg'), bodyColor: '#faf3e0', padding: 8, cornerRadius: 8 }
-        },
-        onClick: onClick,
-      },
-      plugins,
-    });
-    allocChartInsts[id] = chart;
-    return { chart, fresh: true };
-  };
-
-  // Chart 1: Category Breakdown
-  (() => {
-    const cats = {};
-    Object.values(allocMgmtState.targets).forEach(x => { cats[x.category] = (cats[x.category] || 0) + x.target * 100; });
-    const labels = Object.keys(cats);
-    const data   = labels.map(c => cats[c]);
-    const selCat = t?.category;
-    const colors = labels.map(c => { const b = CAT_COLORS[c] || '#9ca85a'; return c === selCat ? b : b + '55'; });
-    const bw = labels.map(c => c === selCat ? 2 : 0);
-    const bc = labels.map(c => c === selCat ? css('--card') : 'transparent');
-    mkDonut('allocCatChart', labels, data, colors, bw, bc, (_, els) => {
-      if (!els.length) return;
-      const cat = labels[els[0].index];
-      const first = Object.entries(allocMgmtState.targets).find(([, x]) => x.category === cat);
-      if (first) setTimeout(() => selectAllocSym(first[0]), 0);
-    });
-  })();
-
-  // Chart 2: Sector Breakdown
-  (() => {
-    const secs = {};
-    Object.values(allocMgmtState.targets).forEach(x => { secs[x.sector] = (secs[x.sector] || 0) + x.target * 100; });
-    const labels = Object.keys(secs);
-    const data   = labels.map(s => secs[s]);
-    const selSec = t?.sector;
-    const colors = labels.map(s => { const b = sectorColorMap[s]; return s === selSec ? b : b + '55'; });
-    const bw = labels.map(s => s === selSec ? 2 : 0);
-    const bc = labels.map(s => s === selSec ? css('--card') : 'transparent');
-    mkDonut('allocSecChart', labels, data, colors, bw, bc, (_, els) => {
-      if (!els.length) return;
-      const sec = labels[els[0].index];
-      const first = Object.entries(allocMgmtState.targets).find(([, x]) => x.sector === sec);
-      if (first) setTimeout(() => selectAllocSym(first[0]), 0);
-    });
-  })();
-
-  // Chart 3: Symbol vs All Stocks
-  (() => {
-    const title = document.getElementById('allocAllTitle');
-    if (title) title.textContent = sym ? `${sym} · All Stocks` : t('all_stocks_label');
-    const syms   = allocMgmtState.symOrder || Object.keys(allocMgmtState.targets);
-    const data   = syms.map(s => allocMgmtState.targets[s].target * 100);
-    const colors = syms.map(s => s === sym ? colorFor(s) : colorFor(s) + '55');
-    const bw     = syms.map(s => s === sym ? 2 : 0);
-    const bc     = syms.map(s => s === sym ? css('--card') : 'transparent');
-    const { chart, fresh } = mkDonut('allocAllChart', syms, data, colors, bw, bc, (_, els) => {
-      if (els.length) setTimeout(() => selectAllocSym(syms[els[0].index]), 0);
-    });
-    if (chart && fresh) attachAllocDrag(chart, syms);
-  })();
-
-  // Chart 4: Symbol vs Category
-  (() => {
-    const selCat = t?.category || '';
-    const title  = document.getElementById('allocCatSymTitle');
-    if (title) title.textContent = sym ? `${sym} · ${selCat}` : selCat;
-    const catSyms = allocMgmtState.catOrders?.[selCat]?.filter(s => allocMgmtState.targets[s])
-      || Object.entries(allocMgmtState.targets).filter(([,x])=>x.category===selCat).map(([s])=>s);
-    const data   = catSyms.map(s => allocMgmtState.targets[s].target * 100);
-    const colors = catSyms.map(s => s === sym ? colorFor(s) : colorFor(s) + '55');
-    const bw     = catSyms.map(s => s === sym ? 2 : 0);
-    const bc     = catSyms.map(s => s === sym ? css('--card') : 'transparent');
-    const catTotal = data.reduce((s, v) => s + v, 0);
-    const { chart: chart4, fresh: fresh4 } = mkDonut('allocCatSymChart', catSyms, data, colors, bw, bc, (_, els) => {
-      if (els.length) setTimeout(() => selectAllocSym(catSyms[els[0].index]), 0);
-    }, c => `  ${c.label}: ${catTotal > 0 ? (c.raw / catTotal * 100).toFixed(1) : 0}%`);
-    if (chart4 && fresh4) attachAllocDrag(chart4, catSyms);
-  })();
-
-  // Charts 5 & 6: Custom / My Group tag breakdowns — grouped by target %, mirroring
-  // the Category/Sector donuts (untagged rolls into an "Untagged" slice, muted).
-  const mkTagDonut = (id, field, sel) => {
-    const groups = {};
-    Object.values(allocMgmtState.targets).forEach(x => {
-      const k = x[field] || 'Untagged';
-      groups[k] = (groups[k] || 0) + x.target * 100;
-    });
-    const labels = Object.keys(groups);
-    const data   = labels.map(k => groups[k]);
-    const selK   = sel || 'Untagged';
-    const colors = labels.map((k, i) => { const b = k === 'Untagged' ? css('--muted') : SEC_PALETTE[i % SEC_PALETTE.length]; return k === selK ? b : b + '55'; });
-    const bw = labels.map(k => k === selK ? 2 : 0);
-    const bc = labels.map(k => k === selK ? css('--card') : 'transparent');
-    mkDonut(id, labels, data, colors, bw, bc, (_, els) => {
-      if (!els.length) return;
-      const k = labels[els[0].index];
-      const first = Object.entries(allocMgmtState.targets).find(([, x]) => (x[field] || 'Untagged') === k);
-      if (first) setTimeout(() => selectAllocSym(first[0]), 0);
-    });
-  };
-  mkTagDonut('allocCustomChart',  'custom',  t?.custom);
-  mkTagDonut('allocMyGroupChart', 'myGroup', t?.myGroup);
-
-  // Flash labels
-  const totalPct = Object.values(allocMgmtState.targets).reduce((s, x) => s + x.target * 100, 0);
-  const diff = 100 - totalPct;
-  const isOver  = diff < -0.05;
-  const isAvail = diff >  0.05;
-  ['cat','sec','all','sym','cus','myg'].forEach(id => {
-    const el = document.getElementById(`allocFL_${id}`);
-    if (!el) return;
-    if (isOver || isAvail) {
-      el.textContent   = isOver ? `Over ${Math.abs(diff).toFixed(1)}%` : `Available ${diff.toFixed(1)}%`;
-      el.style.color   = isOver ? 'var(--loss)' : 'var(--gain)';
-      el.style.display = '';
-      el.className     = 'alloc-flash';
-    } else {
-      el.style.display = 'none';
-      el.className     = '';
-    }
-  });
-}
-
-function attachAllocDrag(chart, labels) {
-  const canvas = chart.canvas;
-  let dragging = false, dragSym = null, startY = 0, startTarget = 0, lastStep = 0;
-  let _raf = null, _pendingT = null;
-
-  canvas.addEventListener('mousedown', e => {
-    const els = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
-    if (!els.length) return;
-    dragSym = labels[els[0].index];
-    if (!dragSym || !allocMgmtState?.targets[dragSym]) return;
-    setTimeout(() => selectAllocSym(dragSym), 0);
-    dragging = true; startY = e.clientY;
-    startTarget = allocMgmtState.targets[dragSym].target;
-    lastStep = 0; _pendingT = null;
-    const _td = allocMgmtState.targets[dragSym];
-    const _sumBy = fn => Object.values(allocMgmtState.targets).filter(fn).reduce((s, x) => s + x.target * 100, 0);
-    window._allocDragInfo = {
-      sym: dragSym, pct: startTarget * 100,
-      category: _td.category, categoryPct: _sumBy(x => x.category === _td.category),
-      sector:   _td.sector,   sectorPct:   _sumBy(x => x.sector   === _td.sector),
-    };
-    e.preventDefault();
-  });
-  canvas.addEventListener('mousemove', e => {
-    if (!dragging || !dragSym) return;
-    const delta = startY - e.clientY;
-    const DEAD = 12, PX = 20; // 12px deadzone, 8px per 0.5% step
-    const effective = (Math.abs(delta) < DEAD) ? 0 : (Math.abs(delta) - DEAD) * Math.sign(delta);
-    const steps = Math.floor(Math.abs(effective) / PX) * Math.sign(effective);
-    if (steps === lastStep) return;
-    lastStep = steps;
-    _pendingT = Math.max(0.01, Math.round((startTarget + steps * 0.005) * 10000) / 10000);
-    window._allocDragInfo = { sym: dragSym, pct: _pendingT * 100 };
-    if (!_raf) {
-      _raf = requestAnimationFrame(() => {
-        _raf = null;
-        if (_pendingT !== null && allocMgmtState) updateAllocTarget(dragSym, _pendingT, null);
-      });
-    }
-  });
-  const stop = () => {
-    if (!dragging) return;
-    dragging = false;
-    if (_raf) { cancelAnimationFrame(_raf); _raf = null; }
-    if (_pendingT !== null && allocMgmtState) updateAllocTarget(dragSym, _pendingT, null);
-    _pendingT = null;
-    window._allocDragInfo = null;
-    Object.values(allocChartInsts).forEach(c => { try { c.update('none'); } catch(_) {} });
-  };
-  canvas.addEventListener('mouseup', stop);
-  canvas.addEventListener('mouseleave', stop);
-
-  canvas.addEventListener('touchstart', e => {
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    const els = chart.getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
-    if (!els.length) return;
-    dragSym = labels[els[0].index];
-    if (!dragSym || !allocMgmtState?.targets[dragSym]) return;
-    setTimeout(() => selectAllocSym(dragSym), 0);
-    dragging = true; startY = touch.clientY;
-    startTarget = allocMgmtState.targets[dragSym].target;
-    lastStep = 0; _pendingT = null;
-    const _td = allocMgmtState.targets[dragSym];
-    const _sumBy = fn => Object.values(allocMgmtState.targets).filter(fn).reduce((s, x) => s + x.target * 100, 0);
-    window._allocDragInfo = {
-      sym: dragSym, pct: startTarget * 100,
-      category: _td.category, categoryPct: _sumBy(x => x.category === _td.category),
-      sector:   _td.sector,   sectorPct:   _sumBy(x => x.sector   === _td.sector),
-    };
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener('touchmove', e => {
-    if (!dragging || !dragSym || e.touches.length !== 1) return;
-    const delta = startY - e.touches[0].clientY;
-    const DEAD = 12, PX = 20;
-    const effective = (Math.abs(delta) < DEAD) ? 0 : (Math.abs(delta) - DEAD) * Math.sign(delta);
-    const steps = Math.floor(Math.abs(effective) / PX) * Math.sign(effective);
-    if (steps === lastStep) return;
-    lastStep = steps;
-    _pendingT = Math.max(0.01, Math.round((startTarget + steps * 0.005) * 10000) / 10000);
-    window._allocDragInfo = { sym: dragSym, pct: _pendingT * 100 };
-    if (!_raf) {
-      _raf = requestAnimationFrame(() => {
-        _raf = null;
-        if (_pendingT !== null && allocMgmtState) updateAllocTarget(dragSym, _pendingT, null);
-      });
-    }
-    e.preventDefault();
-  }, { passive: false });
-
-  canvas.addEventListener('touchend', stop);
-  canvas.addEventListener('touchcancel', stop);
-  canvas.style.cursor = 'ns-resize';
-}
-
-window.saveAllocToSheet = async function() {
-  if (!allocMgmtState) return;
-  const entries = Object.entries(allocMgmtState.targets)
-    .filter(([sym, t]) => Math.abs(t.target - (allocMgmtState.origTargets[sym] ?? 0)) > 0.00001);
-  if (!entries.length) {
-    const status = document.getElementById('allocSaveStatus');
-    if (status) { status.textContent = t('nothing_changed_msg'); setTimeout(() => { if(status) status.textContent=''; }, 2000); }
+window.closeAllocMgmt = function(force) {
+  const overlay = document.getElementById('allocMgmtModal');
+  if (!allocMgr) { overlay?.classList.remove('open'); return; }
+  const changed = allocChanged(allocMgr.rows);
+  if (!force && changed.length) {
+    amShowConfirm(t('am_discard_q').replace('{n}', changed.length), () => window.closeAllocMgmt(true));
     return;
   }
-  const status  = document.getElementById('allocSaveStatus');
-  if (status) status.textContent = `Saving 0 / ${entries.length}…`;
-  let saved = 0, failed = 0;
-  for (const [sym, t] of entries) {
-    try {
-      const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, target: t.target, portfolio: activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio });
-      await recordFetch(params, true);
-      const pos = currentModel?.positions.find(p => p.symbol === sym)
-               || (currentModel?.sgovPos?.symbol === sym ? currentModel.sgovPos : null);
-      if (pos) pos.target = t.target;
-      allocMgmtState.origTargets[sym] = t.target; // mark as saved
-      saved++;
-    } catch { failed++; }
-    if (status) status.textContent = `Saving ${saved + failed} / ${entries.length}…`;
+  amDestroyPies();
+  allocMgr = null;
+  overlay?.classList.remove('open');
+};
+
+// ── Confirm strip (replaces window.confirm() so it can host "Keep editing" too) ──────────────
+function amShowConfirm(text, onDiscard) {
+  if (!allocMgr) return;
+  allocMgr.confirm = { text, onDiscard };
+  amRenderConfirm();
+}
+function amHideConfirm() {
+  if (!allocMgr) return;
+  allocMgr.confirm = null;
+  amRenderConfirm();
+}
+function amRenderConfirm() {
+  const el = document.getElementById('amConfirm');
+  if (!el) return;
+  if (!allocMgr?.confirm) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.innerHTML = `<span>${escHtml(allocMgr.confirm.text)}</span>
+    <button type="button" class="am-btn" onclick="amConfirmKeep()">${t('am_keep')}</button>
+    <button type="button" class="am-btn am-btn-danger" onclick="amConfirmDiscard()">${t('am_discard')}</button>`;
+}
+window.amConfirmKeep = function() {
+  const sel = document.getElementById('amPort');
+  if (sel && allocMgr) sel.value = allocMgr.port; // undo a port-select change that triggered the strip
+  amHideConfirm();
+};
+window.amConfirmDiscard = function() {
+  const cb = allocMgr?.confirm?.onDiscard;
+  amHideConfirm();
+  if (cb) cb();
+};
+
+function amPortChange(newPort) {
+  if (!allocMgr || newPort === allocMgr.port) return;
+  const changed = allocChanged(allocMgr.rows);
+  if (changed.length) {
+    amShowConfirm(
+      t('am_switch_q').replace('{n}', changed.length).replace('{port}', newPort),
+      () => { amLoad(newPort); amRender(); }
+    );
+    return;
   }
-  if (status) {
-    status.textContent = failed ? `Saved ${saved}, ${failed} failed` : `All ${saved} saved ✓`;
-    setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+  amLoad(newPort);
+  amRender();
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+const AM_PIE_DEFS = [
+  { id: 'amPie_target',  label: 'am_pie_target' },
+  { id: 'amPie_category', label: 'am_pie_category' },
+  { id: 'amPie_custom',  label: 'am_pie_custom' },
+  { id: 'amPie_myGroup', label: 'am_pie_mygroup' },
+];
+const AM_SORT_COLS = [
+  { key: 'symbol', label: 'am_col_symbol' },
+  { key: 'now',    label: 'am_col_now' },
+  { key: 'target', label: 'am_col_target' },
+  { key: 'drift',  label: 'am_col_drift' },
+];
+
+const AM_UNDO_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>`;
+const AM_REDO_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>`;
+const AM_LOCK_OPEN_ICON   = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.65-1.6"/></svg>`;
+const AM_LOCK_CLOSED_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`;
+
+// Full render — called on open and on portfolio switch. Everything after this is a targeted
+// DOM patch (amPatchRow/amPatchGroup/amRenderRows) so a drag never re-renders the whole modal.
+function amRender() {
+  const overlay = document.getElementById('allocMgmtModal');
+  if (!overlay || !allocMgr) return;
+  const hidden = getHiddenPorts();
+  const portOpts = _portfolioRegistry
+    .filter(p => p.name === allocMgr.port || !hidden.includes(p.name))
+    .map(p => `<option value="${escHtml(p.name)}"${p.name === allocMgr.port ? ' selected' : ''}>${escHtml(p.name)}</option>`)
+    .join('');
+
+  overlay.innerHTML = `<div class="tx-modal am-modal" onclick="event.stopPropagation()">
+    <header class="am-head">
+      <div class="am-head-title">
+        <span class="tx-title">${t('am_title')}</span>
+        <select id="amPort" class="am-port-select" onchange="amPortChange(this.value)">${portOpts}</select>
+      </div>
+      <div class="am-head-actions">
+        <button type="button" id="amUndo" class="am-icon-btn" title="${t('am_undo')}" onclick="amDoUndo()" disabled>${AM_UNDO_ICON}</button>
+        <button type="button" id="amRedo" class="am-icon-btn" title="${t('am_redo')}" onclick="amDoRedo()" disabled>${AM_REDO_ICON}</button>
+        <button type="button" id="amSave" class="tx-submit am-save-btn" onclick="amSave()">${t('am_no_changes')}</button>
+        <button class="tx-close" onclick="closeAllocMgmt()">×</button>
+      </div>
+    </header>
+    <div id="amConfirm" class="am-confirm" hidden></div>
+    <section class="am-budget">
+      <div class="am-budget-bar"><div id="amBudgetFill" class="am-budget-fill"></div></div>
+      <div id="amBudgetText" class="am-budget-text"></div>
+    </section>
+    <div class="am-toolbar">
+      <div class="am-seg" role="group" aria-label="${t('am_group_by')}">
+        <button type="button" class="am-seg-btn${allocMgr.groupBy==='none'?' active':''}" data-key="none" aria-pressed="${allocMgr.groupBy==='none'}" onclick="amGroupBy('none')">${t('am_none')}</button>
+        <button type="button" class="am-seg-btn${allocMgr.groupBy==='category'?' active':''}" data-key="category" aria-pressed="${allocMgr.groupBy==='category'}" onclick="amGroupBy('category')">${t('category_label')}</button>
+        <button type="button" class="am-seg-btn${allocMgr.groupBy==='custom'?' active':''}" data-key="custom" aria-pressed="${allocMgr.groupBy==='custom'}" onclick="amGroupBy('custom')">${t('custom_label')}</button>
+        <button type="button" class="am-seg-btn${allocMgr.groupBy==='myGroup'?' active':''}" data-key="myGroup" aria-pressed="${allocMgr.groupBy==='myGroup'}" onclick="amGroupBy('myGroup')">${t('mygroup_label')}</button>
+      </div>
+      <div class="am-quick">
+        <span class="am-quick-label">${t('am_quick')}</span>
+        <button type="button" class="am-btn" onclick="amQuick('match')">${t('am_match')}</button>
+        <button type="button" class="am-btn" onclick="amQuick('equal')">${t('am_equal')}</button>
+        <button type="button" class="am-btn" onclick="amQuick('fill')">${t('am_fill')}</button>
+        <button type="button" class="am-btn" onclick="amQuick('reset')">${t('am_reset')}</button>
+      </div>
+      <button type="button" id="amFilterChip" class="am-chip" hidden onclick="amClearFilter()"></button>
+    </div>
+    <div class="am-body">
+      <div class="am-list">
+        <div id="amListHead" class="am-list-head"></div>
+        <div id="amRows" class="am-rows"></div>
+        <div id="amAddWatch" class="am-add-watch"></div>
+      </div>
+      <aside class="am-pies">
+        ${AM_PIE_DEFS.map(p => `<div class="am-pie-card">
+          <div class="am-pie-title">${t(p.label)}</div>
+          <div class="am-pie-box"><canvas id="${p.id}" role="img" aria-label="${t(p.label)}"></canvas></div>
+        </div>`).join('')}
+      </aside>
+    </div>
+    <div id="amStatus" class="tx-status"></div>
+  </div>`;
+
+  amRenderListHead();
+  amRenderRows();
+  amUpdateBudget();
+  amUpdateHistButtons();
+  amRenderConfirm();
+  amRenderFilterChip();
+  amSchedulePies();
+}
+
+function amRenderListHead() {
+  const el = document.getElementById('amListHead');
+  if (!el || !allocMgr) return;
+  const { key: activeKey, dir } = allocMgr.sort;
+  el.innerHTML = AM_SORT_COLS.map(c => {
+    const active = c.key === activeKey;
+    const arrow  = active ? (dir === 1 ? ' ↑' : ' ↓') : '';
+    return `<button type="button" class="am-sort-btn${active ? ' active' : ''}" data-key="${c.key}" onclick="amSortBy('${c.key}')">${t(c.label)}${arrow}</button>`;
+  }).join('');
+}
+function amSortBy(key) {
+  if (!allocMgr) return;
+  const s = allocMgr.sort;
+  const dir = s.key === key ? -s.dir : (key === 'symbol' ? 1 : -1);
+  allocMgr.sort  = { key, dir };
+  allocMgr.order = allocSortOrder(allocMgr.rows, key, dir);
+  amRenderListHead();
+  amRenderRows();
+}
+
+// ── Rows ──────────────────────────────────────────────────────────────────────
+function amVisibleOrder() {
+  if (!allocMgr) return [];
+  let order = allocMgr.order.filter(sym => allocMgr.rows.some(r => r.sym === sym));
+  if (allocMgr.filter) {
+    const { field, key } = allocMgr.filter;
+    order = order.filter(sym => {
+      const r = allocMgr.rows.find(x => x.sym === sym);
+      return r && allocGroupKey(r, field) === key;
+    });
   }
-  renderTable(currentModel);
-  renderDonut(currentModel);
+  return order;
+}
+
+function amRenderRows() {
+  const el = document.getElementById('amRows');
+  if (!el || !allocMgr) return;
+  allocMgr.scaleMax = amCalcScaleMax(allocMgr.rows);
+  const order = amVisibleOrder();
+  const bySym = {};
+  allocMgr.rows.forEach(r => { bySym[r.sym] = r; });
+
+  let html = '';
+  if (allocMgr.groupBy !== 'none') {
+    const visRows = order.map(s => bySym[s]).filter(Boolean);
+    allocGroups(visRows, allocMgr.groupBy).forEach(g => {
+      html += amGroupHeaderHtml(g);
+      order.filter(sym => g.syms.includes(sym)).forEach(sym => { html += amRowHtml(bySym[sym]); });
+    });
+  } else {
+    order.forEach(sym => { html += amRowHtml(bySym[sym]); });
+  }
+  el.innerHTML = html;
+  amRenderAddWatch();
+}
+
+function amRowHtml(row) {
+  const scaleMax = allocMgr.scaleMax;
+  const pct      = row.target * 100;
+  const roomPct  = Math.min(100, allocRoomFor(allocMgr.rows, row.sym) * 100 / scaleMax * 100);
+  const changed  = Math.abs(row.target - row.saved) > ALLOC_EPS;
+  const drift    = pct - (row.now || 0);
+  const driftStr = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%';
+  const dollar   = fmtCurr(row.target * (allocMgr.model.investable || 0));
+  const cls = ['am-row', row.locked ? 'locked' : '', row.isPos ? '' : 'watch', changed ? 'changed' : ''].filter(Boolean).join(' ');
+  return `<div class="${cls}" data-sym="${escHtml(row.sym)}" style="--am-c:${colorFor(row.sym)}">
+    <div class="am-dot"></div>
+    <div class="am-sym"><strong>${escHtml(row.sym)}</strong><span class="am-name">${escHtml(row.name)}</span></div>
+    <div class="am-now">${row.isPos ? row.now.toFixed(1) + '%' : `<span class="am-tag">${t('am_watch_tag')}</span>`}</div>
+    <div class="am-slider">
+      <div class="am-track">
+        <div class="am-fill" style="width:${Math.min(100, pct / scaleMax * 100)}%"></div>
+        <div class="am-tick" style="left:${Math.min(100, (row.now || 0) / scaleMax * 100)}%"></div>
+        <div class="am-over" style="left:${roomPct}%;width:${Math.max(0, 100 - roomPct)}%"></div>
+      </div>
+      <input type="range" class="am-range" data-sym="${escHtml(row.sym)}" min="0" max="${scaleMax}" step="0.1" value="${pct}" aria-label="${escHtml(row.sym)} target %">
+    </div>
+    <div class="am-pct">
+      <span class="am-pct-wrap"><span class="am-changed-dot"></span><input type="number" class="am-pct-input" data-sym="${escHtml(row.sym)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"><span class="am-pct-suffix">%</span></span>
+      ${changed ? `<button type="button" class="am-old" data-sym="${escHtml(row.sym)}" title="${t('am_revert')}">${(row.saved * 100).toFixed(1)}%</button>` : ''}
+    </div>
+    <div class="am-dollar">${dollar}</div>
+    <div class="am-drift"${Math.abs(drift) >= 2 ? ' style="font-weight:600"' : ''}>${row.isPos ? driftStr : '—'}</div>
+    <button type="button" class="am-lock" data-sym="${escHtml(row.sym)}" aria-pressed="${row.locked}" title="${t('am_lock')}">${row.locked ? AM_LOCK_CLOSED_ICON : AM_LOCK_OPEN_ICON}</button>
+  </div>`;
+}
+
+function amGroupHeaderHtml(g) {
+  const pct      = g.target * 100;
+  const dollar   = fmtCurr(g.target * (allocMgr.model.investable || 0));
+  const drift    = pct - g.now;
+  const driftStr = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%';
+  const label = allocMgr.groupBy === 'category' ? t(g.key) : (g.key === 'Untagged' ? t('am_untagged') : escHtml(g.key));
+  return `<div class="am-group" data-group="${escHtml(g.key)}">
+    <div class="am-dot"></div>
+    <div class="am-sym"><strong>${label}</strong><span class="am-name">${g.syms.length}</span></div>
+    <div class="am-now">${g.now.toFixed(1)}%</div>
+    <div class="am-slider">
+      <div class="am-track"><div class="am-fill" style="width:${Math.min(100, pct)}%"></div></div>
+      <input type="range" class="am-range" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct}" aria-label="${label} target %">
+    </div>
+    <div class="am-pct"><span class="am-pct-wrap"><input type="number" class="am-pct-input" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"><span class="am-pct-suffix">%</span></span></div>
+    <div class="am-dollar">${dollar}</div>
+    <div class="am-drift">${driftStr}</div>
+    <div class="am-lock"></div>
+  </div>`;
+}
+
+// ── Targeted DOM patches (drag/keyboard path — never touches the focused control itself) ────
+function amPatchRow(sym) {
+  if (!allocMgr) return;
+  const row = allocMgr.rows.find(r => r.sym === sym);
+  const el  = document.querySelector(`#amRows .am-row[data-sym="${CSS.escape(sym)}"]`);
+  if (!row || !el) return;
+  const scaleMax = allocMgr.scaleMax;
+  const pct      = row.target * 100;
+  const roomPct  = Math.min(100, allocRoomFor(allocMgr.rows, sym) * 100 / scaleMax * 100);
+  const changed  = Math.abs(row.target - row.saved) > ALLOC_EPS;
+  const drift    = pct - (row.now || 0);
+
+  el.classList.toggle('changed', changed);
+  const fill = el.querySelector('.am-fill'); if (fill) fill.style.width = Math.min(100, pct / scaleMax * 100) + '%';
+  const over = el.querySelector('.am-over'); if (over) { over.style.left = roomPct + '%'; over.style.width = Math.max(0, 100 - roomPct) + '%'; }
+  const pctInput = el.querySelector('.am-pct-input');
+  if (pctInput && document.activeElement !== pctInput) pctInput.value = pct.toFixed(2);
+  const rangeInput = el.querySelector('.am-range');
+  if (rangeInput && document.activeElement !== rangeInput) rangeInput.value = pct.toFixed(1);
+  const dollarEl = el.querySelector('.am-dollar'); if (dollarEl) dollarEl.textContent = fmtCurr(row.target * (allocMgr.model.investable || 0));
+  const driftEl = el.querySelector('.am-drift');
+  if (driftEl && row.isPos) { driftEl.textContent = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%'; driftEl.style.fontWeight = Math.abs(drift) >= 2 ? '600' : ''; }
+  const pctCell = el.querySelector('.am-pct');
+  let oldBtn = pctCell?.querySelector('.am-old');
+  if (changed) {
+    if (!oldBtn && pctCell) {
+      oldBtn = document.createElement('button');
+      oldBtn.type = 'button'; oldBtn.className = 'am-old'; oldBtn.dataset.sym = sym; oldBtn.title = t('am_revert');
+      pctCell.appendChild(oldBtn);
+    }
+    if (oldBtn) oldBtn.textContent = (row.saved * 100).toFixed(1) + '%';
+  } else if (oldBtn) { oldBtn.remove(); }
+}
+
+function amPatchGroup(key) {
+  if (!allocMgr) return;
+  const g = allocGroups(allocMgr.rows, allocMgr.groupBy).find(x => x.key === key);
+  if (!g) return;
+  const el = document.querySelector(`#amRows .am-group[data-group="${CSS.escape(key)}"]`);
+  if (el) {
+    const pct = g.target * 100;
+    const fill = el.querySelector('.am-fill'); if (fill) fill.style.width = Math.min(100, pct) + '%';
+    const pctInput = el.querySelector('.am-pct-input'); if (pctInput && document.activeElement !== pctInput) pctInput.value = pct.toFixed(2);
+    const rangeInput = el.querySelector('.am-range'); if (rangeInput && document.activeElement !== rangeInput) rangeInput.value = pct.toFixed(1);
+    const dollarEl = el.querySelector('.am-dollar'); if (dollarEl) dollarEl.textContent = fmtCurr(g.target * (allocMgr.model.investable || 0));
+    const driftEl = el.querySelector('.am-drift'); if (driftEl) { const d = pct - g.now; driftEl.textContent = (d >= 0 ? '+' : '') + d.toFixed(1) + '%'; }
+  }
+  g.syms.forEach(amPatchRow);
+}
+
+// Room changes for every row whenever any one row/group changes — refresh the hatched overflow
+// zone on release rather than on every drag tick (cheap, but no need to do it 60x/sec).
+function amRefreshOverHatches() {
+  if (!allocMgr) return;
+  const scaleMax = allocMgr.scaleMax;
+  document.querySelectorAll('#amRows .am-row').forEach(el => {
+    const sym  = el.dataset.sym;
+    const room = allocRoomFor(allocMgr.rows, sym) * 100;
+    const over = el.querySelector('.am-over');
+    if (over) { const roomPct = Math.min(100, room / scaleMax * 100); over.style.left = roomPct + '%'; over.style.width = Math.max(0, 100 - roomPct) + '%'; }
+  });
+}
+
+// ── Add-from-watchlist ──────────────────────────────────────────────────────────
+function amRenderAddWatch() {
+  const el = document.getElementById('amAddWatch');
+  if (!el || !allocMgr) return;
+  const candidates = allocWatchCandidates(allocMgr.model, allocMgr.rows);
+  el.innerHTML = candidates.length ? `<button type="button" class="am-btn am-add-watch-btn" onclick="amToggleWatchPicker()">${t('am_add_watch')}</button>
+    <div id="amWatchPicker" class="am-watch-picker" hidden>
+      <input type="text" id="amWatchSearch" class="tx-input" placeholder="${t('am_search')}" oninput="amFilterWatch(this.value)" autocomplete="off">
+      <div id="amWatchList" class="am-watch-list"></div>
+    </div>` : '';
+}
+function amToggleWatchPicker() {
+  const box = document.getElementById('amWatchPicker');
+  if (!box) return;
+  box.hidden = !box.hidden;
+  if (!box.hidden) { amFilterWatch(''); document.getElementById('amWatchSearch')?.focus(); }
+}
+function amFilterWatch(q) {
+  const list = document.getElementById('amWatchList');
+  if (!list || !allocMgr) return;
+  const query = (q || '').toUpperCase();
+  const candidates = allocWatchCandidates(allocMgr.model, allocMgr.rows)
+    .filter(w => !query || w.sym.toUpperCase().includes(query) || (w.name || '').toUpperCase().includes(query));
+  list.innerHTML = candidates.length
+    ? candidates.map(w => `<div class="am-watch-opt" data-sym="${escHtml(w.sym)}"><span class="am-dot" style="background:${colorFor(w.sym)}"></span><strong>${escHtml(w.sym)}</strong><span class="am-name">${escHtml(w.name)}</span></div>`).join('')
+    : `<div class="am-watch-empty">—</div>`;
+}
+function amPickWatch(sym) {
+  if (!allocMgr) return;
+  allocAddWatch(allocMgr.model, allocMgr.rows, sym);
+  allocMgr.order.push(sym);
+  document.getElementById('amWatchPicker')?.setAttribute('hidden', '');
+  amRenderRows();
+  amSchedulePies();
+}
+
+// ── Lock / revert ───────────────────────────────────────────────────────────────
+function amToggleLock(sym) {
+  if (!allocMgr || !sym) return;
+  const r = allocMgr.rows.find(x => x.sym === sym);
+  if (!r) return;
+  r.locked = !r.locked; // not history — lock state isn't an undoable target edit
+  const btn = document.querySelector(`#amRows .am-lock[data-sym="${CSS.escape(sym)}"]`);
+  if (btn) { btn.setAttribute('aria-pressed', r.locked); btn.innerHTML = r.locked ? AM_LOCK_CLOSED_ICON : AM_LOCK_OPEN_ICON; }
+}
+function amRevertRow(sym) {
+  if (!allocMgr || !sym) return;
+  allocPush(allocMgr.hist, allocMgr.rows);
+  allocRevertRow(allocMgr.rows, sym);
+  amPatchRow(sym);
+  amRefreshOverHatches();
+  amUpdateBudget();
+  amUpdateHistButtons();
+  amSchedulePies();
+}
+
+// ── Quick buttons / group-by ─────────────────────────────────────────────────────
+function amQuick(kind) {
+  if (!allocMgr) return;
+  allocPush(allocMgr.hist, allocMgr.rows);
+  if (kind === 'match') allocMatchCurrent(allocMgr.rows);
+  else if (kind === 'equal') allocEqualWeight(allocMgr.rows);
+  else if (kind === 'fill') allocFillRest(allocMgr.rows);
+  else if (kind === 'reset') allocResetAll(allocMgr.rows);
+  amRenderRows();
+  amUpdateBudget();
+  amUpdateHistButtons();
+  amSchedulePies();
+}
+function amGroupBy(key) {
+  if (!allocMgr) return;
+  allocMgr.groupBy = key;
+  document.querySelectorAll('.am-seg-btn').forEach(b => {
+    const active = b.dataset.key === key;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active);
+  });
+  amRenderRows();
+}
+
+// ── Filter chip (pie-slice click-through — pass 3 calls amSetFilter) ────────────────
+window.amSetFilter = function(field, key) {
+  if (!allocMgr) return;
+  allocMgr.filter = { field, key };
+  amRenderFilterChip();
+  amRenderRows();
+};
+window.amClearFilter = function() {
+  if (!allocMgr) return;
+  allocMgr.filter = null;
+  amRenderFilterChip();
+  amRenderRows();
+};
+function amRenderFilterChip() {
+  const chip = document.getElementById('amFilterChip');
+  if (!chip) return;
+  if (!allocMgr?.filter) { chip.hidden = true; chip.textContent = ''; return; }
+  const { field, key } = allocMgr.filter;
+  const fieldLabel = field === 'category' ? t('category_label') : field === 'custom' ? t('custom_label') : field === 'myGroup' ? t('mygroup_label') : field;
+  const keyLabel = field === 'category' ? t(key) : (key === 'Untagged' ? t('am_untagged') : key);
+  chip.hidden = false;
+  chip.textContent = `${fieldLabel}: ${keyLabel} ×`;
+}
+
+// ── Undo/redo ─────────────────────────────────────────────────────────────────────
+function amDoUndo() {
+  if (!allocMgr || !allocUndo(allocMgr.hist, allocMgr.rows)) return;
+  amRenderRows(); amUpdateBudget(); amUpdateHistButtons(); amSchedulePies();
+}
+function amDoRedo() {
+  if (!allocMgr || !allocRedo(allocMgr.hist, allocMgr.rows)) return;
+  amRenderRows(); amUpdateBudget(); amUpdateHistButtons(); amSchedulePies();
+}
+function amUpdateHistButtons() {
+  if (!allocMgr) return;
+  const u = document.getElementById('amUndo'); if (u) u.disabled = !allocMgr.hist.past.length;
+  const r = document.getElementById('amRedo'); if (r) r.disabled = !allocMgr.hist.future.length;
+  amUpdateSaveButton();
+}
+
+// ── Budget bar + save button ─────────────────────────────────────────────────────
+function amUpdateSaveButton() {
+  if (!allocMgr) return;
+  const btn = document.getElementById('amSave');
+  if (!btn) return;
+  const n    = allocChanged(allocMgr.rows).length;
+  const over = allocTotal(allocMgr.rows) > 1 + ALLOC_EPS;
+  btn.disabled = n === 0 || over || allocMgr.saving;
+  btn.textContent = allocMgr.saving ? t('am_saving')
+    : n === 0 ? t('am_no_changes')
+    : n === 1 ? t('am_save_1')
+    : t('am_save_n').replace('{n}', n);
+}
+function amUpdateBudget() {
+  if (!allocMgr) return;
+  const fill = document.getElementById('amBudgetFill');
+  const text = document.getElementById('amBudgetText');
+  if (!fill || !text) return;
+  const total = allocTotal(allocMgr.rows);
+  const over  = total > 1 + ALLOC_EPS;
+  fill.style.width      = Math.min(100, total * 100) + '%';
+  fill.style.background = over ? 'var(--loss)' : 'var(--terracotta)';
+  if (over) {
+    text.textContent = `${t('am_over')} ${(total * 100 - 100).toFixed(1)}% — ${t('am_over_hint')}`;
+    text.style.color = 'var(--loss)';
+  } else if (Math.abs(total - 1) < 0.0001) {
+    text.textContent = t('am_fully');
+    text.style.color = '';
+  } else {
+    const dollar = fmtCurr(Math.max(0, 1 - total) * (allocMgr.model.investable || 0));
+    text.textContent = `${(total * 100).toFixed(1)}% ${t('am_allocated')} · ${Math.max(0, (1 - total) * 100).toFixed(1)}% ${t('am_unallocated')} · ${dollar}`;
+    text.style.color = '';
+  }
+  amUpdateSaveButton();
+}
+function amFlashBudget() {
+  const bar = document.querySelector('#allocMgmtModal .am-budget-bar');
+  if (!bar) return;
+  bar.classList.remove('am-flash'); void bar.offsetWidth; bar.classList.add('am-flash');
+  setTimeout(() => bar.classList.remove('am-flash'), 700);
+}
+function amPulseOver(sym) {
+  if (!sym) return;
+  const over = document.querySelector(`#amRows .am-row[data-sym="${CSS.escape(sym)}"] .am-over`);
+  if (!over) return;
+  over.classList.remove('am-flash'); void over.offsetWidth; over.classList.add('am-flash');
+  setTimeout(() => over.classList.remove('am-flash'), 700);
+}
+
+// ── Input handling ────────────────────────────────────────────────────────────────
+// A gesture's history entry is pushed lazily, on its FIRST actual value change — not on
+// pointerdown/keydown — so a click or keypress that never moves the value never leaves a
+// no-op undo step. `_gestureSnap` (the pre-gesture state) is captured eagerly at grab time;
+// `_gesturePushed` gates the one-time push so a multi-tick drag or a single keypress each
+// produce exactly one history entry.
+function amPushGestureIfNeeded() {
+  if (!allocMgr?._gestureSnap || allocMgr._gesturePushed) return;
+  allocMgr.hist.past.push(allocMgr._gestureSnap);
+  if (allocMgr.hist.past.length > 100) allocMgr.hist.past.shift();
+  allocMgr.hist.future = [];
+  allocMgr._gesturePushed = true;
+}
+function amHandleRangeInput(range) {
+  if (!allocMgr) return;
+  const val = parseFloat(range.value);
+  if (!isFinite(val)) return;
+  amPushGestureIfNeeded();
+  amUpdateHistButtons();
+  const sym = range.dataset.sym, group = range.dataset.group;
+  let capped = false;
+  if (sym) {
+    const res = allocSetTarget(allocMgr.rows, sym, val / 100);
+    capped = res.capped;
+    amPatchRow(sym);
+    if (capped) range.value = (allocMgr.rows.find(r => r.sym === sym).target * 100).toFixed(1);
+  } else if (group) {
+    if (allocMgr._gestureSnap) allocApplySnapshot(allocMgr.rows, allocMgr._gestureSnap);
+    allocScaleGroup(allocMgr.rows, allocMgr.groupBy, group, val / 100);
+    amPatchGroup(group);
+    const g = allocGroups(allocMgr.rows, allocMgr.groupBy).find(x => x.key === group);
+    if (g) { if (g.target * 100 < val - 0.05) capped = true; range.value = (g.target * 100).toFixed(1); }
+  }
+  amUpdateBudget();
+  amUpdateHistButtons();
+  amSchedulePies();
+  if (capped) { amFlashBudget(); if (sym) amPulseOver(sym); }
+}
+
+function amHandlePctChange(input) {
+  if (!allocMgr) return;
+  const sym = input.dataset.sym, group = input.dataset.group;
+  const raw = input.value.trim();
+  const val = parseFloat(raw);
+  const restore = () => {
+    if (sym) { const r = allocMgr.rows.find(x => x.sym === sym); if (r) input.value = (r.target * 100).toFixed(2); }
+    else if (group) { const g = allocGroups(allocMgr.rows, allocMgr.groupBy).find(x => x.key === group); if (g) input.value = (g.target * 100).toFixed(2); }
+  };
+  if (raw === '' || !isFinite(val) || val < 0) { restore(); return; }
+
+  allocPush(allocMgr.hist, allocMgr.rows);
+  let capped = false;
+  if (sym) {
+    const res = allocSetTarget(allocMgr.rows, sym, val / 100);
+    capped = res.capped;
+    amPatchRow(sym);
+    const range = document.querySelector(`#amRows .am-row[data-sym="${CSS.escape(sym)}"] .am-range`);
+    const r = allocMgr.rows.find(x => x.sym === sym);
+    input.value = (r.target * 100).toFixed(2);
+    if (range) range.value = (r.target * 100).toFixed(1);
+  } else if (group) {
+    allocScaleGroup(allocMgr.rows, allocMgr.groupBy, group, val / 100);
+    amPatchGroup(group);
+    const g = allocGroups(allocMgr.rows, allocMgr.groupBy).find(x => x.key === group);
+    if (g) {
+      input.value = (g.target * 100).toFixed(2);
+      if (g.target * 100 < val - 0.05) capped = true;
+      const range = document.querySelector(`#amRows .am-group[data-group="${CSS.escape(group)}"] .am-range`);
+      if (range) range.value = (g.target * 100).toFixed(1);
+    }
+  }
+  amRefreshOverHatches();
+  amUpdateBudget();
+  amUpdateHistButtons();
+  amSchedulePies();
+  if (capped) amFlashBudget();
+}
+
+// Bound once (the overlay element is never destroyed, only its innerHTML — see amRender), so
+// re-renders never lose these listeners and rows never need per-row bindings.
+function amBindOverlay() {
+  const overlay = document.getElementById('allocMgmtModal');
+  if (!overlay || overlay._amBound) return;
+  overlay._amBound = true;
+
+  overlay.addEventListener('pointerdown', e => {
+    const range = e.target.closest('.am-range');
+    if (!range || !allocMgr) return;
+    allocMgr._gestureSnap = allocSnapshot(allocMgr.rows);
+    allocMgr._gesturePushed = false; // lazy — only pushed on the first actual value change, see amPushGestureIfNeeded
+    amSetHover(range.dataset.sym ? { sym: range.dataset.sym } : { field: allocMgr.groupBy, key: range.dataset.group });
+  });
+
+  overlay.addEventListener('input', e => {
+    const range = e.target.closest('.am-range');
+    if (range && allocMgr) amHandleRangeInput(range);
+  });
+
+  overlay.addEventListener('change', e => {
+    const range = e.target.closest('.am-range');
+    if (range && allocMgr) { amRefreshOverHatches(); amSetHover(null); return; }
+    const pctInput = e.target.closest('.am-pct-input');
+    if (pctInput && allocMgr) amHandlePctChange(pctInput);
+  });
+
+  overlay.addEventListener('pointerup', e => {
+    if (e.target.closest('.am-range') && allocMgr) amSetHover(null);
+  });
+
+  overlay.addEventListener('pointerover', e => {
+    if (!allocMgr) return;
+    const row = e.target.closest('.am-row');
+    if (row) { amSetHover({ sym: row.dataset.sym }); return; }
+    const grp = e.target.closest('.am-group');
+    if (grp) amSetHover({ field: allocMgr.groupBy, key: grp.dataset.group });
+  });
+  overlay.addEventListener('pointerout', e => {
+    if (!allocMgr) return;
+    if (e.target.closest('.am-row') || e.target.closest('.am-group')) amSetHover(null);
+  });
+
+  overlay.addEventListener('keydown', e => {
+    const range = e.target.closest('.am-range');
+    if (range && allocMgr) {
+      const navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
+      if (navKeys.includes(e.key) && !e.repeat) {
+        allocMgr._gestureSnap = allocSnapshot(allocMgr.rows);
+        allocMgr._gesturePushed = false;
+      }
+      if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const dir = (e.key === 'ArrowRight' || e.key === 'ArrowUp') ? 1 : -1;
+        const cur = parseFloat(range.value) || 0;
+        range.value = Math.max(0, Math.min(parseFloat(range.max), cur + dir));
+        amHandleRangeInput(range);
+      }
+      return;
+    }
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return; // let the browser handle text/number editing
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); amDoUndo(); }
+    else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); amDoRedo(); }
+  });
+
+  overlay.addEventListener('click', e => {
+    const lockBtn = e.target.closest('.am-lock');
+    if (lockBtn?.dataset.sym) { amToggleLock(lockBtn.dataset.sym); return; }
+    const oldBtn = e.target.closest('.am-old');
+    if (oldBtn) { amRevertRow(oldBtn.dataset.sym); return; }
+    const watchOpt = e.target.closest('.am-watch-opt');
+    if (watchOpt) { amPickWatch(watchOpt.dataset.sym); return; }
+  });
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────────
+window.amSave = async function() {
+  if (!allocMgr || allocMgr.saving) return;
+  allocMgr.saving = true;
+  amUpdateSaveButton();
+  const statusEl = document.getElementById('amStatus');
+  const res = await allocSaveTargets(allocMgr.port, allocMgr.rows);
+  allocMgr.saving = false;
+
+  if (res.ok) {
+    if (statusEl) {
+      let html = `<span style="color:var(--gain)">${escHtml(t('am_saved').replace('{n}', res.saved))}</span>`;
+      if (res.missing?.length) html += ` <span style="color:var(--honey)">· ${escHtml(t('am_not_found'))}: ${escHtml(res.missing.join(', '))}</span>`;
+      if (res.fallback) html += ` <span style="color:var(--gain)">· ${escHtml(t('am_fallback'))}</span>`;
+      statusEl.innerHTML = html;
+    }
+    allocMgr.hist = allocHistoryNew();
+    applyPortfolioView(); // destroys every Chart.js instance, including these pies
+    allocMgr.model = modelForPort(allocMgr.port);
+    allocMgr.rows.forEach(r => {
+      const p = findPosIn(allocMgr.model, r.sym);
+      if (p) { r.now = p.investWeightPct || 0; r.value = p.currentValue || 0; }
+    });
+    amRenderRows();
+    amUpdateBudget();
+    amUpdateHistButtons();
+    renderAllocPies();
+  } else {
+    const key = res.error === 'read-only' ? 'am_err_readonly' : res.error === 'busy' ? 'am_err_busy' : 'am_err_generic';
+    let text = t(key);
+    if (key === 'am_err_generic') text += ` (${res.error})`;
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--loss)">${escHtml(text)}</span>`;
+    amUpdateSaveButton();
+  }
 };
 
 // ── Multi-portfolio view rendering ────────────────────────────────────────────
@@ -15835,12 +16408,6 @@ async function refreshFutures() {
       if (typeof currentModel !== 'undefined' && currentModel) renderGauge(currentModel);
       return;
     }
-    if (key === 'allocDonut') {
-      if (panelEl) renderPanelBody();
-      destroyAllocCharts();
-      if (typeof allocMgmtState !== 'undefined' && allocMgmtState) renderAllocDonuts();
-      return;
-    }
     rerenderDonuts();
   }
 
@@ -15900,12 +16467,6 @@ async function refreshFutures() {
         { value: 'stacked', label: 'Stacked' },
         { value: 'inline',  label: 'Inline' },
         { value: 'badge',   label: 'Badge' },
-      ]),
-      `<div class="tw-section">Alloc donuts</div>`,
-      radio('allocDonut', 'Style', [
-        { value: 'cozy',  label: 'Cozy' },
-        { value: 'thin',  label: 'Thin' },
-        { value: 'bold',  label: 'Bold' },
       ]),
       `<div class="tw-section">Geometry</div>`,
       slider('cutout',       'Ring thickness',   30, 85, 1, '%'),
