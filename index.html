@@ -1215,6 +1215,178 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 @media (max-width: 1024px) { .alloc-summary { grid-template-columns: 1fr; } }
 @media (max-width: 640px)  { .alloc-donuts  { grid-template-columns: 1fr; } }
 
+/* ── Symbol window ── */
+.tx-modal.sym-modal { max-width: 1180px; width: calc(100vw - 40px); max-height: calc(100vh - 60px); display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+#symbolModalBody { display: flex; flex-direction: column; gap: var(--sp-5); overflow-y: auto; flex: 1; min-height: 0; padding: var(--sp-4); }
+#symModalBelow:empty { display: none; }
+
+.sym-modal .tx-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--muted); font-size: 18px; line-height: 1;
+  cursor: pointer; font-family: var(--font-ui);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.sym-modal .tx-close:hover { color: var(--ink); background: var(--track); }
+.sym-modal .tx-close:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+
+.sym-hero { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
+.sym-hero-logo .logo-wrap, .sym-hero-logo .logo-img, .sym-hero-logo .logo-fb { width: 44px; height: 44px; border-radius: 12px; }
+.sym-hero-logo .logo-fb { font-size: 14px; }
+.sym-id { flex: 1 1 220px; min-width: 0; }
+.sym-row1 { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.sym-title { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
+.sym-portbadge { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: var(--track); color: var(--muted); }
+.sym-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.sym-price-row { display: flex; align-items: baseline; gap: 10px; margin-top: var(--sp-2); flex-wrap: wrap; }
+.sym-px { font-family: var(--font-mono); font-size: 26px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sym-px-chg { font-family: var(--font-mono); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sym-hero-tr { text-align: right; }
+.sym-hero-tr .l { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.sym-hero-tr .v { font-family: var(--font-mono); font-size: 21px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.sym-hero-tr .sub { font-family: var(--font-mono); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.sym-editplan {
+  font-size: 11px; font-weight: 700; color: var(--btn-fg); background: var(--btn-bg);
+  border: none; border-radius: var(--radius-pill); padding: 8px 16px; cursor: pointer;
+  white-space: nowrap; font-family: var(--font-ui);
+}
+.sym-editplan:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
+.sym-hero-actions { display: flex; align-items: center; gap: 8px; }
+
+.sym-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: var(--sp-3); }
+.sym-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--track); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sym-chip.t-hit  { background: color-mix(in oklab, var(--peri) 25%, var(--card)); color: var(--peri); }
+.sym-chip.sl-hit { background: color-mix(in oklab, var(--loss) 22%, var(--card)); color: var(--loss); }
+.sym-chip.tp-hit { background: color-mix(in oklab, var(--gain) 25%, var(--card)); color: var(--gain); }
+.sym-chip.t-near, .sym-chip.sl-near, .sym-chip.tp-near { background: color-mix(in oklab, var(--honey) 20%, var(--card)); color: var(--honey); }
+
+.sym-chart-box { background: var(--track); border-radius: var(--radius-sm); padding: var(--sp-3); }
+.sym-chart-ctrls { display: flex; gap: 5px; margin-top: var(--sp-2); flex-wrap: wrap; }
+.sym-mk-legend { display: flex; gap: var(--sp-3); margin-top: 6px; font-size: 10px; font-weight: 700; }
+.sym-mk-legend .mk-buy  { color: var(--gain); }
+.sym-mk-legend .mk-sell { color: var(--loss); }
+
+.sym-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+.sym-tile { background: var(--card); border: 1px solid var(--card-edge); border-radius: var(--radius-sm); padding: var(--sp-3); }
+.sym-tile-v { font-family: var(--font-mono); font-size: 20px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sym-tile-l { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+/* ── Below-the-fold: "the money" + "the story" sections (pass 2a) ── */
+.sym-sect-h { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.sym-sect-h span { font-family: var(--font-ui); font-size: 12px; font-weight: 500; color: var(--muted); }
+.sym-grid { display: grid; grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); gap: var(--sp-3); align-items: start; margin-top: var(--sp-3); }
+.sym-col { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+/* P/L waterfall */
+.sym-wf-total { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); padding-bottom: var(--sp-3); }
+.sym-wf-total-l { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.sym-wf-amt { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.sym-wf-pct { font-family: var(--font-mono); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 6px; }
+.sym-wf-line { display: grid; grid-template-columns: 78px 1fr 92px; align-items: center; gap: var(--sp-3); font-size: 12px; padding: 3px 0; }
+.sym-wf-l { color: var(--muted); }
+.sym-wf-bar-track { height: 8px; border-radius: var(--radius-pill); background: var(--track); overflow: hidden; }
+.sym-wf-bar-fill { height: 100%; width: 100%; border-radius: var(--radius-pill); transform-origin: left; transition: transform .3s var(--ease-out-quint); }
+.sym-wf-v { font-family: var(--font-mono); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.sym-wf-rule { border-top: 1px solid var(--line); margin: var(--sp-2) 0; }
+.sym-wf-foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2); font-size: 11px; color: var(--muted); }
+.sym-wf-foot b { font-family: var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* period strip */
+.sym-periods { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); flex-wrap: wrap; }
+.sym-period { flex: 1; min-width: 58px; background: var(--track); border-radius: 9px; padding: 6px 4px; text-align: center; }
+.sym-period-l { font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--muted); }
+.sym-period-v { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* trade record strip */
+.sym-record { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-size: 11px; color: var(--muted); }
+.sym-record b { font-family: var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* 52-week range */
+.sym-rng { position: relative; height: 8px; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--track), var(--hover), var(--track)); margin: 20px 0 12px; }
+.sym-rng-now { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: var(--terracotta); border: 2px solid var(--card); transform: translate(-50%, -50%); }
+.sym-rng-avg { position: absolute; top: 50%; width: 2px; height: 16px; background: var(--ink); opacity: .55; transform: translate(-50%, -50%); }
+.sym-rng-end { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* weight vs target */
+.sym-wt { position: relative; height: 11px; border-radius: var(--radius-pill); background: var(--track); overflow: visible; margin: 18px 0 8px; }
+.sym-wt > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--terracotta); }
+.sym-wt-notch { position: absolute; top: -4px; right: 0; width: 2px; height: 19px; background: var(--ink); opacity: .7; }
+
+/* shared label/value rows (weight vs target, calendar) */
+.sym-krow { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: 12px; }
+.sym-klabel { color: var(--muted); }
+.sym-kval { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* transactions table */
+.sym-tx-scroll { overflow-x: auto; }
+.sym-tx-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sym-tx-table thead th { text-align: right; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 0 var(--sp-2) 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.sym-tx-table thead th:first-child, .sym-tx-table thead th:nth-child(2) { text-align: left; }
+.sym-tx-table tbody td { padding: 7px var(--sp-2); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sym-tx-table tbody td:first-child, .sym-tx-table tbody td:nth-child(2) { text-align: left; }
+.sym-tx-table tbody tr:not(.tx-note-row) { border-top: 1px solid var(--line-soft); }
+.sym-tx-table tbody tr:first-child { border-top: none; }
+.sym-tx-table tbody tr[data-mk-date]:hover td { background: var(--hover); }
+
+/* thesis (pass 3b: click-to-edit) */
+.sym-thesis-q { font-family: var(--font-display); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--ink); margin: 0; }
+.sym-thesis-q.sym-thesis-edit-trigger { cursor: pointer; border-radius: var(--radius-sm); padding: 4px 6px; margin: -4px -6px; transition: background .15s var(--ease-out-quint); }
+.sym-thesis-q.sym-thesis-edit-trigger:hover { background: var(--track); }
+.sym-thesis-empty { font-size: 12px; color: var(--muted); margin: 0; }
+.sym-thesis-add {
+  font-size: 12px; font-weight: 700; color: var(--terracotta); background: transparent;
+  border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 8px 12px;
+  cursor: pointer; width: 100%; text-align: left; font-family: var(--font-ui);
+  transition: border-color .15s, background .15s;
+}
+.sym-thesis-add:hover { background: var(--track); border-color: var(--terracotta); }
+.sym-thesis-textarea { display: block; width: 100%; resize: vertical; min-height: 72px; font-family: var(--font-ui); box-sizing: border-box; }
+.sym-thesis-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.sym-thesis-btn {
+  font-size: 11px; font-weight: 700; border-radius: var(--radius-pill); padding: 6px 14px;
+  cursor: pointer; font-family: var(--font-ui); border: 1px solid var(--line); background: transparent; color: var(--muted);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.sym-thesis-btn:hover { color: var(--ink); background: var(--track); }
+.sym-thesis-btn.primary { background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; }
+.sym-thesis-btn.primary:hover { background: var(--btn-bg); opacity: .88; }
+.sym-thesis-btn:disabled { opacity: .6; cursor: default; }
+.sym-thesis-status { font-size: 11px; margin-top: 6px; }
+#symPlanChips:empty { display: none; }
+.sym-plan-switch { flex: 0 0 auto; margin: 0 0 0 auto; min-width: 150px; }
+
+/* "Where SYM sits" donuts (pass 2b) */
+.sym-donuts { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.sym-donut { text-align: center; min-width: 0; }
+.sym-donut-wrap { position: relative; width: 100%; max-width: 124px; aspect-ratio: 1; margin: 0 auto; }
+.sym-donut-wrap canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+.sym-donut-readout { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.sym-donut-pct { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sym-donut-rank { font-family: var(--font-mono); font-size: 8px; font-weight: 700; color: var(--muted); letter-spacing: .06em; margin-top: 1px; }
+.sym-donut-label { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+
+/* True exposure (pass 2b) */
+.sym-te-row { display: grid; grid-template-columns: 62px 1fr 48px; align-items: center; gap: var(--sp-2); font-size: 11px; padding: 2px 0; }
+.sym-te-l { color: var(--muted); }
+.sym-te-bar { height: 8px; border-radius: var(--radius-pill); background: var(--track); overflow: hidden; }
+.sym-te-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); }
+.sym-te-v { font-family: var(--font-mono); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.sym-te-tot { border-top: 1px solid var(--line); margin-top: var(--sp-2); padding-top: var(--sp-2); }
+.sym-te-note { font-size: 10px; color: var(--muted); margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .sym-tiles { grid-template-columns: repeat(2, 1fr); }
+  .sym-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .tx-modal.sym-modal { width: 100vw; max-width: 100vw; max-height: 100dvh; border-radius: 0; }
+  .sym-tiles { grid-template-columns: 1fr; }
+  .sym-hero { flex-direction: column; align-items: stretch; }
+  .sym-hero-tr { text-align: left; }
+  .sym-hero-actions { align-self: flex-start; }
+}
+
 /* ── Manual collapse (desktop) ── */
 /* Wide screens treat the sidebar as a real grid column, so collapsing it reflows the content
    rather than floating a drawer over it. Scoped to min-width so it can't override the ≤900px
@@ -1715,7 +1887,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .ax-mini-btn svg { flex-shrink: 0; }
 .ax-body { display: grid; grid-template-columns: 55fr 45fr; flex: 1; min-height: 0; }
 .ax-context { overflow-y: auto; min-width: 0; padding: var(--sp-4) var(--sp-5); }
-.ax-panel { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+.ax-panel { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .ax-seg { display: flex; background: var(--track); border-radius: var(--radius-sm); padding: 3px; gap: 2px; margin: var(--sp-4) var(--sp-4) 0; flex-shrink: 0; }
 .ax-seg-btn { flex: 1; padding: var(--sp-2) var(--sp-1); border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: background .15s var(--ease-out-quint), color .15s var(--ease-out-quint); letter-spacing: .4px; text-transform: uppercase; }
 .ax-seg-btn.active { background: var(--terracotta); color: var(--btn-fg); }
@@ -3094,6 +3266,14 @@ let nwData       = null;
 let nwTimeFilter = 'ALL';
 let _donutInclCash = localStorage.getItem('nwDonutCash.v1') !== 'off';  // Breakdowns donuts: include cash slice (default on); key name is historical; the pref now governs every Breakdowns donut
 let shellBuilt = false;
+// Symbol window (a dismissible modal, not a page route): which symbol is currently open.
+let _symPageSym = null;
+// Which portfolio's plan (tranches/SL/TP/note) the symbol window's Plan chips + Thesis card are
+// currently showing/editing — a symbol can hold a different plan per portfolio (see Multi-Portfolio
+// in CLAUDE.md). Set on open by _symInitPlanPort; switched in place by _symSwitchPlanPort without
+// re-rendering the whole modal (that would tear down the TV chart). Never read getPlan(sym) with
+// no portfolio arg inside this modal — always getPlan(sym, _symPlanPort).
+let _symPlanPort = null;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false, _txSearch = '';
 let _editOrigTx = null;   // the row as it was when the edit modal opened, for the impact line
@@ -3105,6 +3285,8 @@ let pnlData = null;
 let txCache = null;
 let lastTxData = null;
 let historyCache = null;
+let _calendarCache = null; // last-good readCalendarSheet() result — lets the symbol page's Calendar
+                            // card read events synchronously without ever triggering its own fetch
 let _ohlcCache = {}; // { sym: { dateStr: {o,h,l,c} } } — Heikin Ashi OHLC cache, in-memory/session only
 let chartType = localStorage.getItem('chartType.v1') || 'heikin'; // 'area' | 'heikin' — TV chart type pref (default HA)
 // Default ON: absent → on, and only an explicit '0' turns it off. toggleEma always writes '1'
@@ -4225,6 +4407,95 @@ function destroySymbolDetailCharts() {
   symbolDetailCharts = [];
 }
 
+// Buy/Sell trades for a symbol, filtered exactly like the transactions table (and gating its
+// chart-marker legend) — shared here so the table, the legend and the chart markers can never
+// disagree about which trades are in view.
+function _sdTradeTxs(sym) {
+  return (txList || [])
+    .filter(x => x.ticker === sym && (activePortfolio === 'ALL' || (x.portfolio || DEFAULT_PORT) === activePortfolio))
+    .filter(x => x.type === 'Buy' || x.type === 'Sell');
+}
+
+// Base (unhighlighted) marker set for the symbol currently open in the modal — module-level so
+// the hover handler (_sdSetMarkerHover) can re-emit it without rebuilding from txList each time.
+let _sdTxMarkers = [];
+let _sdMarkerHoverDate = null;
+
+// Builds up to two price-chart markers per date: total Buy shares (belowBar/arrowUp/gain) and
+// total Sell shares (aboveBar/arrowDown/loss). Same-type trades on one date are merged into one
+// marker (summed shares) — but a same-day Buy+Sell is NOT netted into a single arrow. Buy and Sell
+// markers sit on opposite sides of the bar (belowBar vs aboveBar), so a date that emits both can't
+// visually collide, and collapsing e.g. a 10-buy/8-sell day into one "+2" arrow would misrepresent
+// the ledger the same way marking a Transfer as a trade would. The array stays sorted ascending by
+// time (dates are iterated in sorted order); where one date emits both markers, their relative
+// order against each other doesn't matter since they share a timestamp.
+// Marker text is "<shares> ($<price>)" — the price is the share-weighted average across whatever
+// rows got merged into that marker (sum(price*shares)/sum(shares)), never a plain mean or the
+// first trade's price, so e.g. a day combining 100sh@$140 + 1sh@$200 reports the true blended
+// cost. Always fmtUSD, never fmtCurr — per-share prices stay USD regardless of the currency toggle
+// (CLAUDE.md). The price portion is omitted (falls back to just the share count) rather than ever
+// printing NaN/$0.00 if the share total or the weighted price can't be computed.
+function _sdApplyTxMarkers(sym, series) {
+  if (!series) return;
+  const byDate = {};
+  _sdTradeTxs(sym).forEach(x => (byDate[x.date] || (byDate[x.date] = [])).push(x));
+  // Quantities carry up to 4 decimals — format compactly so a whole-share trade reads "10", not
+  // "10.0000", while a fractional one keeps only the digits it needs (max 4dp).
+  const fmtShares = n => n.toFixed(4).replace(/\.?0+$/, '');
+  const markerText = (rows, totalShares) => {
+    const sharesTxt = fmtShares(totalShares);
+    if (!(totalShares > 0)) return sharesTxt;
+    const weighted = rows.reduce((s, r) => s + (r.price || 0) * r.shares, 0) / totalShares;
+    return (Number.isFinite(weighted) && weighted > 0) ? `${sharesTxt} (${fmtUSD(weighted)})` : sharesTxt;
+  };
+  const markers = [];
+  Object.keys(byDate).sort().forEach(d => {
+    const rows     = byDate[d];
+    const buyRows  = rows.filter(r => r.type === 'Buy');
+    const sellRows = rows.filter(r => r.type === 'Sell');
+    const buys     = buyRows.reduce((s, r) => s + r.shares, 0);
+    const sells    = sellRows.reduce((s, r) => s + r.shares, 0);
+    if (buys  > 0) markers.push({ time: d, position: 'belowBar', shape: 'arrowUp',   color: css('--gain'), text: markerText(buyRows, buys),   id: d + ':Buy'  });
+    if (sells > 0) markers.push({ time: d, position: 'aboveBar', shape: 'arrowDown', color: css('--loss'), text: markerText(sellRows, sells), id: d + ':Sell' });
+  });
+  _sdTxMarkers = markers;
+  _sdMarkerHoverDate = null;
+  try { series.setMarkers(markers); } catch(_) {}
+}
+
+// Re-emits the marker set with the hovered date's marker drawn larger/terracotta. Called by the
+// delegated tx-row hover listener (_sdBindMarkerHover). Guards every teardown/async race: the
+// chart may not exist yet (table paints before the async buildSdTvChart resolves), the series may
+// have been torn down mid-rebuild, or the hovered date may not be in the current marker set —
+// all of these silently no-op instead of throwing.
+function _sdSetMarkerHover(date) {
+  _sdMarkerHoverDate = date;
+  const series = window._sdTvSeries;
+  if (!series || !_sdTxMarkers.length) return;
+  try {
+    if (!date) { series.setMarkers(_sdTxMarkers); return; }
+    series.setMarkers(_sdTxMarkers.map(m => m.time === date
+      ? { ...m, color: css('--terracotta'), size: 2 }
+      : m));
+  } catch(_) {}
+}
+
+// Delegated hover listener on the modal overlay itself — openSymbolModal only ever replaces the
+// overlay's innerHTML, never recreates the overlay element, so this binds once and survives every
+// re-open (same guard pattern as amBindOverlay). A merged marker maps to every row on its date;
+// highlighting all of them together on hover is correct, not a bug.
+function _sdBindMarkerHover(overlay) {
+  if (!overlay || overlay._symTxHoverBound) return;
+  overlay._symTxHoverBound = true;
+  overlay.addEventListener('pointerover', e => {
+    const row = e.target.closest('tr[data-mk-date]');
+    if (row) _sdSetMarkerHover(row.dataset.mkDate);
+  });
+  overlay.addEventListener('pointerout', e => {
+    if (e.target.closest('tr[data-mk-date]')) _sdSetMarkerHover(null);
+  });
+}
+
 // Builds (or rebuilds, e.g. on chart-type toggle) the symbol-detail modal's TV
 // chart. Standalone so setChartType() can re-invoke it without re-rendering the
 // whole modal. Honors the global `chartType` ('area'|'heikin'); degrades to area
@@ -4233,6 +4504,9 @@ async function buildSdTvChart(sym) {
   const tvEl = document.getElementById('sdTvChart');
   if (!tvEl || typeof LightweightCharts === 'undefined') return;
   const seq = ++_sdTvBuildSeq;
+  // The symbol page sizes the container via CSS (height: min(58vh, 620px)) instead of the old
+  // modal's fixed 390px — measure it once the container is in the DOM rather than hard-coding.
+  const tvHeight = tvEl.clientHeight || 390;
 
   // Destroy any previously-built TV chart entry (toggle re-invocation) before rebuilding.
   symbolDetailCharts = symbolDetailCharts.filter(c => {
@@ -4241,7 +4515,7 @@ async function buildSdTvChart(sym) {
   });
 
   const pos  = findPos(sym);
-  const plan = getPlan(sym) || {};
+  const plan = getPlan(sym, _symPlanPort) || {};
   const { tranches = [], sl } = plan;
 
   // Fetch close-only history if not cached yet (used for area mode + as HA fallback source)
@@ -4299,7 +4573,7 @@ async function buildSdTvChart(sym) {
   // the effective (possibly degraded) type for this build without touching the persisted pref.
   const _userChartType = chartType;
   chartType = effectiveType;
-  const { chart: tvChart, series: tvSeries } = createTvAreaChart(tvEl, 390, symColor, clrTrack, clrMuted);
+  const { chart: tvChart, series: tvSeries } = createTvAreaChart(tvEl, tvHeight, symColor, clrTrack, clrMuted);
   chartType = _userChartType;
 
   const hasData = effectiveType === 'heikin'
@@ -4423,8 +4697,13 @@ async function buildSdTvChart(sym) {
       `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)">${t('no_price_data')}</div>`);
   }
 
+  // Buy/Sell markers — attached to tvSeries, not tied to setData, so sdSetRange/_sdDeepenHistory's
+  // plain series.setData() calls never drop them; only a full series rebuild (this function, e.g.
+  // the Area/HA toggle) needs to re-apply, which every call path through here now does.
+  _sdApplyTxMarkers(sym, tvSeries);
+
   // Resize observer
-  const ro = new ResizeObserver(() => tvChart.resize(tvEl.clientWidth, 390));
+  const ro = new ResizeObserver(() => tvChart.resize(tvEl.clientWidth, tvEl.clientHeight || tvHeight));
   ro.observe(tvEl);
 
   // Range switcher state
@@ -4441,104 +4720,565 @@ async function buildSdTvChart(sym) {
   symbolDetailCharts.push({ _isTv: true, destroy: () => { try { ro.disconnect(); tvChart.remove(); } catch(_) {} } });
 }
 
-window.openSymbolDetail = function(sym) {
+window.openSymbolModal = function(sym) {
   if (!currentModel) return;
-  destroySymbolDetailCharts();
-  const pos   = findPos(sym);
+  const pos = findPos(sym);
   if (!pos) return;
-  const color = colorFor(sym);
-  const plan  = getPlan(sym) || {};
-  const { tranches=[], sl, note } = plan;
-  const tc      = targetCtxFor(sym);
-  const td      = tc.pos ? getTargetDollar(tc.pos, tc.model) : 0;
-  const currPct = tc.pos ? getCurrentPct(tc.pos, tc.model) : 0;
-
-  const trancheRows = tranches.map((t, i) => {
-    const dollar = getTrancheDollar(i, tranches, currPct, td);
-    return `<tr style="border-bottom:1px solid var(--line-soft)">
-      <td style="padding:5px 8px;font-weight:700;color:${trancheColor(i)}">T${i+1}</td>
-      <td style="padding:5px 8px;text-align:right">${t.price ? fmtCurr(t.price) : '—'}</td>
-      <td style="padding:5px 8px;text-align:right">${(t.cumPct??0).toFixed(1)}%</td>
-      <td style="padding:5px 8px;text-align:right">${dollar > 0 ? fmtCurr(dollar) : '—'}</td>
-    </tr>`;
-  }).join('');
-
-  // Build plan progress bar
-  const localTrancheColor = i => {
-    const available = TRANCHE_COLORS.filter(c => c !== color);
-    return available[i % available.length];
-  };
-  const segs = [{ from: 0, to: currPct, color }];
-  let prevEnd = currPct;
-  tranches.forEach((t, i) => {
-    const cum = Math.max(prevEnd, t.cumPct ?? prevEnd);
-    if (cum > prevEnd) segs.push({ from: prevEnd, to: cum, color: localTrancheColor(i) });
-    prevEnd = cum;
-  });
-  const lastEnd  = segs[segs.length - 1]?.to ?? 0;
-  const scaleMax = lastEnd > 100 ? lastEnd * 1.1 : 100;
-  const tickLeft = (100 / scaleMax * 100).toFixed(2);
-  const planBarHtml = (td > 0) ? `
-    <div style="position:relative;height:22px;background:var(--track);border-radius:6px;overflow:hidden;margin-bottom:12px">
-      ${segs.map(s => {
-        const l = (s.from / scaleMax * 100).toFixed(2);
-        const w = ((s.to - s.from) / scaleMax * 100).toFixed(2);
-        return `<div style="position:absolute;left:${l}%;width:${w}%;top:0;height:100%;background:${s.color};display:flex;align-items:center;justify-content:center;overflow:hidden">
-          ${parseFloat(w) >= 7 ? `<span style="font-size:9px;font-weight:700;color:#fff;padding:0 3px">${s.to.toFixed(0)}%</span>` : ''}
-        </div>`;
-      }).join('')}
-      <div style="position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.7;left:${tickLeft}%;border-radius:1px"></div>
-    </div>` : '';
-
-  const realizedPnl  = (pnlData || []).filter(t => t.ticker === sym).reduce((s,t) => s + t.pnl, 0);
-  const hasRealizedPnl = (pnlData || []).some(t => t.ticker === sym);
-
-  const overlay = document.getElementById('symbolDetailModal');
+  _symPageSym = sym;
+  _symPlanPort = _symInitPlanPort(sym);
+  const overlay = document.getElementById('symbolModal');
   if (!overlay) return;
-  overlay.innerHTML = `<div class="tx-modal" style="max-width:930px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
-    <div class="tx-header">
-      <div style="display:flex;align-items:center;gap:10px">
-        ${logoCell(sym, color)}
-        <div>
-          <div style="font-size:15px;font-weight:700">${sym}${_activeProfile()?.geminiKey ? `<button class="gc-gemini-btn" onclick="openGeminiChat('${sym}')" title="Chat with Gemini">${GEMINI_ICON}</button>` : ''}</div>
-          <div style="font-size:11px;color:var(--muted)">${pos.name||''}</div>
-          <div style="font-size:11px;margin-top:3px;display:flex;gap:10px;flex-wrap:wrap">
-            ${pos.price    != null    ? `<span style="color:var(--muted)">Last <strong style="color:var(--ink)">${fmtCurr(pos.price)}</strong></span>` : ''}
-            ${(pos.qty||0)  > 0       ? `<span style="color:var(--muted)">Qty <strong style="color:var(--ink)">${pos.qty.toFixed(4)}</strong></span>` : ''}
-            ${(pos.avgPrice||0) > 0   ? `<span style="color:var(--muted)">Avg <strong style="color:var(--ink)">${fmtCurr(pos.avgPrice)}</strong></span>` : ''}
-          </div>
+  overlay.innerHTML = `<div class="tx-modal sym-modal" onclick="event.stopPropagation()">
+    <div id="symbolModalBody"></div>
+  </div>`;
+  _sdBindMarkerHover(overlay);
+  renderSymbolModal();
+  overlay.classList.add('open');
+};
+
+window.closeSymbolModal = function() {
+  document.getElementById('symbolModal')?.classList.remove('open');
+  destroySymbolDetailCharts();
+  _symPageSym = null;
+  _symPlanPort = null;
+};
+
+// Dismiss the symbol window before opening the Action Modal, so the two never stack. Order
+// matters: closeSymbolModal() tears down the price chart + donuts (destroySymbolDetailCharts())
+// before the Action Modal builds its own chart, so they never contend for chart instances or
+// leave an orphaned teardown entry in symbolDetailCharts. `port` is a parameter (captured by the
+// caller at render time, before this runs) rather than read from _symPlanPort in here, since
+// closeSymbolModal() nulls that global. Escape now closes straight through to the page beneath —
+// no "reopen the symbol window" logic, by design.
+window._symOpenAction = function(sym, port) {
+  closeSymbolModal();
+  openActionModal(sym, port);
+};
+
+// Every registered portfolio name — the canonical list _symInitPlanPort/_symPlanPortsWithPlan
+// scan for a symbol's per-portfolio plan. Falls back to DEFAULT_PORT on a pre-migration sheet
+// with no Portfolios registry (mirrors the fallback used throughout Multi-Portfolio).
+function _symAllPortNames() {
+  return _portfolioRegistry.length ? _portfolioRegistry.map(p => p.name) : [DEFAULT_PORT];
+}
+// Which portfolios actually have a saved plan for this symbol — drives whether the story
+// section's plan-port switcher renders at all (2+) and what its buttons are.
+function _symPlanPortsWithPlan(sym) {
+  return _symAllPortNames().filter(p => hasSavedPlan(sym, p));
+}
+// Initial plan-port for a freshly-opened symbol window: the symbol's own default portfolio if it
+// has a plan there, else the first portfolio (registry order) that does, else the default anyway
+// (a symbol with no plan anywhere still needs a port to save a new one against).
+function _symInitPlanPort(sym) {
+  const dp = defaultPortFor(sym);
+  if (hasSavedPlan(sym, dp)) return dp;
+  const withPlan = _symPlanPortsWithPlan(sym);
+  return withPlan[0] || dp;
+}
+
+// Plan status chips (entry tranches / SL / TP) for a given plan + price — shared by the initial
+// hero render and _symRenderPlanFragments (the portfolio-plan-switch / thesis-save updater) so
+// the two can never drift apart. Mirrors renderPlansPanel's SL/tranche/TP status thresholds
+// verbatim, so this page and Plan Watch / the Plans panel can never disagree either.
+function _symPlanChipsHtml(plan, price) {
+  const { tranches = [], sl } = plan;
+  const realTps = (plan.trimTranches || []).filter(t => t.price > 0);
+  let slStatus = 'none';
+  if (sl && price != null) {
+    const pct = (price - sl) / sl * 100;
+    slStatus = pct <= 0 ? 'hit' : pct <= 5 ? 'near' : 'none';
+  }
+  const tStatus = tranches.map(tr => {
+    if (!tr.price || price == null) return 'none';
+    const pct = (price - tr.price) / tr.price * 100;
+    return pct <= 0 ? 'hit' : pct <= 3 ? 'near' : 'above';
+  });
+  const tpStatus = realTps.map(tp => {
+    if (!tp.price || price == null) return 'none';
+    const pct = (price - tp.price) / tp.price * 100;
+    return pct >= 0 ? 'hit' : pct >= -3 ? 'near' : 'below';
+  });
+  const symChip = (label, status, kind, suffix) => {
+    const cls = status === 'hit' ? ` ${kind}-hit` : status === 'near' ? ` ${kind}-near` : '';
+    const badge = status === 'hit' ? suffix : status === 'near' ? ' ≈' : '';
+    return `<span class="sym-chip${cls}">${label}${badge}</span>`;
+  };
+  const tChips  = tranches.map((tr, i) => tr.price ? symChip(`T${i+1} ${fmtCurr(tr.price)}`, tStatus[i], 't', ' ↓') : '').join('');
+  const slChip  = sl ? symChip(`SL ${fmtCurr(sl)}`, slStatus, 'sl', ' 🔴') : '';
+  const tpChips = realTps.map((tp, i) => symChip(`TP${i+1} ${fmtCurr(tp.price)}`, tpStatus[i], 'tp', ' ✓')).join('');
+  return tChips + slChip + tpChips;
+}
+
+// Thesis card body — quote (click-to-edit when writable), "Add a thesis" CTA when empty and
+// writable, or a muted placeholder when empty and read-only (view-only sheets can't write a
+// plan at all, so there is nothing to click into).
+function _symThesisBodyHtml(plan) {
+  const note = plan.note || '';
+  if (note) {
+    return isReadOnly()
+      ? `<p class="sym-thesis-q">&ldquo;${escHtml(note)}&rdquo;</p>`
+      : `<p class="sym-thesis-q sym-thesis-edit-trigger" onclick="_symEditThesis()" title="Click to edit">&ldquo;${escHtml(note)}&rdquo;</p>`;
+  }
+  return isReadOnly()
+    ? `<p class="sym-thesis-empty">No thesis recorded.</p>`
+    : `<button type="button" class="sym-thesis-add" onclick="_symEditThesis()">+ Add a thesis</button>`;
+}
+
+// Full Thesis card — title + (when the symbol has a plan in 2+ portfolios) the plan-port
+// switcher + body. Built as one self-contained fragment with a stable id so
+// _symRenderPlanFragments can swap it via outerHTML without touching the rest of the modal.
+function _symThesisCardHtml(sym, plan) {
+  const planPorts = _symPlanPortsWithPlan(sym);
+  const switcherHtml = planPorts.length >= 2 ? `
+    <div class="ax-half sym-plan-switch">
+      ${planPorts.map(p => `<button type="button" class="ax-half-btn${p === _symPlanPort ? ' active' : ''}" onclick="_symSwitchPlanPort('${p}')">${escHtml(p)}</button>`).join('')}
+    </div>` : '';
+  return `
+    <div class="card" id="symThesisCard">
+      <div class="card-title"><span>Thesis</span>${switcherHtml}</div>
+      <div id="symThesisBody">${_symThesisBodyHtml(plan)}</div>
+    </div>`;
+}
+
+// Switch which portfolio's plan the Plan chips + Thesis card show, without re-rendering the
+// whole modal (that would tear down and rebuild the TV chart — see buildSdTvChart/renderSymbolModal).
+window._symSwitchPlanPort = function(port) {
+  if (!port || port === _symPlanPort) return;
+  _symPlanPort = port;
+  _symRenderPlanFragments();
+};
+
+// Re-renders only the plan-dependent fragments — the hero's Plan chips row and the Thesis card —
+// in place. Called after a plan-port switch and after a thesis save. Deliberately never calls
+// renderSymbolModal: a full re-render would tear down the TV chart (losing the user's zoom/range)
+// and rebuild every donut for no reason, since nothing else in the modal depends on _symPlanPort.
+function _symRenderPlanFragments() {
+  const sym = _symPageSym;
+  const pos = sym ? findPos(sym) : null;
+  if (!sym || !pos) return;
+  const plan = getPlan(sym, _symPlanPort) || {};
+  const chipsEl = document.getElementById('symPlanChips');
+  if (chipsEl) chipsEl.innerHTML = _symPlanChipsHtml(plan, pos.price ?? null);
+  const thesisEl = document.getElementById('symThesisCard');
+  if (thesisEl) thesisEl.outerHTML = _symThesisCardHtml(sym, plan);
+}
+
+// Enter edit mode for the Thesis card: swap #symThesisBody for a textarea + Save/Cancel.
+window._symEditThesis = function() {
+  if (isReadOnly()) return;
+  const body = document.getElementById('symThesisBody');
+  if (!body || !_symPageSym) return;
+  const plan = getPlan(_symPageSym, _symPlanPort) || {};
+  body.innerHTML = `
+    <textarea class="tx-input sym-thesis-textarea" id="symThesisInput" rows="4" placeholder="What's the plan for this position?">${escHtml(plan.note || '')}</textarea>
+    <div class="sym-thesis-actions">
+      <button type="button" class="sym-thesis-btn" onclick="_symCancelThesis()">Cancel</button>
+      <button type="button" class="sym-thesis-btn primary" id="symThesisSaveBtn" onclick="_symSaveThesis()">Save</button>
+    </div>
+    <div id="symThesisStatus" class="sym-thesis-status"></div>`;
+  document.getElementById('symThesisInput')?.focus();
+};
+
+window._symCancelThesis = function() {
+  const body = document.getElementById('symThesisBody');
+  if (!body || !_symPageSym) return;
+  const plan = getPlan(_symPageSym, _symPlanPort) || {};
+  body.innerHTML = _symThesisBodyHtml(plan);
+};
+
+// Save the edited note through the shared plan-save path. savePlanToSheet does a FULL ROW
+// REPLACEMENT — every field not passed through is erased from the sheet — so every field except
+// note is read straight off the currently-cached plan for this (sym, port) and passed back
+// unchanged. Never call it with a literal [] / null for tranches/sl/trimTranches here.
+window._symSaveThesis = async function() {
+  const sym = _symPageSym, port = _symPlanPort;
+  if (!sym || !port) return;
+  const input = document.getElementById('symThesisInput');
+  if (!input) return;
+  const btn = document.getElementById('symThesisSaveBtn');
+  const statusEl = document.getElementById('symThesisStatus');
+  const newNote = input.value.trim();
+  const p = getPlan(sym, port) || {};
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (statusEl) statusEl.textContent = '';
+  try {
+    await savePlanToSheet(sym, p.tranches || [], p.sl ?? null, newNote, p.trimTranches || [], port);
+    setPlan(sym, port, { ...p, note: newNote });
+    _symRenderPlanFragments();
+    if (currentModel) { renderTable(currentModel); renderPlansPanel(); renderPlanWatch(); }
+  } catch (e) {
+    // Never discard what the user typed — leave the textarea exactly as they left it and let
+    // them retry, matching the input still holding `newNote`.
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${escHtml(e.message)} — your text is kept, try again.</span>`;
+  }
+};
+
+// Read-only analysis window for a single symbol (replaces the old symbol-detail modal). Pass 1
+// renders the above-the-fold hero only — header, chart, 4 tiles; #symModalBelow is a placeholder
+// for a later pass.
+function renderSymbolModal() {
+  const el = document.getElementById('symbolModalBody');
+  if (!el) return;
+  const sym = _symPageSym;
+  const pos = sym ? findPos(sym) : null;
+  if (!sym || !pos) return;
+  const color = colorFor(sym);
+  const port  = defaultPortFor(sym);
+  // Watchlist-only symbols (no position in any portfolio) get a "Watchlist" badge and an
+  // "Add position" CTA in the hero instead of a portfolio badge / "Edit plan" — see Task 3.
+  const inPositions   = (currentModel.positions || []).some(p => p.symbol === sym) || currentModel.sgovPos?.symbol === sym;
+  const inWatchlist   = (currentModel.watchlist || []).some(w => w.symbol === sym);
+  const isWatchlistOnly = inWatchlist && !inPositions;
+  const plan  = getPlan(sym, _symPlanPort) || {};
+  const price = pos.price ?? null;
+  const chipsHtml = _symPlanChipsHtml(plan, price);
+
+  // ── Price + day change ──
+  const dc$ = pos.dayChange, dcPct = pos.dayChangePct;
+  const dayUp = dc$ != null && dc$ >= 0;
+  const dayChgHtml = dc$ != null
+    ? `<div class="sym-px-chg" style="color:var(${dayUp ? '--gain' : '--loss'})">${dayUp ? '▲' : '▼'} ${dayUp ? '+' : ''}${fmtCurr(dc$)}${dcPct != null ? `  ${dayUp ? '+' : ''}${dcPct.toFixed(2)}%` : ''}</div>`
+    : '';
+
+  // ── Total return: unrealized + realized + dividends, % denominator = cost sold + cost held
+  // (mirrors CLAUDE.md's computeRealizedTotals — a return on capital actually deployed, not
+  // model.totalInvested). Any missing input is omitted rather than counted as zero. ──
+  const realizedRows = (pnlData || []).filter(tr => tr.ticker === sym);
+  const hasRealized  = realizedRows.length > 0;
+  const divsByTicker = txCache ? computeDividends(txCache).byTicker : {};
+  const hasDivs       = Object.prototype.hasOwnProperty.call(divsByTicker, sym);
+  let totalGain = 0, totalCost = 0, anyGain = false;
+  if (pos.pnl != null) { totalGain += pos.pnl; totalCost += (pos.costBasis || 0); anyGain = true; }
+  if (hasRealized) {
+    totalGain += realizedRows.reduce((s, tr) => s + tr.pnl, 0);
+    totalCost += realizedRows.reduce((s, tr) => s + tr.cost, 0);
+    anyGain = true;
+  }
+  if (hasDivs) { totalGain += divsByTicker[sym]; anyGain = true; }
+  const totalGainDisplay = anyGain ? totalGain : null;
+  const totalPct = (anyGain && totalCost > 0) ? (totalGain / totalCost * 100) : null;
+
+  // ── Four tiles ──
+  const tc = targetCtxFor(sym);
+  const td = tc.pos ? getTargetDollar(tc.pos, tc.model) : 0;
+
+  let weightStr = '—', rankSuffix = '';
+  if (pos.qty > 0 && pos.weightPct != null) {
+    weightStr = pos.weightPct.toFixed(1) + '%';
+    const ranked = [...currentModel.positions].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+    const idx = ranked.findIndex(p => p.symbol === sym);
+    if (idx >= 0) rankSuffix = ` · #${idx + 1} of ${ranked.length}`;
+  }
+
+  let rangeStr = '—', rangeLbl = 'of 52W range';
+  const hi = pos.week52High, lo = pos.week52Low;
+  if (hi && lo && price != null && hi > lo) {
+    const pct = Math.max(0, Math.min(100, (price - lo) / (hi - lo) * 100));
+    rangeStr = pct.toFixed(0) + '%';
+    rangeLbl = `of 52W range · ${fmtUSD(lo)}–${fmtUSD(hi)}`;
+  }
+
+  let toTargetStr = '—', toTargetLbl = 'to reach target', toTargetColor = 'var(--ink)';
+  if (tc.pos && tc.pos.target != null && td > 0) {
+    const diff = td - (tc.pos.currentValue || 0);
+    toTargetStr = (diff >= 0 ? '+' : '-') + fmtCurr(Math.abs(diff));
+    toTargetLbl = `to reach ${(tc.pos.target * 100).toFixed(0)}% target`;
+    toTargetColor = 'var(--terracotta)';
+  }
+
+  const pm = perfMetrics(pos);
+  let perfStr = '—', perfLbl = 'YTD return', perfColor = 'var(--ink)';
+  if (pm.ytdRet != null) {
+    perfStr = `${pm.ytdRet >= 0 ? '+' : ''}${pm.ytdRet.toFixed(1)}%`;
+    perfColor = pm.ytdRet >= 0 ? 'var(--gain)' : 'var(--loss)';
+    perfLbl = pm['1Y'] != null ? `YTD · 1Y ${pm['1Y'] >= 0 ? '+' : ''}${pm['1Y'].toFixed(1)}%` : 'YTD';
+  } else if (pm['1Y'] != null) {
+    perfStr = `${pm['1Y'] >= 0 ? '+' : ''}${pm['1Y'].toFixed(1)}%`;
+    perfColor = pm['1Y'] >= 0 ? 'var(--gain)' : 'var(--loss)';
+    perfLbl = '1Y return';
+  }
+
+  const metaParts = [pos.name, pos.sector ? t(pos.sector) : null, pos.industry].filter(Boolean);
+
+  // ═══════════════════════════ Pass 2a: below-the-fold ═══════════════════════════
+  // Two named sections filling #symModalBelow — "the money" (why the return happened) and
+  // "the story" (what you actually did). Every card below is independently render-nothing —
+  // see the pass-2a report for each card's exact guard.
+
+  // ── P/L waterfall: component rows + a 1M–5Y period strip (perfMetrics, already computed above). ──
+  const wfRows = [];
+  if (pos.pnl != null) wfRows.push({ label: 'Unrealized', val: pos.pnl, color: 'var(--sage)' });
+  if (hasRealized)     wfRows.push({ label: 'Realized', val: realizedRows.reduce((s, r) => s + r.pnl, 0), color: 'var(--peri)' });
+  if (hasDivs)          wfRows.push({ label: 'Dividends', val: divsByTicker[sym], color: 'var(--honey)' });
+  const wfMaxAbs = Math.max(1, ...wfRows.map(r => Math.abs(r.val)));
+  const periodDefs = [['1M', '1M'], ['3M', '3M'], ['YTD', 'ytdRet'], ['1Y', '1Y'], ['3Y', '3Y'], ['5Y', '5Y']];
+  const anyPeriod = periodDefs.some(([, k]) => pm[k] != null);
+  const periodsHtml = anyPeriod ? `
+    <div class="sym-periods">
+      ${periodDefs.map(([label, k]) => {
+        const v = pm[k];
+        return `<div class="sym-period"><div class="sym-period-l">${label}</div><div class="sym-period-v${v == null ? '' : (v >= 0 ? ' gain' : ' loss')}">${fmtPct(v)}</div></div>`;
+      }).join('')}
+    </div>` : '';
+  const wfHtml = (anyGain || anyPeriod) ? `
+    <div class="card">
+      <div class="card-title">P/L waterfall</div>
+      ${anyGain ? `
+      <div class="sym-wf-total">
+        <div class="sym-wf-total-l">Total return</div>
+        <div class="sym-wf-total-r">
+          <span class="sym-wf-amt${totalGainDisplay >= 0 ? ' gain' : ' loss'}">${totalGainDisplay >= 0 ? '+' : ''}${fmtCurr(totalGainDisplay)}</span>
+          ${totalPct != null ? `<span class="sym-wf-pct${totalGainDisplay >= 0 ? ' gain' : ' loss'}">${totalGainDisplay >= 0 ? '+' : ''}${totalPct.toFixed(1)}%</span>` : ''}
         </div>
       </div>
-      <button class="tx-close" onclick="closeSymbolDetail()">×</button>
+      ${wfRows.map(r => `
+      <div class="sym-wf-line">
+        <div class="sym-wf-l">${r.label}</div>
+        <div class="sym-wf-bar-track"><div class="sym-wf-bar-fill" style="transform:scaleX(${(Math.abs(r.val) / wfMaxAbs).toFixed(4)});background:${r.color}"></div></div>
+        <div class="sym-wf-v${r.val >= 0 ? ' gain' : ' loss'}">${r.val >= 0 ? '+' : ''}${fmtCurr(r.val)}</div>
+      </div>`).join('')}
+      <div class="sym-wf-rule"></div>
+      <div class="sym-wf-foot"><span>on cost sold + held <b>${fmtCurr(totalCost)}</b></span><span>= <b class="${totalGainDisplay >= 0 ? 'gain' : 'loss'}">${totalGainDisplay >= 0 ? '+' : ''}${fmtCurr(totalGainDisplay)}</b></span></div>
+      ` : ''}
+      ${periodsHtml}
+    </div>` : '';
+
+  // ── Trade record: round trips closed for this symbol in the current portfolio view. ──
+  const symTrades = (_journalTrades || []).filter(r => r.ticker === sym);
+  const recordHtml = symTrades.length ? (() => {
+    const wins  = symTrades.filter(r => r.netPnl > 0).length;
+    const losses = symTrades.length - wins;
+    const avgHold = symTrades.reduce((s, r) => s + (r.holdDays || 0), 0) / symTrades.length;
+    const best  = Math.max(...symTrades.map(r => r.netPnl));
+    const totalRealized = symTrades.reduce((s, r) => s + r.netPnl, 0);
+    return `
+    <div class="card">
+      <div class="card-title">Trade record</div>
+      <div class="sym-record">
+        <span>Round trips <b>${symTrades.length}</b></span>
+        <span>Record <b>${wins}W / ${losses}L</b></span>
+        <span>Avg hold <b>${Math.round(avgHold)} days</b></span>
+        <span>Best <b class="${best >= 0 ? 'gain' : 'loss'}">${best >= 0 ? '+' : ''}${fmtCurr(best)}</b></span>
+        <span>Realized <b class="${totalRealized >= 0 ? 'gain' : 'loss'}">${totalRealized >= 0 ? '+' : ''}${fmtCurr(totalRealized)}</b></span>
+      </div>
+    </div>`;
+  })() : '';
+
+  // ── 52-week range: today's price + avg cost plotted on the 52W scale. ──
+  const rangeHtml = (pos.week52High && pos.week52Low && price != null && pos.week52High > pos.week52Low) ? (() => {
+    const rHi = pos.week52High, rLo = pos.week52Low;
+    const nowPos = Math.max(0, Math.min(100, (price - rLo) / (rHi - rLo) * 100));
+    const avgPos = (pos.avgPrice > 0) ? Math.max(0, Math.min(100, (pos.avgPrice - rLo) / (rHi - rLo) * 100)) : null;
+    return `
+    <div class="card">
+      <div class="card-title">52-week range</div>
+      <div class="sym-rng">
+        ${avgPos != null ? `<div class="sym-rng-avg" style="left:${avgPos.toFixed(1)}%" title="Avg cost ${fmtUSD(pos.avgPrice)}"></div>` : ''}
+        <div class="sym-rng-now" style="left:${nowPos.toFixed(1)}%"></div>
+      </div>
+      <div class="sym-rng-end"><span>${fmtUSD(rLo)}</span><span>${nowPos.toFixed(0)}% of range</span><span>${fmtUSD(rHi)}</span></div>
+    </div>`;
+  })() : '';
+
+  // ── Weight vs target: getCurrentPct is a ratio (currentValue / targetDollar), i.e. "% of the
+  // target filled" — that's what the bar/notch encode. The text labels use investWeightPct, the
+  // weight basis plan targets are actually stored against (see CLAUDE.md recomputeValuation). ──
+  const wtHtml = (td > 0) ? (() => {
+    const barPct    = Math.max(0, Math.min(100, getCurrentPct(tc.pos, tc.model)));
+    const nowWeight = tc.pos.investWeightPct ?? 0;
+    const targetPct = (tc.pos.target || 0) * 100;
+    const diff      = td - (tc.pos.currentValue || 0);
+    const diffPp    = targetPct - nowWeight;
+    return `
+    <div class="card">
+      <div class="card-title">Weight vs target</div>
+      <div class="sym-wt">
+        <span style="width:${barPct.toFixed(1)}%"></span>
+        <div class="sym-wt-notch"></div>
+      </div>
+      <div class="sym-krow"><span class="sym-klabel">now <b class="sym-kval">${nowWeight.toFixed(1)}%</b> → target <b class="sym-kval">${targetPct.toFixed(1)}%</b></span></div>
+      <div class="sym-krow" style="margin-top:5px"><span class="sym-klabel">${diffPp >= 0 ? 'under' : 'over'} by ${Math.abs(diffPp).toFixed(1)}pp</span><span class="sym-kval" style="color:var(--terracotta)">${diff >= 0 ? 'buy' : 'sell'} ${fmtCurr(Math.abs(diff))}</span></div>
+    </div>`;
+  })() : '';
+
+  // ── Calendar: reads the module-level cache populated by loadCalendar() — never fetches here. ──
+  const symCalEvents = (_calendarCache || []).filter(e => e.symbol === sym);
+  const calEarn  = symCalEvents.find(e => e.type === 'Earnings');
+  const calExDiv = symCalEvents.find(e => e.type === 'ExDiv');
+  const calHtml = (calEarn || calExDiv) ? (() => {
+    let rows = '';
+    if (calEarn) {
+      const daysOut = Math.round((new Date(calEarn.date) - new Date(_calBkkToday())) / 86400000);
+      const whenStr = daysOut === 0 ? 'today' : daysOut === 1 ? 'tomorrow' : daysOut > 0 ? `in ${daysOut}d` : fmtDate(calEarn.date);
+      rows += `<div class="sym-krow" style="margin-bottom:7px"><span class="sym-klabel">Next earnings</span><span class="sym-kval">${whenStr}</span></div>`;
+      if (calEarn.time) rows += `<div class="sym-krow" style="margin-bottom:7px"><span class="sym-klabel">Time</span><span class="sym-kval" style="color:var(--muted)">${calEarn.time}</span></div>`;
+    }
+    if (calExDiv) rows += `<div class="sym-krow"><span class="sym-klabel">Ex-dividend</span><span class="sym-kval">${fmtDate(calExDiv.date)}</span></div>`;
+    return `
+    <div class="card">
+      <div class="card-title">Calendar</div>
+      ${rows}
+    </div>`;
+  })() : '';
+
+  // ── Transactions: same filter the old symbol-detail modal / Transactions panel use. ──
+  const symTxs = (txList || [])
+    .filter(x => x.ticker === sym && (activePortfolio === 'ALL' || (x.portfolio || DEFAULT_PORT) === activePortfolio))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  // Buy/Sell subset the chart markers are built from — reused only to gate the legend below the
+  // chart (the table itself still lists every tx type, unchanged).
+  const symTradeTxs = _sdTradeTxs(sym);
+  const txHtml = symTxs.length ? `
+    <div class="card">
+      <div class="card-title">Transactions · ${symTxs.length} trade${symTxs.length === 1 ? '' : 's'}</div>
+      <div class="sym-tx-scroll">
+        <table class="sym-tx-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th><th>Total</th></tr></thead>
+          <tbody>
+            ${symTxs.map(x => {
+              // Only Buy/Sell rows carry a chart marker to cross-highlight on hover.
+              const mkAttr = (x.type === 'Buy' || x.type === 'Sell') ? ` data-mk-date="${x.date}"` : '';
+              return `<tr${mkAttr}>
+              <td>${fmtDate(x.date)}</td>
+              <td><span class="${x.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy'}">${x.type}</span></td>
+              <td>${x.shares}</td>
+              <td>${fmtCurr(x.price)}</td>
+              <td>${fmtCurr(x.tradeValue)}</td>
+              <td>${fmtCurr(x.total ?? x.tradeValue)}</td>
+            </tr>${symNoteRowHtml(x, 6)}`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  // ── Thesis: click-to-edit, with a plan-port switcher when 2+ portfolios have a plan for this
+  // symbol (Task 2) — see _symThesisCardHtml. Always renders (stable #symThesisCard id) so
+  // _symRenderPlanFragments can swap it in place after a port switch or a save. ──
+  const thesisHtml = _symThesisCardHtml(sym, plan);
+
+  // ── "Where SYM sits" donuts: this symbol's share of Portfolio / its own Sector / its own
+  // Category. A grouping with <2 members is omitted (a 100%-filled ring says nothing); if every
+  // grouping is omitted the whole card is. Actual Chart.js instances are built in the trailing
+  // setTimeout below, once the canvases from this HTML are in the DOM — see pass-2b report for
+  // the symbolDetailCharts push-not-assign contract. ──
+  const donutGroupDefs = [{ key: 'symDonutPortfolio', label: 'Portfolio', items: currentModel.positions || [] }];
+  if (pos.sector)   donutGroupDefs.push({ key: 'symDonutSector',   label: t(pos.sector),   items: (currentModel.positions || []).filter(p => p.sector === pos.sector) });
+  if (pos.category) donutGroupDefs.push({ key: 'symDonutCategory', label: t(pos.category), items: (currentModel.positions || []).filter(p => p.category === pos.category) });
+  const symDonutGroups = donutGroupDefs.map(g => {
+    if (g.items.length < 2) return null;
+    const total = g.items.reduce((s, p) => s + (p.currentValue || 0), 0);
+    const mine  = g.items.find(p => p.symbol === sym);
+    if (!mine || total <= 0) return null;
+    const ranked = [...g.items].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+    const rank   = ranked.findIndex(p => p.symbol === sym) + 1;
+    return { ...g, total, rank, pct: (mine.currentValue || 0) / total * 100 };
+  }).filter(Boolean);
+  const donutsHtml = symDonutGroups.length ? `
+    <div class="card">
+      <div class="card-title">Where ${escHtml(sym)} sits</div>
+      <div class="sym-donuts">
+        ${symDonutGroups.map(g => `
+        <div class="sym-donut">
+          <div class="sym-donut-wrap"><canvas id="${g.key}"></canvas>
+            <div class="sym-donut-readout">
+              <div class="sym-donut-pct">${g.pct.toFixed(1)}%</div>
+              <div class="sym-donut-rank">#${g.rank} of ${g.items.length}</div>
+            </div>
+          </div>
+          <div class="sym-donut-label">${escHtml(g.label)}</div>
+        </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  // ── True exposure: direct + ETF-look-through weight, from the same cache the side-panel True
+  // Exposure card reads (computeTrueExposure — see CLAUDE.md Multi-Portfolio). Omitted whenever
+  // that returns null, this symbol has no row, or viaEtf is 0 (a "via ETFs: 0.0%" row is noise). ──
+  const teData = computeTrueExposure(currentModel);
+  const teRow  = teData ? teData.list.find(r => r.symbol === sym) : null;
+  let trueExpHtml = '';
+  if (teRow && teRow.viaEtf > 0) {
+    const tePct = v => (v * 100).toFixed(1) + '%';
+    const directShare = teRow.total > 0 ? (teRow.direct / teRow.total * 100) : 0;
+    // Which ETFs actually carry this symbol, and how much each contributes — the same per-ETF
+    // weighting _blendedEtfHoldings sums into teRow.viaEtf, just not collapsed away here.
+    const allPos  = [...(currentModel.positions || []), ...(currentModel.sgovPos ? [currentModel.sgovPos] : [])];
+    const poolVal = allPos.reduce((s, p) => s + (p.currentValue || 0), 0);
+    const etfContribs = [];
+    if (poolVal > 0) {
+      for (const p of allPos) {
+        const h = _etfDataCache[p.symbol]?.topHoldings?.find(x => x.symbol === sym);
+        if (h && h.weight) etfContribs.push({ etf: p.symbol, blended: h.weight * (p.currentValue || 0) / poolVal });
+      }
+    }
+    etfContribs.sort((a, b) => b.blended - a.blended);
+    const viaLine = etfContribs.map(c => `via ${escHtml(c.etf)} ${tePct(c.blended)}`).join(' · ');
+    trueExpHtml = `
+    <div class="card">
+      <div class="card-title">True exposure</div>
+      <div class="sym-te-row"><div class="sym-te-l">Direct</div><div class="sym-te-bar"><span style="width:${directShare.toFixed(1)}%;background:var(--terracotta)"></span></div><div class="sym-te-v">${tePct(teRow.direct)}</div></div>
+      <div class="sym-te-row"><div class="sym-te-l">Via ETFs</div><div class="sym-te-bar"><span style="width:${(100 - directShare).toFixed(1)}%;background:var(--peri)"></span></div><div class="sym-te-v">${tePct(teRow.viaEtf)}</div></div>
+      <div class="sym-te-row sym-te-tot"><div class="sym-te-l" style="color:var(--ink);font-weight:700">True</div><div class="sym-te-bar"><span style="width:100%;background:linear-gradient(90deg,var(--terracotta) ${directShare.toFixed(1)}%,var(--peri) ${directShare.toFixed(1)}%)"></span></div><div class="sym-te-v">${tePct(teRow.total)}</div></div>
+      ${viaLine ? `<div class="sym-te-note">${viaLine}</div>` : ''}
+    </div>`;
+  }
+
+  // ── Assemble the two sections. Donuts/True-Exposure are built as plain strings like every
+  // other card here, so the section's existing moneyLeft||moneyRight empty-gating covers them
+  // automatically — no separate slot div to keep in sync. ──
+  const moneyLeft  = [wfHtml, recordHtml].filter(Boolean).join('');
+  const moneyRight = [donutsHtml, trueExpHtml, rangeHtml, wtHtml, calHtml].filter(Boolean).join('');
+  const moneySectionHtml = (moneyLeft || moneyRight) ? `
+    <div class="sym-sect-h">The money <span>— where the return came from</span></div>
+    <div class="sym-grid">
+      <div class="sym-col">${moneyLeft}</div>
+      <div class="sym-col">${moneyRight}</div>
+    </div>` : '';
+
+  const storySectionHtml = (txHtml || thesisHtml) ? `
+    <div class="sym-sect-h" style="margin-top:var(--sp-2)">The story <span>— your reasoning, beside what you actually did</span></div>
+    <div class="sym-grid">
+      <div class="sym-col">${txHtml}</div>
+      <div class="sym-col">${thesisHtml}</div>
+    </div>` : '';
+
+  const belowHtml = [moneySectionHtml, storySectionHtml].filter(Boolean).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <div class="sym-hero">
+        <div class="sym-hero-logo">${logoCell(sym, color)}</div>
+        <div class="sym-id">
+          <div class="sym-row1">
+            <div class="sym-title">${sym}</div>
+            <div class="sym-portbadge">${isWatchlistOnly ? t('Watchlist') : port}</div>
+          </div>
+          ${metaParts.length ? `<div class="sym-meta">${metaParts.join(' · ')}</div>` : ''}
+          <div class="sym-price-row">
+            <div class="sym-px">${fmtCurr(price)}</div>
+            ${dayChgHtml}
+          </div>
+        </div>
+        <div class="sym-hero-tr">
+          <div class="l">Total return</div>
+          <div class="v" style="color:${totalGainDisplay != null ? `var(${totalGainDisplay >= 0 ? '--gain' : '--loss'})` : 'var(--muted)'}">${totalGainDisplay != null ? `${totalGainDisplay >= 0 ? '+' : ''}${fmtCurr(totalGainDisplay)}` : '—'}</div>
+          ${totalPct != null ? `<div class="sub" style="color:var(${totalGainDisplay >= 0 ? '--gain' : '--loss'})">${totalGainDisplay >= 0 ? '+' : ''}${totalPct.toFixed(1)}% on cost</div>` : ''}
+        </div>
+        <div class="sym-hero-actions">
+          ${isWatchlistOnly
+            ? (isReadOnly() ? '' : `<button class="sym-editplan" onclick="_symOpenAction('${sym}', '${_symPlanPort}')">+ Add position →</button>`)
+            : `<button class="sym-editplan" onclick="_symOpenAction('${sym}', '${_symPlanPort}')">Edit plan →</button>`}
+          <button class="tx-close" onclick="closeSymbolModal()" aria-label="Close">×</button>
+        </div>
+      </div>
+      <div class="sym-chips" id="symPlanChips">${chipsHtml}</div>
     </div>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-bottom:12px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm)">
-      ${pos.sector     ? `<span style="color:var(--muted)">${t('sector_label')} <strong style="color:var(--ink)">${t(pos.sector)}</strong></span>` : ''}
-      ${pos.industry   ? `<span style="color:var(--muted)">${t('industry_label')} <strong style="color:var(--ink)">${pos.industry}</strong></span>` : ''}
-      ${pos.category   ? `<span style="color:var(--muted)">${t('category_label')} <strong style="color:var(--ink)">${t(pos.category)}</strong></span>` : ''}
-      ${sl             ? `<span style="color:var(--muted)">SL <strong style="color:var(--loss)">${fmtCurr(sl)}</strong></span>` : ''}
-      ${hasRealizedPnl ? `<span style="color:var(--muted)">Realized P/L <strong style="color:var(${realizedPnl>=0?'--gain':'--loss'})">${realizedPnl>=0?'+':''}${fmtCurr(realizedPnl)}</strong></span>` : ''}
-    </div>
-    ${planBarHtml}
-    ${note ? `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">📝 ${note}</div>` : ''}
-    ${tranches.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px">
-      <thead><tr style="border-bottom:1px solid var(--line)">
-        <th style="text-align:left;padding:3px 8px;color:var(--muted);font-weight:500">#</th>
-        <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">Entry</th>
-        <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">Cum %</th>
-        <th style="text-align:right;padding:3px 8px;color:var(--muted);font-weight:500">Amount</th>
-      </tr></thead>
-      <tbody>${trancheRows}</tbody>
-    </table>` : ''}
-    <div style="display:flex;background:var(--track);border-radius:var(--radius-pill);padding:3px;margin-bottom:10px;gap:2px">
-      <button id="sdTabCharts" onclick="sdSwitchTab('charts')"
-        style="flex:1;padding:7px;border:none;border-radius:var(--radius-pill);font-family:var(--font-ui);font-size:11px;font-weight:700;cursor:pointer;background:var(--terracotta);color:var(--btn-fg);transition:all .15s">Charts</button>
-      <button id="sdTabTx" onclick="sdSwitchTab('tx')"
-        style="flex:1;padding:7px;border:none;border-radius:var(--radius-pill);font-family:var(--font-ui);font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);transition:all .15s">Transactions</button>
-    </div>
-    <div id="sdChartsPane">
-      <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px">
-        <div id="sdTvChart" style="height:390px"></div>
-        <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
+
+    <div class="card">
+      <div class="sym-chart-box">
+        <div id="sdTvChart" style="height:min(46vh, 460px)"></div>
+        <div class="sym-chart-ctrls">
           ${[['area','Area'],['heikin','HA']].map(([m,label])=>`<button id="sdChartType_${m}" onclick="setChartType('${m}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${label}</button>`).join('')}
           <button id="sdEma" onclick="toggleEma()"
@@ -4546,104 +5286,59 @@ window.openSymbolDetail = function(sym) {
           ${['1M','3M','6M','YTD','1Y','2Y','ALL'].map(r=>`<button id="sdRange_${r}" onclick="sdSetRange('${r}')"
             style="flex:1;min-width:36px;padding:4px 0;border-radius:var(--radius-pill);border:1px solid var(--line);background:transparent;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;transition:all .15s">${r}</button>`).join('')}
         </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <div style="background:var(--track);border-radius:var(--radius-sm);padding:8px">
-          <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('all_stocks_label')}</div>
-          <div style="position:relative;height:150px"><canvas id="sdChart1"></canvas></div>
-        </div>
-        <div style="background:var(--track);border-radius:var(--radius-sm);padding:8px">
-          <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${pos.category||'Category'}</div>
-          <div style="position:relative;height:150px"><canvas id="sdChart2"></canvas></div>
-        </div>
+        ${symTradeTxs.length ? `<div class="sym-mk-legend"><span class="mk-buy">&#9650; Buy</span><span class="mk-sell">&#9660; Sell</span></div>` : ''}
       </div>
     </div>
-    <div id="sdTxPane" style="display:none">
-      <div style="overflow-x:auto;max-height:360px;overflow-y:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="color:var(--muted);font-weight:500;border-bottom:1px solid var(--line)">
-            <th style="text-align:left;padding:5px 8px">${t('Date')}</th>
-            <th style="text-align:left;padding:5px 8px">${t('Type')}</th>
-            <th style="text-align:right;padding:5px 8px">${t('Shares')}</th>
-            <th style="text-align:right;padding:5px 8px">${t('Price')}</th>
-            <th style="text-align:right;padding:5px 8px">${t('Value')}</th>
-            <th style="text-align:right;padding:5px 8px">${t('Total')}</th>
-          </tr></thead>
-          <tbody id="sdTxBody"></tbody>
-        </table>
-        <div id="sdTxEmpty" style="color:var(--muted);text-align:center;padding:20px;display:none">No transactions recorded</div>
-      </div>
+
+    <div class="sym-tiles">
+      <div class="sym-tile"><div class="sym-tile-v">${weightStr}</div><div class="sym-tile-l">of portfolio${rankSuffix}</div></div>
+      <div class="sym-tile"><div class="sym-tile-v">${rangeStr}</div><div class="sym-tile-l">${rangeLbl}</div></div>
+      <div class="sym-tile"><div class="sym-tile-v" style="color:${toTargetColor}">${toTargetStr}</div><div class="sym-tile-l">${toTargetLbl}</div></div>
+      <div class="sym-tile"><div class="sym-tile-v" style="color:${perfColor}">${perfStr}</div><div class="sym-tile-l">${perfLbl}</div></div>
     </div>
-  </div>`;
-  overlay.classList.add('open');
+
+    <div id="symModalBelow">${belowHtml}</div>
+  `;
 
   setTimeout(async () => {
-    const positions = currentModel.positions;
-    const catPos    = positions.filter(p => (p.category||'Other') === (pos.category||'Other'));
-    const mkChart   = (id, items) => {
-      const el = document.getElementById(id);
-      if (!el || !items.length) return null;
-      const total  = items.reduce((s,p) => s + (p.currentValue||0), 0);
-      const bg     = items.map(p => p.symbol === sym ? colorFor(p.symbol) : colorFor(p.symbol) + '55');
-      const border = items.map(p => p.symbol === sym ? '#fff' : 'transparent');
-      const bw     = items.map(p => p.symbol === sym ? 2 : 0);
-      return new Chart(el.getContext('2d'), {
+    // Donut canvases first (cheap, synchronous) — push-only onto symbolDetailCharts, never an
+    // assignment, so buildSdTvChart's own push (and its later filter-based rebuild on chart-type
+    // toggle) can't be clobbered. Chart.js instances already expose .destroy(), so pushing them
+    // directly is enough for destroySymbolDetailCharts()'s teardown loop.
+    for (const g of symDonutGroups) {
+      const canvasEl = document.getElementById(g.key);
+      if (!canvasEl) continue;
+      const total  = g.total;
+      const bg     = g.items.map(p => p.symbol === sym ? colorFor(p.symbol) : colorFor(p.symbol) + '55');
+      const border = g.items.map(p => p.symbol === sym ? css('--card') : 'transparent');
+      const bw     = g.items.map(p => p.symbol === sym ? 2 : 0);
+      const offset = g.items.map(p => p.symbol === sym ? 8 : 0);
+      const chart = new Chart(canvasEl.getContext('2d'), {
         type: 'doughnut',
-        data: { labels: items.map(p=>p.symbol), datasets: [{ data: items.map(p=>p.currentValue||0), backgroundColor: bg, borderColor: border, borderWidth: bw, hoverBorderWidth: 0 }] },
-        options: { responsive:true, maintainAspectRatio:false, cutout:'65%', animation:false,
-          plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>{ const base=`  ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%`; const ret=symbolReturnTipLine(c.label, currentModel); return ret?[base,ret]:base; } },
-            backgroundColor:css('--tooltip-bg'), bodyColor:'#faf3e0', padding:8, cornerRadius:8 }}}
+        data: {
+          labels: g.items.map(p => p.symbol),
+          datasets: [{ data: g.items.map(p => p.currentValue || 0), backgroundColor: bg, borderColor: border, borderWidth: bw, offset, hoverBorderWidth: 0 }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '65%', animation: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: { label: c => {
+                const base = `  ${c.label}: ${total > 0 ? (c.raw / total * 100).toFixed(1) : 0}%`;
+                const ret  = symbolReturnTipLine(c.label, currentModel);
+                return ret ? [base, ret] : base;
+              } },
+              backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding: 8, cornerRadius: 8
+            }
+          }
+        }
       });
-    };
-    const c1 = mkChart('sdChart1', positions);
-    const c2 = mkChart('sdChart2', catPos.length ? catPos : positions);
-    symbolDetailCharts = [c1, c2].filter(Boolean);
-
-    // ── TradingView Lightweight Chart ────────────────────────────────────────
-    await buildSdTvChart(sym);
-
-    // Populate transactions table — scoped to the active portfolio (ALL view shows every portfolio).
-    const txs  = txList
-      .filter(t => t.ticker === sym && (activePortfolio === 'ALL' || (t.portfolio || DEFAULT_PORT) === activePortfolio))
-      .sort((a,b) => b.date.localeCompare(a.date));
-    const body = document.getElementById('sdTxBody');
-    const empty = document.getElementById('sdTxEmpty');
-    if (body) {
-      if (txs.length) {
-        body.innerHTML = txs.map(t => `<tr style="border-bottom:1px solid var(--line-soft)">
-          <td style="padding:5px 8px;color:var(--muted);font-size:11px">${fmtDate(t.date)}</td>
-          <td style="padding:5px 8px"><span class="${t.type==='Sell'?'tx-badge-sell':'tx-badge-buy'}">${t.type}</span></td>
-          <td style="padding:5px 8px;text-align:right">${t.shares}</td>
-          <td style="padding:5px 8px;text-align:right">${fmtCurr(t.price)}</td>
-          <td style="padding:5px 8px;text-align:right">${fmtCurr(t.tradeValue)}</td>
-          <td style="padding:5px 8px;text-align:right;font-weight:600">${fmtCurr(t.total||t.tradeValue)}</td>
-        </tr>${symNoteRowHtml(t, 6)}`).join('');
-      } else {
-        body.innerHTML = '';
-        if (empty) empty.style.display = 'block';
-      }
+      symbolDetailCharts.push(chart);
     }
+    await buildSdTvChart(sym);
   }, 0);
-};
-
-window.sdSwitchTab = function(tab) {
-  const chartsPane = document.getElementById('sdChartsPane');
-  const txPane     = document.getElementById('sdTxPane');
-  const chartsBtn  = document.getElementById('sdTabCharts');
-  const txBtn      = document.getElementById('sdTabTx');
-  const isCharts   = tab === 'charts';
-  if (chartsPane) chartsPane.style.display = isCharts ? '' : 'none';
-  if (txPane)     txPane.style.display     = isCharts ? 'none' : '';
-  if (chartsBtn)  { chartsBtn.style.background = isCharts ? 'var(--terracotta)' : 'transparent'; chartsBtn.style.color = isCharts ? 'var(--btn-fg)' : 'var(--muted)'; }
-  if (txBtn)      { txBtn.style.background     = isCharts ? 'transparent' : 'var(--terracotta)'; txBtn.style.color     = isCharts ? 'var(--muted)' : 'var(--btn-fg)'; }
-};
-
-window.closeSymbolDetail = function() {
-  _sdTvBuildSeq++;
-  destroySymbolDetailCharts();
-  window._sdTvChart = window._sdTvSeries = window._sdTvPriceMap = window._sdTvOhlcMap = window._sdTvMode = null;
-  document.getElementById('symbolDetailModal')?.classList.remove('open');
-};
+}
 
 // ALL range: lazily pull a 10y daily series into memory for the open symbol. Deliberately NOT
 // persisted — a 10y map is ~250KB/symbol and would crowd the 2y localStorage cache out of quota.
@@ -5262,7 +5957,7 @@ window.setChartType = function(mode) {
   localStorage.setItem('chartType.v1', mode);
   updateChartTypeButtons('sdChartType');
   updateChartTypeButtons('actionChartType');
-  if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
+  if (document.getElementById('symbolModal')?.classList.contains('open') && window._sdTvSym) {
     buildSdTvChart(window._sdTvSym);
   }
   // The chart now lives in the left context column (#actionTvChartEl), shared by all three
@@ -5347,7 +6042,7 @@ window.toggleEma = function() {
   emaOn = !emaOn;
   localStorage.setItem('emaOn.v1', emaOn ? '1' : '0');
   updateEmaButtons();
-  if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
+  if (document.getElementById('symbolModal')?.classList.contains('open') && window._sdTvSym) {
     buildSdTvChart(window._sdTvSym);
   }
   // The chart now lives in the left context column, shared by all three segments.
@@ -6625,6 +7320,7 @@ function renderActionTabContent() {
         <input class="tx-input" id="tradeCost" type="number" step="any" min="0" placeholder="0" oninput="onTradeCost()">
       </div>
       <div class="ax-intent" id="axIntentChips">${axIntentChipsHtml(sym, actionModalPort)}</div>
+      <div id="txAllocBars"></div>
       <div id="tradeSummary" class="ax-sum" style="margin:12px 0;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
       <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
       <div class="tx-status" id="txStatus"></div>
@@ -6646,7 +7342,6 @@ function renderActionTabContent() {
           </div>
         </div>
         ${txNoteFieldHtml('')}
-        <div id="txAllocBars"></div>
         ${buildCashSelectorHtml()}
       </details>`;
     document.getElementById('axTradeDetails')?.addEventListener('toggle', e => { _axTradeDetailsOpen = e.target.open; });
@@ -10099,7 +10794,7 @@ function renderTable(model) {
 
     return `<tr>
       <td><div class="asset-cell">${logoCell(p.symbol, color)}
-        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${p.symbol}')">${p.symbol}</span>${p.basisFallback ? `<span style="color:var(--muted);font-size:10px" title="Cost basis estimated — transaction history incomplete">≈</span>` : ''}${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
+        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolModal('${p.symbol}')">${p.symbol}</span>${p.basisFallback ? `<span style="color:var(--muted);font-size:10px" title="Cost basis estimated — transaction history incomplete">≈</span>` : ''}${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
       </div></td>
       <td>${dc(fmtCurr(p.price), priceSub, priceSubCls)}</td>
       <td class="${dayCls}">${dc(dayChgStr, dayPctStr, dayCls)}</td>
@@ -10557,7 +11252,7 @@ function watchlistRow(w) {
     `<div class="cell-main">${main}</div>${sub!=null?`<div class="cell-sub ${cls}">${sub}</div>`:''}`;
   return `<tr style="opacity:.8">
     <td><div class="asset-cell">${logoCell(w.symbol, color)}
-      <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolDetail('${w.symbol}')">${w.symbol}</span>${trancheBadge(w.symbol,w.price)}${tpBadge(w.symbol,w.price)}
+      <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolModal('${w.symbol}')">${w.symbol}</span>${trancheBadge(w.symbol,w.price)}${tpBadge(w.symbol,w.price)}
         <span class="tag watch" style="margin-left:3px">Watch</span>
         <button class="plan-btn" onclick="openActionModal('${w.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button>
       </div><div class="asset-name">${w.name||''}</div></div>
@@ -12925,6 +13620,7 @@ async function loadCalendar(model) {
   if (!el) return;
   el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_calendar_msg')}</div>`;
   const events = await readCalendarSheet();
+  _calendarCache = events || _calendarCache; // keep the last-good read rather than clobbering it with null on a failed fetch
   const held = new Set(_allRows.map(r => r.symbol));
   const filtered = events?.filter(e => held.has(e.symbol));
   if (filtered?.length) renderCalendarFromEvents(filtered);
@@ -14800,7 +15496,7 @@ function buildShell() {
   <div id="actionModal" class="tx-overlay"></div>
   <div id="tradeModal" class="tx-overlay"></div>
   <div id="addSymbolModal" class="tx-overlay"></div>
-  <div id="symbolDetailModal" class="tx-overlay"></div>`;
+  <div id="symbolModal" class="tx-overlay"></div>`;
   // Re-apply theme & tone icons after shell rebuild
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark');
   applyTone(document.documentElement.getAttribute('data-tone') === 'cool');
@@ -14922,8 +15618,9 @@ window.submitSetup = function() {
     const _bmImg = document.querySelector('.brand-mark img');
     if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
-    txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set();
+    txCache = null; historyCache = null; planCache = {}; _journalTrades = []; _calendarCache = null;
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set(); _symPageSym = null; _symPlanPort = null;
+    document.getElementById('symbolModal')?.classList.remove('open');
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
     if (!newProfile.writeKey) newProfile.writeKey = '';
@@ -14932,8 +15629,9 @@ window.submitSetup = function() {
     _saveCfg(_cfg);
     closeSetupModal();
     _applyActiveProfile();
-    shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set();
+    shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = []; _calendarCache = null;
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set(); _symPageSym = null; _symPlanPort = null;
+    document.getElementById('symbolModal')?.classList.remove('open');
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
@@ -16745,7 +17443,7 @@ async function init() {
           { id: 'allocMgmtModal',    close: () => closeAllocMgmt() },
           { id: 'actionModal',       close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
           { id: 'tradeModal',        close: () => closeTradeModal() },
-          { id: 'symbolDetailModal', close: () => closeSymbolDetail() },
+          { id: 'symbolModal',       close: () => closeSymbolModal() },
           { id: 'txModal',           close: () => closeTx() },
           { id: 'txHistoryModal',    close: () => document.getElementById('txHistoryModal').classList.remove('open') },
           { id: 'editCashModal',     close: () => document.getElementById('editCashModal').classList.remove('open') },
@@ -16791,7 +17489,7 @@ async function init() {
       setupOverlayDismiss('actionModal',        () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); });
       setupOverlayDismiss('tradeModal',         () => closeTradeModal());
       setupOverlayDismiss('addSymbolModal',     () => document.getElementById('addSymbolModal').classList.remove('open'));
-      setupOverlayDismiss('symbolDetailModal',  () => closeSymbolDetail());
+      setupOverlayDismiss('symbolModal',        () => closeSymbolModal());
       const _dov = document.getElementById('donutModal');
       if (_dov) _dov.addEventListener('click', e => { if (e.target === _dov) closeDonutModal(); });
     }
@@ -16857,7 +17555,7 @@ document.addEventListener('keydown', e => {
     { id: 'allocMgmtModal',   close: () => closeAllocMgmt() },
     { id: 'actionModal',      close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
     { id: 'tradeModal',       close: () => closeTradeModal() },
-    { id: 'symbolDetailModal',close: () => closeSymbolDetail() },
+    { id: 'symbolModal',      close: () => closeSymbolModal() },
     { id: 'txModal',          close: () => closeTx() },
     { id: 'txHistoryModal',   close: () => document.getElementById('txHistoryModal').classList.remove('open') },
     { id: 'editCashModal',    close: () => document.getElementById('editCashModal').classList.remove('open') },
