@@ -1367,6 +1367,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 /* ── Tx modal ── */
 .tx-overlay { position: fixed; inset: 0; z-index: var(--z-overlay); background: rgba(58,42,28,.45); backdrop-filter: blur(4px); display: none; align-items: flex-start; justify-content: center; padding: max(40px, env(safe-area-inset-top, 0px)) var(--sp-4) max(var(--sp-4), env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+/* Allocation Management can be opened from inside an already-open Action modal (axOpenAllocFor) —
+   both are .tx-overlay (same z-index), and with equal z-index the later DOM node wins ties;
+   #actionModal is later in the shell than #allocMgmtModal, so without this it would incorrectly
+   paint on top. Bump allocMgmtModal one step above the shared .tx-overlay layer so it always
+   sits above every other overlay it can be opened on top of. */
+#allocMgmtModal { z-index: calc(var(--z-overlay) + 1); }
 .tx-overlay.open { display: flex; animation: overlayIn .2s var(--ease-out-quint); }
 .tx-overlay.open > .tx-modal { animation: modalIn .25s var(--ease-out-quint); }
 .tx-modal { background: var(--card); color: var(--ink); border-radius: var(--radius); border: 1px solid var(--card-edge); box-shadow: var(--shadow-lg); width: 100%; max-width: 440px; padding: var(--sp-6); }
@@ -1695,11 +1701,98 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 [data-plan-btn="pill"]    .trade-btn svg { width: 12px; height: 12px; }
 [data-plan-btn="badge"]   .trade-btn svg { width: 13px; height: 13px; }
 
-@keyframes action-pulse { 0%,100% { opacity: 1; } 50% { opacity: .15; } }
-.action-pulse { animation: action-pulse 1.1s ease-in-out infinite; font-weight: 700; }
-.action-tab-btn { flex: 1; padding: 8px 4px; border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: all .15s; letter-spacing: .4px; text-transform: uppercase; }
-.action-tab-btn.active { background: var(--terracotta); color: var(--btn-fg); }
-.action-tab-btn:hover:not(.active) { background: var(--hover); color: var(--ink); }
+/* ── Action modal (two-column workspace: context left, Plan/Trade/Manage panel right) ── */
+.ax-modal { max-width: 1180px; width: calc(100vw - 40px); max-height: calc(100vh - 60px); display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.ax-head { padding: var(--sp-4) var(--sp-5); margin-bottom: 0; flex-shrink: 0; }
+/* Sector/Industry/Category/Custom/My Group chips under the company name — quiet labels, not
+   controls (editing them lives in Manage), so no hover/pointer affordance. */
+.ax-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ax-meta-chip { font-size: 9px; color: var(--muted); background: var(--track); border-radius: var(--radius-pill); padding: 2px 8px; }
+/* Small, quiet, secondary action button — e.g. Plan's "jump to Allocation Management" next to
+   planTargetPct. Not a primary action, so no terracotta fill. */
+.ax-mini-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--track); color: var(--muted); font-family: var(--font-ui); font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s var(--ease-out-quint), color .15s var(--ease-out-quint); }
+.ax-mini-btn:hover { background: var(--hover); color: var(--ink); }
+.ax-mini-btn svg { flex-shrink: 0; }
+.ax-body { display: grid; grid-template-columns: 55fr 45fr; flex: 1; min-height: 0; }
+.ax-context { overflow-y: auto; min-width: 0; padding: var(--sp-4) var(--sp-5); }
+.ax-panel { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-width: 0; }
+.ax-seg { display: flex; background: var(--track); border-radius: var(--radius-sm); padding: 3px; gap: 2px; margin: var(--sp-4) var(--sp-4) 0; flex-shrink: 0; }
+.ax-seg-btn { flex: 1; padding: var(--sp-2) var(--sp-1); border: none; background: transparent; border-radius: var(--radius-pill); font-family: var(--font-ui); font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; transition: background .15s var(--ease-out-quint), color .15s var(--ease-out-quint); letter-spacing: .4px; text-transform: uppercase; }
+.ax-seg-btn.active { background: var(--terracotta); color: var(--btn-fg); }
+.ax-seg-btn:hover:not(.active) { background: var(--hover); color: var(--ink); }
+#actionTabContent { flex: 1; overflow-y: auto; padding: var(--sp-4); }
+.ax-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-3); }
+.ax-fact-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.ax-fact-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; color: var(--ink); }
+.ax-weight-wrap { margin: var(--sp-4) 0; }
+.ax-weight-track { position: relative; height: 8px; border-radius: var(--radius-pill); background: var(--track); overflow: hidden; margin-bottom: var(--sp-2); }
+.ax-weight-fill { height: 100%; border-radius: var(--radius-pill); transition: width .3s var(--ease-out-quint); }
+.ax-weight-tick { position: absolute; top: -2px; bottom: -2px; right: 0; width: 2px; background: var(--ink-soft); }
+.ax-weight-kv { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.ax-hist { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+.ax-hist summary { cursor: pointer; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; list-style: none; }
+.ax-hist summary::-webkit-details-marker { display: none; }
+.ax-hist summary::before { content: '▸'; display: inline-block; margin-right: 6px; transition: transform .15s var(--ease-out-quint); }
+.ax-hist[open] summary::before { transform: rotate(90deg); }
+/* Plan panel: Entries/Exits sub-toggle — a level down from .ax-seg, so quieter: no terracotta
+   fill, no shadow, smaller padding. */
+.ax-half { display: flex; background: var(--track); border-radius: var(--radius-sm); padding: 2px; gap: 2px; margin-bottom: var(--sp-3); }
+.ax-half-btn { flex: 1; padding: 5px var(--sp-1); border: none; background: transparent; border-radius: var(--radius-sm); font-family: var(--font-ui); font-size: 10px; font-weight: 600; color: var(--muted); cursor: pointer; transition: background .15s var(--ease-out-quint), color .15s var(--ease-out-quint); letter-spacing: .3px; text-transform: uppercase; }
+.ax-half-btn.active { background: var(--card); color: var(--ink); }
+.ax-half-btn:hover:not(.active) { color: var(--ink); }
+/* Shared panel footer — Plan's Note+Save/Clear and Manage's Save, pinned to the bottom of
+   #actionTabContent (the scroll container) so it stays visible regardless of scroll position
+   (Plan: from both Entries/Exits halves; Manage: below the folded groups). Negative side margins
+   cancel that container's own var(--sp-4) padding so the footer spans its full width. */
+.ax-foot { position: sticky; bottom: 0; background: var(--card); border-top: 1px solid var(--line); padding: var(--sp-3) var(--sp-4); margin: var(--sp-3) calc(var(--sp-4) * -1) 0; }
+/* One-shot row highlight for an alert-triggered open (see axAlertFocus/applyAxFocusRow). The
+   inset box-shadow reads as a left accent border without shifting the tranche-row grid or the
+   SL wrapper's layout. Not part of an animation/transition, so it still appears under
+   prefers-reduced-motion (the app's blanket rule only kills durations, not the box-shadow itself);
+   the background-color fade is the only motion, and that rule collapses it to near-instant. */
+.ax-focus-row { box-shadow: inset 2px 0 0 0 var(--honey); background: rgba(199,144,56,.14); border-radius: 4px; transition: background .6s var(--ease-out-quint); }
+/* Trade segment (pass 3): intent chips, before→after summary list, folded Details disclosures. */
+.ax-intent { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0; }
+.ax-chip { padding: 6px var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--track); color: var(--ink); font-family: var(--font-ui); font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s var(--ease-out-quint), border-color .15s var(--ease-out-quint); }
+.ax-chip:hover { background: var(--hover); border-color: var(--terracotta); }
+/* Before→after list (tradeSummaryRowsHtml) — deliberately unscoped from .ax-sum so the shared
+   function renders identically in the standalone Trade modal, which doesn't carry that class. */
+.ax-sum { display: flex; flex-direction: column; gap: 2px; }
+.ax-sum-row { display: flex; justify-content: space-between; gap: var(--sp-2); padding: 3px 0; }
+.ax-sum-label { color: var(--muted); }
+.ax-sum-val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.ax-sum-old { color: var(--muted); }
+.ax-sum-arrow { color: var(--muted); margin: 0 4px; }
+.ax-sum-new { color: var(--ink); font-weight: 700; }
+.ax-details { margin-top: var(--sp-3); border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+.ax-details summary { cursor: pointer; font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; list-style: none; }
+.ax-details summary::-webkit-details-marker { display: none; }
+.ax-details summary::before { content: '▸'; display: inline-block; margin-right: 6px; transition: transform .15s var(--ease-out-quint); }
+.ax-details[open] summary::before { transform: rotate(90deg); }
+.ax-details-sub { font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--muted); margin-left: 6px; }
+/* #axImpactLine IS the <summary> of its own .ax-details (the whole impact panel collapses to
+   this one line) — override the section-header look above with a muted mono one-liner instead. */
+#axImpactLine { font-weight: 400; text-transform: none; letter-spacing: normal; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10px; }
+/* Sticky summary bar — collapses the context column below 1100px (see renderActionContext /
+   axToggleContext). display:none above that breakpoint is the primary hide; #axContext's own
+   `hidden` attribute is also kept cleared there as a second guarantee (JS, not CSS-only — see
+   the matchMedia listener next to axToggleContext). */
+#axSummaryBar { display: none; align-items: center; gap: var(--sp-2); position: sticky; top: 0; z-index: var(--z-sticky); background: var(--card); border-bottom: 1px solid var(--line); padding: var(--sp-2) var(--sp-4); cursor: pointer; }
+#axSummaryBar .logo-wrap { width: 22px; height: 22px; flex-shrink: 0; }
+.ax-summary-chip { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10px; color: var(--muted); background: var(--track); border-radius: var(--radius-pill); padding: 2px 8px; }
+.ax-summary-chevron { margin-left: auto; color: var(--muted); transition: transform .15s var(--ease-out-quint); flex-shrink: 0; }
+#axSummaryBar.ax-summary-open .ax-summary-chevron { transform: rotate(180deg); }
+@media (max-width: 1100px) {
+  .ax-body { grid-template-columns: 1fr; overflow-y: auto; }
+  .ax-context { overflow-y: visible; }
+  #actionTabContent { overflow-y: visible; }
+  .ax-panel { border-left: none; border-top: 1px solid var(--line); border-bottom: none; }
+  #axSummaryBar { display: flex; }
+}
+@media (max-width: 700px) {
+  .ax-modal { width: 100vw; max-width: 100vw; max-height: 100dvh; border-radius: 0; }
+  .ax-foot { padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px)); }
+}
 
 /* ── Tweaks panel ── */
 .tw-panel {
@@ -1965,6 +2058,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .am-lock { grid-area: lock; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); }
 .am-lock:hover { background: var(--hover); color: var(--ink); }
 .am-lock[aria-pressed="true"] { color: var(--terracotta); }
+/* Locked = frozen against every automatic adjustment and its own inputs — dim just the editable
+   parts (slider + % box) so symbol/now/$/drift stay readable and this never reads as an error
+   state; the lock button itself stays full-strength terracotta (via aria-pressed above) so the
+   reason for the dimming is obvious at a glance. */
+.am-row.locked .am-slider, .am-row.locked .am-pct,
+.am-group.locked .am-slider, .am-group.locked .am-pct { opacity: .55; }
+.am-range:disabled, .am-pct-input:disabled { cursor: not-allowed; }
+.am-range:disabled::-webkit-slider-thumb { cursor: not-allowed; }
 
 .am-add-watch { margin-top: var(--sp-2); position: relative; }
 .am-add-watch-btn { width: 100%; text-align: left; }
@@ -2416,8 +2517,15 @@ const I18N = {
     "Industrials": "Industrials", "Materials": "Materials",
     "Utilities": "Utilities", "Real Estate": "Real Estate",
     "Communication Services": "Communication Services",
-    tab_plan: "PLAN", tab_transaction: "TRADE", tab_edit: "EDIT",
-    tab_allocation: "ALLOCATION",
+    tab_plan: "PLAN", tab_trade: "TRADE", tab_manage: "MANAGE",
+    ax_entries: "Entries", ax_exits: "Exits",
+    ax_saved_plan: "Plan saved", ax_no_plan: "No plan saved yet",
+    ax_fill_t: "Fill {t}", ax_to_target: "To target",
+    ax_pct_cash: "{p}% cash", ax_max_cash: "Max cash",
+    ax_pct_pos: "{p}%", ax_details: "Details",
+    ax_tags: "Tags", ax_corrections: "Corrections", ax_move: "Move shares",
+    ax_manual_warn: "Overwrites what the transaction history calculated.",
+    ax_manage_alloc: "Manage allocation",
     remove_btn: "Remove", save_plan_btn: "Save Plan", clear_btn: "Clear",
     clear_tranches_btn: "Clear Tranches", remove_plan_btn: "Remove Plan",
     add_tranche_btn: "+ Add Tranche", stop_loss_label: "Stop Loss ($)",
@@ -2612,7 +2720,7 @@ const I18N = {
     am_err_generic: "Couldn't save. Your changes are still here.",
     am_discard_q: "Discard {n} unsaved changes?", am_switch_q: "Discard {n} changes and switch to {port}?",
     am_keep: "Keep editing", am_discard: "Discard", am_undo: "Undo", am_redo: "Redo",
-    am_lock: "Lock", am_revert: "Revert to saved",
+    am_lock: "Lock", am_unlock: "Unlock", am_revert: "Revert to saved",
     am_pie_target: "Target Allocation", am_pie_category: "Category", am_pie_custom: "Custom", am_pie_mygroup: "My Group",
     am_untagged: "Untagged", am_unalloc_slice: "Unallocated", am_cash: "Cash", am_clear_filter: "Clear filter",
     weekend_status: "Weekend", closed_status: "Closed",
@@ -2675,8 +2783,15 @@ const I18N = {
     "Industrials": "กลุ่มอุตสาหกรรม", "Materials": "กลุ่มวัสดุ",
     "Utilities": "สาธารณูปโภค", "Real Estate": "อสังหาริมทรัพย์",
     "Communication Services": "บริการสื่อสาร",
-    tab_plan: "แผนลงทุน", tab_transaction: "เทรด",
-    tab_edit: "แก้ไขหุ้น", tab_allocation: "ตั้งเป้าหมาย",
+    tab_plan: "แผนลงทุน", tab_trade: "เทรด", tab_manage: "จัดการ",
+    ax_entries: "จุดเข้า", ax_exits: "จุดออก",
+    ax_saved_plan: "บันทึกแผนแล้ว", ax_no_plan: "ยังไม่ได้บันทึกแผน",
+    ax_fill_t: "เติม {t}", ax_to_target: "ถึงเป้าหมาย",
+    ax_pct_cash: "เงินสด {p}%", ax_max_cash: "เงินสดทั้งหมด",
+    ax_pct_pos: "{p}%", ax_details: "รายละเอียด",
+    ax_tags: "แท็ก", ax_corrections: "แก้ไขตัวเลข", ax_move: "ย้ายหุ้น",
+    ax_manual_warn: "จะเขียนทับค่าที่คำนวณจากประวัติการซื้อขาย",
+    ax_manage_alloc: "จัดการสัดส่วน",
     remove_btn: "ลบออก", save_plan_btn: "บันทึกแผน", clear_btn: "ล้างค่า",
     clear_tranches_btn: "ล้างไม้ซื้อ", remove_plan_btn: "ลบแผน",
     add_tranche_btn: "+ เพิ่มไม้", stop_loss_label: "จุดตัดขาดทุน (SL)",
@@ -2893,7 +3008,7 @@ const I18N = {
     am_err_generic: "บันทึกไม่สำเร็จ การแก้ไขยังอยู่",
     am_discard_q: "ทิ้งการแก้ไข {n} รายการที่ยังไม่บันทึก?", am_switch_q: "ทิ้งการแก้ไข {n} รายการแล้วเปลี่ยนไป {port}?",
     am_keep: "แก้ไขต่อ", am_discard: "ทิ้ง", am_undo: "เลิกทำ", am_redo: "ทำซ้ำ",
-    am_lock: "ล็อก", am_revert: "กลับไปค่าที่บันทึก",
+    am_lock: "ล็อก", am_unlock: "ปลดล็อก", am_revert: "กลับไปค่าที่บันทึก",
     am_pie_target: "สัดส่วนเป้าหมาย", am_pie_category: "หมวดหมู่", am_pie_custom: "กำหนดเอง", am_pie_mygroup: "กลุ่มของฉัน",
     am_untagged: "ไม่มีแท็ก", am_unalloc_slice: "ยังไม่จัดสรร", am_cash: "เงินสด", am_clear_filter: "ล้างตัวกรอง",
     // Market Clock / Status
@@ -2982,7 +3097,7 @@ let shellBuilt = false;
 let _isDark = false;
 let txList = [], editingRow = null, txSortDir = -1, txSellAll = false, _txSearch = '';
 let _editOrigTx = null;   // the row as it was when the edit modal opened, for the impact line
-let actionModalSym = null, actionModalTab = 'edit';
+let actionModalSym = null, actionModalTab = 'plan';
 let tabDraft = {};
 let chartTimeFilter = 'ALL';
 let benchmarkData = null;
@@ -3176,13 +3291,20 @@ function _impactStaticFor(sym) {
 function updateTxImpact(shares, price) {
   const el = document.getElementById('txImpactPanel');
   if (!el) return;
+  // #axImpactLine (action modal's Trade segment, pass 3): a one-line "top-3 concentration +
+  // sector weight, before → after" summary, written from the SAME cB/cA/secB/secA this function
+  // already computes below — never recomputed separately. Absent (null) everywhere else this
+  // function is called (standalone tx/trade modals), so every write below is a no-op there.
+  const lineEl = document.getElementById('axImpactLine');
   const tickerEl = document.getElementById('txTicker');
   const sym = tickerEl?.value === '__custom__'
     ? (document.getElementById('txTickerCustom')?.value?.trim()?.toUpperCase() || '')
     : (tickerEl?.value || '');
   const tradeVal = (shares || 0) * (price || 0);
   // Nothing to evaluate until there is a real order on the form — same rule as the bars above.
-  if (!currentModel || !sym || sym === '__custom__' || tradeVal <= 0) { el.innerHTML = ''; return; }
+  if (!currentModel || !sym || sym === '__custom__' || tradeVal <= 0) {
+    el.innerHTML = ''; if (lineEl) lineEl.innerHTML = ''; return;
+  }
 
   const positions = currentModel.positions || [];
   const pos    = positions.find(p => p.symbol === sym) || null;
@@ -3195,7 +3317,7 @@ function updateTxImpact(shares, price) {
   valAfter.set(sym, Math.max(0, curVal + delta));
   const sumOf    = m => [...m.values()].reduce((s, v) => s + v, 0);
   const eqBefore = sumOf(valBefore), eqAfter = sumOf(valAfter);
-  if (eqAfter <= 0) { el.innerHTML = ''; return; }
+  if (eqAfter <= 0) { el.innerHTML = ''; if (lineEl) lineEl.innerHTML = ''; return; }
 
   const conc = (m, total) => {
     const ws = [...m.entries()].map(([s, v]) => [s, total > 0 ? v / total * 100 : 0])
@@ -3289,6 +3411,14 @@ function updateTxImpact(shares, price) {
     ${sub(t('timpact_risk'))}${betaRow}${corrRow}${betaNote}
     ${sub(t('timpact_ctx'))}${ctxRows}
   </div>`;
+
+  // One-line summary — the two most decision-relevant figures (top-3 concentration, and this
+  // symbol's sector weight when known), same numbers as concRows above, never recomputed.
+  if (lineEl) {
+    const parts = [`${t('timpact_top3')} ${p1(cB.top3)} → ${p1(cA.top3)}`];
+    if (secB != null) parts.push(`${t(mySec)} ${p1(secB)} → ${p1(secA)}`);
+    lineEl.innerHTML = parts.join(' · ');
+  }
 }
 
 window.setSellAll = function() {
@@ -3327,7 +3457,24 @@ window.selectTxCash = function(src) {
     if (dot) { dot.style.background = s===src ? 'var(--terracotta)' : 'transparent'; dot.style.borderColor = s===src ? 'var(--terracotta)' : 'var(--muted)'; }
   });
   updateTxCashPreview();
+  axUpdateTradeDetailsSub(); // no-op off the action modal's Trade segment (#axTradeDetailsSub absent)
 };
+
+// Keeps the Trade segment's folded-Details sub-label ("17 Sep 14:32 · USD") reading live as the
+// date/time inputs or the cash source change — called from selectTxCash and the txDate/txTime
+// `change` handlers. Guarded on the sub-label's existence, so a safe no-op in the standalone
+// Trade modal (which has no Details disclosure at all).
+function axUpdateTradeDetailsSub() {
+  const el = document.getElementById('axTradeDetailsSub');
+  if (!el) return;
+  const dateVal = document.getElementById('txDate')?.value;
+  const timeVal = document.getElementById('txTime')?.value;
+  const src     = document.getElementById('txCashSource')?.value || 'USD';
+  if (!dateVal || !timeVal) return;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const [, mo, d] = dateVal.split('-');
+  el.textContent = `${d} ${MONTHS[+mo - 1]} ${timeVal.slice(0, 5)} · ${src}`;
+}
 
 // Live "what this edit will move" line in the edit modal. The share delta is exact; the cash
 // figure is a calcFees estimate, since the authoritative Trade_Value+Fee is a sheet formula the
@@ -4995,7 +5142,6 @@ window.saveContribution = async function(row) {
 };
 
 // ── Action modal charts ───────────────────────────────────────────────────────
-let actionChart1 = null, actionChart2 = null;
 let actionTvChart = null, actionTvSeries = null, actionTvLines = [], actionTvRo = null, actionTvNewAvgLine = null;
 // Build-generation counters: a chart-type toggle can start a second async build before the
 // first finishes; only the newest build may touch the DOM/globals (see buildSdTvChart /
@@ -5021,8 +5167,6 @@ function destroyActionTvChart() {
 
 function destroyActionCharts() {
   _actionTvBuildSeq++;
-  if (actionChart1) { actionChart1.destroy(); actionChart1 = null; }
-  if (actionChart2) { actionChart2.destroy(); actionChart2 = null; }
   destroyActionTvChart();
   destroyTradeTvChart();
 }
@@ -5121,11 +5265,10 @@ window.setChartType = function(mode) {
   if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
     buildSdTvChart(window._sdTvSym);
   }
-  if (document.getElementById('actionModal')?.classList.contains('open')) {
-    // The PLAN and TRANSACTION tabs both host the shared #actionTvChartEl (with the
-    // Area/HA pills), so a toggle must rebuild the chart on either one.
-    if (actionModalTab === 'plan' && planState.symbol) buildActionTvChart(planState.symbol);
-    else if (actionModalTab === 'transaction' && actionModalSym) buildActionTvChart(actionModalSym);
+  // The chart now lives in the left context column (#actionTvChartEl), shared by all three
+  // segments — a toggle rebuilds it regardless of which segment (plan/trade/manage) is active.
+  if (document.getElementById('actionModal')?.classList.contains('open') && actionModalSym) {
+    buildActionTvChart(actionModalSym);
   }
 };
 
@@ -5207,9 +5350,9 @@ window.toggleEma = function() {
   if (document.getElementById('symbolDetailModal')?.classList.contains('open') && window._sdTvSym) {
     buildSdTvChart(window._sdTvSym);
   }
-  if (document.getElementById('actionModal')?.classList.contains('open')) {
-    if (actionModalTab === 'plan' && planState.symbol) buildActionTvChart(planState.symbol);
-    else if (actionModalTab === 'transaction' && actionModalSym) buildActionTvChart(actionModalSym);
+  // The chart now lives in the left context column, shared by all three segments.
+  if (document.getElementById('actionModal')?.classList.contains('open') && actionModalSym) {
+    buildActionTvChart(actionModalSym);
   }
 };
 
@@ -5396,12 +5539,12 @@ function updateActionTvLines() {
   }
 }
 
-// Live "new avg" line for the action modal's Transaction tab — recomputed as the shares/price
-// inputs change. Same terracotta color + math as the Trade modal's line. No-op off that tab.
+// Live "new avg" line for the action modal's Trade segment — recomputed as the shares/price
+// inputs change. Same terracotta color + math as the Trade modal's line. No-op off that segment.
 function updateActionNewAvgLine() {
   if (!actionTvSeries) return;
   if (actionTvNewAvgLine) { try { actionTvSeries.removePriceLine(actionTvNewAvgLine); } catch(_) {} actionTvNewAvgLine = null; }
-  if (actionModalTab !== 'transaction') return;
+  if (actionModalTab !== 'trade') return;
   const pos    = findPosIn(planState.model || currentModel, actionModalSym) || findPos(actionModalSym);
   const curQty = pos?.qty || 0, curAvg = pos?.avgPrice || 0;
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
@@ -5530,6 +5673,10 @@ async function buildTradeTvChart(sym) {
 
 // Trade Value/Fee/Qty/Avg/Cash summary rows — shared by the Trade modal and the action modal's
 // Transaction tab. Reads the common txPrice/txShares inputs and the given (symbol, portfolio).
+// Compact two-column before→after list — trade value/fee/qty/avg/cash (unchanged) plus a weight
+// row (Trade-segment redesign pass 3). Shared verbatim by the action modal's Trade segment and
+// the standalone Trade modal; row/value styling classes are deliberately NOT scoped under
+// .ax-sum so both callers render identically without touching the standalone modal's markup.
 function tradeSummaryRowsHtml(sym, port) {
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
@@ -5559,12 +5706,27 @@ function tradeSummaryRowsHtml(sym, port) {
   const totalNew = totalOld - fee;
   const pct = (c, tot) => tot > 0 ? ` (${(c / tot * 100).toFixed(1)}%)` : '';
 
-  const row = (label, val, last) => `<div style="display:flex;justify-content:space-between${last?'':';margin-bottom:4px'}"><span style="color:var(--muted)">${label}</span><strong>${val}</strong></div>`;
+  const row   = (label, val) => `<div class="ax-sum-row"><span class="ax-sum-label">${label}</span><span class="ax-sum-val">${val}</span></div>`;
+  const arrow = (before, after) => `<span class="ax-sum-old">${before}</span><span class="ax-sum-arrow">→</span><span class="ax-sum-new">${after}</span>`;
+
+  // Weight now → after (position value / investable capital), plus "/ target%" when this position
+  // carries a target allocation. Skipped for a watchlist row (no position) or investable = 0.
+  let weightRow = '';
+  const investable = model.investable || 0;
+  if (pos && investable > 0) {
+    const wBefore  = (pos.currentValue || 0) / investable * 100;
+    const afterVal = Math.max(0, (pos.currentValue || 0) + (isSell ? -tv : tv));
+    const wAfter   = afterVal / investable * 100;
+    const tgtStr   = pos.target != null ? ` / ${(pos.target * 100).toFixed(1)}%` : '';
+    weightRow = row(t('portfolio_weight_label'), arrow(`${wBefore.toFixed(1)}%`, `${wAfter.toFixed(1)}%${tgtStr}`));
+  }
+
   return row(t('trade_value_label'), fmtCurr(tv)) +
     row(t('trade_fee_label'), fmtCurr(fee)) +
-    row(t('qty_label'), `${curQty.toFixed(4)} → ${newQty.toFixed(4)}`) +
-    row(t('avg_label'), `${fmtUSD(curAvg)} → ${newAvgStr}`) +
-    row(t('cash'), `${fmtCurr(cashOld)}${pct(cashOld, totalOld)} → ${fmtCurr(cashNew)}${pct(cashNew, totalNew)}`, true);
+    row(t('qty_label'), arrow(curQty.toFixed(4), newQty.toFixed(4))) +
+    row(t('avg_label'), arrow(fmtUSD(curAvg), newAvgStr)) +
+    row(t('cash'), arrow(`${fmtCurr(cashOld)}${pct(cashOld, totalOld)}`, `${fmtCurr(cashNew)}${pct(cashNew, totalNew)}`)) +
+    weightRow;
 }
 
 function updateTradeSummary() {
@@ -5573,10 +5735,13 @@ function updateTradeSummary() {
   el.innerHTML = tradeSummaryRowsHtml(tradeModalSym, tradeModalPort);
 }
 
-// Same summary block for the action modal's Transaction tab (no-op off that tab).
+// Same summary block for the action modal's Trade segment (no-op off that segment).
+// NOTE: #actionTxSummary has never existed in the rendered markup (the action modal's trade
+// segment uses #tradeSummary, shared with the standalone Trade modal via tradeSummaryRowsHtml) —
+// this was already a no-op before this pass; left as-is, not part of this redesign's scope.
 function updateActionTxSummary() {
   const el = document.getElementById('actionTxSummary');
-  if (!el || actionModalTab !== 'transaction') return;
+  if (!el || actionModalTab !== 'trade') return;
   el.innerHTML = tradeSummaryRowsHtml(actionModalSym, actionModalPort);
 }
 
@@ -5644,6 +5809,62 @@ window.onTradeTypeChange = function(type) {
   const qtyEl = document.getElementById('txShares'), costEl = document.getElementById('tradeCost');
   if (qtyEl) qtyEl.value = '';
   if (costEl) costEl.value = '';
+  recomputeTradeFrom('qty');
+  renderAxIntentChips(); // no-op off the action modal's Trade segment (#axIntentChips absent)
+};
+
+// ── Trade segment intent chips (pass 3) ──────────────────────────────────────────────────────
+// Computed at render and re-computed only on a Buy/Sell side change (onTradeTypeChange above) —
+// NOT on every price/qty keystroke, per the redesign brief. A chip that would set a 0 or negative
+// quantity is simply omitted (no disabled chips).
+function axTradeChips(sym, port) {
+  const model = modelForPort(port);
+  const pos   = findPosIn(model, sym) || findPos(sym);
+  const price = parseFloat(document.getElementById('txPrice')?.value) || pos?.price || 0;
+  if (!price || price <= 0) return [];
+  const chips = [];
+  if (txType === 'Sell') {
+    const heldQty = pos?.qty || 0;
+    [25, 50, 100].forEach(p => {
+      const qty = heldQty * p / 100;
+      if (qty > 0.000001) chips.push({ label: t('ax_pct_pos').replace('{p}', p), qty, sellAll: p === 100 });
+    });
+  } else {
+    const next = axNextTranche(sym, port, price);
+    if (next && next.dollar > 0) {
+      const qty = next.dollar / (next.price || price);
+      if (qty > 0.000001) chips.push({ label: t('ax_fill_t').replace('{t}', `T${next.idx + 1}`), qty });
+    }
+    const td = getTargetDollar(pos, model);
+    const toTargetQty = td > 0 ? Math.max(0, td - (pos?.currentValue || 0)) / price : 0;
+    if (toTargetQty > 0.000001) chips.push({ label: t('ax_to_target'), qty: toTargetQty });
+    const cash = model?.totalCash || 0;
+    const cash25Qty = (cash * 0.25) / price;
+    if (cash25Qty > 0.000001) chips.push({ label: t('ax_pct_cash').replace('{p}', 25), qty: cash25Qty });
+    const cashMaxQty = cash / price;
+    if (cashMaxQty > 0.000001) chips.push({ label: t('ax_max_cash'), qty: cashMaxQty });
+  }
+  return chips;
+}
+function axIntentChipsHtml(sym, port) {
+  return axTradeChips(sym, port).map(c =>
+    `<button type="button" class="ax-chip" onclick="${c.sellAll ? 'onTradeSellAll()' : `axApplyChipQty(${c.qty.toFixed(6)})`}">${c.label}</button>`
+  ).join('');
+}
+// Refreshes the chip row in place (no full segment re-render) — called once at initial render
+// and again on a side toggle. Guarded on the wrapper's existence so it's a safe no-op anywhere
+// else onTradeTypeChange/setTxType is shared (the standalone Trade modal has no chip row).
+function renderAxIntentChips() {
+  const el = document.getElementById('axIntentChips');
+  if (!el) return;
+  el.innerHTML = axIntentChipsHtml(tradeModalSym, tradeModalPort);
+}
+// Shared apply for every non-sell-all chip: set Qty, then run the same forward recompute path
+// a manual edit would (allocation bars, impact, cash preview, summary, avg line).
+window.axApplyChipQty = function(qty) {
+  const el = document.getElementById('txShares');
+  if (!el) return;
+  el.value = (+qty).toFixed(6);
   recomputeTradeFrom('qty');
 };
 
@@ -5821,207 +6042,16 @@ window.submitTradeModal = async function() {
   }
 };
 
-function actionChartsHtml(sym) {
-  const cat      = currentModel?.positions.find(p=>p.symbol===sym)?.category || 'Category';
-  const planning = actionModalTab === 'allocation';
-  const badge    = planning
-    ? `<div style="text-align:center;margin-bottom:8px;grid-column:1/-1"><span style="padding:2px 10px;background:rgba(138,90,126,.18);color:var(--plum);font-size:9px;font-weight:800;border-radius:4px;letter-spacing:.8px">PLANNING</span></div>`
-    : '';
-  const availMsg = planning
-    ? `<div id="actionChart1Avail" style="text-align:center;font-size:11px;margin-top:3px;color:var(--muted)">—</div>`
-    : '';
-  return `<div class="action-charts-grid">
-    ${badge}
-    <div style="background:var(--track);border-radius:10px;padding:10px">
-      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:center;margin-bottom:6px">${t('all_stocks_label')}</div>
-      <div style="position:relative;height:130px"><canvas id="actionChart1"></canvas></div>
-      <div style="text-align:center;font-size:11px;margin-top:5px"><span class="action-pulse" id="actionLbl1" style="color:var(--terracotta)">—</span></div>
-      ${availMsg}
-    </div>
-    <div style="background:var(--track);border-radius:10px;padding:10px">
-      <div id="actionChart2Title" style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:center;margin-bottom:6px">${cat}</div>
-      <div style="position:relative;height:130px"><canvas id="actionChart2"></canvas></div>
-      <div style="text-align:center;font-size:11px;margin-top:5px"><span class="action-pulse" id="actionLbl2" style="color:var(--terracotta)">—</span></div>
-    </div>
-  </div>`;
-}
-
-// previewValue: optional override for currentValue; overrideCat: optional category for chart 2
-function renderActionCharts(sym, previewValue, overrideCat) {
-  if (!currentModel) return;
-  destroyActionCharts();
-  const pos = findPos(sym);
-  if (!pos) return;
-
-  const isAllocMode = actionModalTab === 'allocation';
-  const category    = overrideCat ?? pos.category ?? 'Other';
-  const t2el = document.getElementById('actionChart2Title');
-  if (t2el) t2el.textContent = category;
-
-  if (isAllocMode) {
-    // ── Allocation mode: use target % values ──────────────────────────────
-    // Must match the investable basis updateActionCategoryChange/updateActionChartsPreview used to
-    // turn the typed target % into previewValue$, or converting it back to a % here drifts from
-    // what the user actually typed.
-    const investable = (planState.model || currentModel).investable;
-    const editedTgt  = previewValue != null && investable > 0
-      ? previewValue / investable * 100
-      : (pos.target || 0) * 100;
-
-    // Build items: each stock's target %, override edited symbol + its category
-    // Include watchlist item if it's not already in positions
-    const inPositions = currentModel.positions.some(p => p.symbol === sym);
-    let allItems = currentModel.positions.map(p => ({
-      symbol:   p.symbol,
-      tgtPct:   p.symbol === sym ? editedTgt : (p.target || 0) * 100,
-      category: p.symbol === sym ? category  : (p.category || 'Other'),
-    }));
-    if (!inPositions && editedTgt > 0) {
-      allItems.push({ symbol: sym, tgtPct: editedTgt, category });
-    }
-    allItems = allItems.filter(p => p.tgtPct > 0);
-
-    const totalPct  = allItems.reduce((s,p) => s + p.tgtPct, 0);
-    const available = Math.max(0, 100 - totalPct);
-
-    // Chart 1: all stocks by target + Available slice
-    const c1items = [...allItems, ...(available > 0.01 ? [{symbol:'Available', tgtPct:available, category:''}] : [])];
-    const c2items = allItems.filter(p => p.category === category);
-
-    const editedPct1 = editedTgt.toFixed(1);
-    const c2tot = c2items.reduce((s,p) => s+p.tgtPct, 0);
-    const editedPct2 = c2tot > 0 ? (editedTgt/c2tot*100).toFixed(1) : editedTgt.toFixed(1);
-
-    const lbl1 = document.getElementById('actionLbl1');
-    const lbl2 = document.getElementById('actionLbl2');
-    const avEl = document.getElementById('actionChart1Avail');
-    if (lbl1) lbl1.textContent = `${sym}  ${editedPct1}%`;
-    if (lbl2) lbl2.textContent = `${sym}  ${editedPct2}%`;
-    if (avEl) {
-      const color = available > 0.01 ? 'var(--gain)' : 'var(--loss)';
-      avEl.innerHTML = `Available: <strong style="color:${color}">${available.toFixed(1)}%</strong>`;
-    }
-
-    // `denom`/`denomNoun`: chart 1 shows each slice's absolute portfolio target %
-    // (its ring already includes the "Available" slice, so those sum to 100).
-    // Chart 2 is a category subset with no filler slice, so its % must be relative
-    // to that category — matching both its arc sizes and the actionLbl2 label.
-    const mkAllocChart = (id, items, denom, denomNoun) => {
-      const el = document.getElementById(id);
-      if (!el) return null;
-      const total  = denom != null ? denom : items.reduce((s,p) => s+p.tgtPct, 0);
-      const labels = items.map(p => p.symbol);
-      const data   = items.map(p => p.tgtPct);
-      const bg     = items.map(p => p.symbol==='Available' ? 'rgba(100,116,139,0.25)' : p.symbol===sym ? colorFor(p.symbol) : colorFor(p.symbol)+'55');
-      const border = items.map(p => p.symbol===sym ? '#fff' : 'transparent');
-      const bw     = items.map(p => p.symbol===sym ? 3 : 0);
-      return new Chart(el.getContext('2d'), {
-        type: 'doughnut',
-        data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: border, borderWidth: bw, hoverBorderWidth:0 }] },
-        options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
-          plugins: { legend:{display:false},
-            tooltip: { callbacks:{ label: c => {
-              const pct = denom != null ? (total > 0 ? c.raw / total * 100 : 0) : c.raw;
-              return ` ${c.label}: ${pct.toFixed(1)}% of ${denomNoun || 'portfolio'}`;
-            } },
-              backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding:8, cornerRadius:8 }}}
-      });
-    };
-    actionChart1 = mkAllocChart('actionChart1', c1items);
-    actionChart2 = c2items.length
-      ? mkAllocChart('actionChart2', c2items, c2tot, category || 'category')
-      : mkAllocChart('actionChart2', c1items);
-    return;
-  }
-
-  // ── Edit mode: use current value ─────────────────────────────────────────
-  const usedValue = previewValue != null ? previewValue : (pos.currentValue ?? 0);
-  const positions = currentModel.positions.map(p =>
-    p.symbol === sym ? { ...p, currentValue: usedValue, category } : p
-  );
-  const catPos = positions.filter(p => (p.category||'Other') === category);
-  const total1 = positions.reduce((s,p) => s + p.currentValue, 0);
-  const total2 = catPos.reduce((s,p) => s + p.currentValue, 0);
-  const lbl1 = document.getElementById('actionLbl1');
-  const lbl2 = document.getElementById('actionLbl2');
-  if (lbl1) lbl1.textContent = `${sym}  ${total1>0?(usedValue/total1*100).toFixed(1):0}%`;
-  if (lbl2) lbl2.textContent = `${sym}  ${total2>0?(usedValue/total2*100).toFixed(1):0}%`;
-
-  const mkChart = (id, items) => {
-    const el = document.getElementById(id);
-    if (!el) return null;
-    const total  = items.reduce((s,p) => s + p.currentValue, 0);
-    const labels = items.map(p => p.symbol);
-    const data   = items.map(p => p.currentValue);
-    const bg     = items.map(p => p.symbol===sym ? colorFor(p.symbol) : colorFor(p.symbol)+'55');
-    const border = items.map(p => p.symbol===sym ? '#ffffff' : 'transparent');
-    const bw     = items.map(p => p.symbol===sym ? 3 : 0);
-    return new Chart(el.getContext('2d'), {
-      type: 'doughnut',
-      data: { labels, datasets: [{ data, backgroundColor: bg, borderColor: border, borderWidth: bw, hoverBorderWidth:0 }] },
-      options: { responsive:true, maintainAspectRatio:false, cutout:'62%', animation:false,
-        plugins: { legend:{display:false},
-          tooltip: { callbacks:{ label: c => ` ${c.label}: ${total>0?(c.raw/total*100).toFixed(1):0}%` },
-            backgroundColor: css('--tooltip-bg'), bodyColor: css('--tooltip-fg'), padding:8, cornerRadius:8 }}}
-    });
-  };
-  actionChart1 = mkChart('actionChart1', positions);
-  actionChart2 = mkChart('actionChart2', catPos);
-}
-
-window.updateActionCategoryChange = function() {
-  const sym = actionModalSym;
-  // Portfolio-scoped model for this modal (matches renderActionTabContent/PLAN tab), not the ALL blend.
-  const model = planState.model || currentModel;
-  const pos = findPosIn(model, sym) || findPos(sym);
-  if (!pos) return;
-  const newCat  = document.getElementById('editCategory')?.value || pos.category || 'Other';
-  const tgt     = parseFloat(document.getElementById('editTargetPct')?.value);
-  const planned = (!isNaN(tgt) && model?.investable > 0)
-    ? (tgt / 100) * model.investable : (pos.currentValue ?? 0);
-  renderActionCharts(sym, planned, newCat);
-};
-
-window.updateActionChartsPreview = function() {
-  const sym = actionModalSym;
-  // Portfolio-scoped model for this modal (matches renderActionTabContent/PLAN tab), not the ALL blend.
-  const model = planState.model || currentModel;
-  const pos = findPosIn(model, sym) || findPos(sym);
-  if (!pos || !actionChart1) return;
-
-  if (actionModalTab === 'allocation') {
-    // Allocation mode: full re-render (Available slice must update too)
-    const tgt = parseFloat(document.getElementById('editTargetPct')?.value);
-    const planned = (!isNaN(tgt) && model?.investable > 0)
-      ? (tgt / 100) * model.investable : null;
-    renderActionCharts(sym, planned);
-    return;
-  }
-
-  // Edit mode: in-place patch (no Available slice to worry about)
-  const qty = parseFloat(document.getElementById('editQty')?.value);
-  const usedValue = !isNaN(qty) ? qty * (pos.price || 0) : (pos.currentValue ?? 0);
-  [actionChart1, actionChart2].forEach(chart => {
-    if (!chart) return;
-    const idx = chart.data.labels.indexOf(sym);
-    if (idx < 0) return;
-    chart.data.datasets[0].data[idx] = usedValue;
-    chart.update('none');
-  });
-  const allItems = currentModel.positions.map(p => p.symbol===sym ? {...p,currentValue:usedValue} : p);
-  const catItems = allItems.filter(p => (p.category||'Other') === (pos.category||'Other'));
-  const t1 = allItems.reduce((s,p) => s+p.currentValue, 0);
-  const t2 = catItems.reduce((s,p) => s+p.currentValue, 0);
-  const lbl1 = document.getElementById('actionLbl1');
-  const lbl2 = document.getElementById('actionLbl2');
-  if (lbl1) lbl1.textContent = `${sym}  ${t1>0?(usedValue/t1*100).toFixed(1):0}%`;
-  if (lbl2) lbl2.textContent = `${sym}  ${t2>0?(usedValue/t2*100).toFixed(1):0}%`;
-};
+// actionChartsHtml/renderActionCharts/updateActionCategoryChange/updateActionChartsPreview
+// (the two per-symbol allocation donuts on the old EDIT/ALLOCATION tabs) were removed in the
+// Action-modal redesign pass 1 — MANAGE has no donuts, and target-% editing moved to PLAN.
 
 // ── Action modal (per-symbol hub) ────────────────────────────────────────────
 const ACTION_ICON = `<svg viewBox="0 0 14 4" width="14" height="4" fill="currentColor"><circle cx="2" cy="2" r="1.8"/><circle cx="7" cy="2" r="1.8"/><circle cx="12" cy="2" r="1.8"/></svg><span class="pb-label">Actions</span>`;
 const TRADE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10 3 6l4-4"/><path d="M3 6h13a4 4 0 0 1 4 4v1"/><path d="M17 14l4 4-4 4"/><path d="M21 18H8a4 4 0 0 1-4-4v-1"/></svg><span class="pb-label">Trade</span>`;
 const GEMINI_ICON = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2c-.3 3.4-1.8 6.2-4 8.3C5.8 12.4 3 13.8 0 14c3 .2 5.8 1.6 8 3.7 2.2 2.1 3.7 4.9 4 8.3.3-3.4 1.8-6.2 4-8.3 2.2-2.1 5-3.5 8-3.7-3-.2-5.8-1.6-8-3.7C13.8 8.2 12.3 5.4 12 2z" fill="#4285f4"/></svg>`;
+// Sliders icon for the Plan panel's "manage allocation" mini-button (axOpenAllocFor).
+const AX_ALLOC_ICON = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="11" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`;
 
 // Build a model scoped to a single portfolio (for the action modal in ALL view).
 function modelForPort(port) {
@@ -6053,6 +6083,7 @@ function targetCtxFor(sym, port) {
 
 window.openActionModal = function(sym, port) {
   if (!currentModel) return;
+  destroyActionCharts(); // tear down any chart/observer from a previous open before the DOM is replaced
   actionModalSym = sym;
   actionModalTab = 'plan';
   actionModalPort = port || defaultPortFor(sym);
@@ -6075,25 +6106,40 @@ window.openActionModal = function(sym, port) {
                  sl:cached.sl??null, note:cached.note??'',
                  pendingTarget:null, pendingCategory:null};
   }
+  // The modal always opens on Plan; a triggered (HIT, not near) alert decides which half it lands
+  // on and which row gets the one-shot scroll+highlight (see axAlertFocus / applyAxFocusRow).
+  const _axFocus = axAlertFocus(sym, actionModalPort);
+  _axPlanHalf = _axFocus?.half || 'entries';
+  _axPendingFocus = _axFocus;
   const overlay = document.getElementById('actionModal');
   if (!overlay) return;
-  const tabs = ['plan','transaction','edit','allocation'];
+  // Sector · Industry · Category · Custom · My Group — quiet labels under the company name.
+  // Sector/Category are i18n keys (t(value), same as the positions table); Industry is a
+  // free-form Yahoo string, rendered as-is (matches the positions table, which doesn't escape it
+  // either); Custom/My Group are free text, escHtml'd. A chip with no value is simply omitted.
+  const metaFields = [
+    ['sector_label',   pos?.sector   ? t(pos.sector)       : ''],
+    ['industry_label', pos?.industry ? pos.industry        : ''],
+    ['category_label', pos?.category ? t(pos.category)     : ''],
+    ['custom_label',   pos?.custom   ? escHtml(pos.custom)  : ''],
+    ['mygroup_label',  pos?.myGroup  ? escHtml(pos.myGroup) : ''],
+  ].filter(([, v]) => v);
+  const metaHtml = metaFields.length
+    ? `<div class="ax-meta">${metaFields.map(([labelKey, v]) => `<span class="ax-meta-chip" title="${t(labelKey)}">${v}</span>`).join('')}</div>`
+    : '';
+  const segs = ['plan','trade','manage'];
   const portSelector = _portfolioRegistry.length > 1
     ? `<select onchange="setActionPort(this.value)" title="Portfolio" style="font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--track);color:var(--ink);cursor:pointer">
         ${_portfolioRegistry.map(p=>`<option value="${p.name}"${p.name===actionModalPort?' selected':''}>${p.name}</option>`).join('')}
       </select>` : '';
-  overlay.innerHTML = `<div class="tx-modal" style="max-width:800px;max-height:calc(100vh - 80px);overflow-y:auto" onclick="event.stopPropagation()">
-    <div class="tx-header">
+  overlay.innerHTML = `<div class="tx-modal ax-modal">
+    <div class="tx-header ax-head">
       <div style="display:flex;align-items:center;gap:10px">
         ${logoCell(sym, color)}
         <div>
           <div style="font-size:15px;font-weight:700">${sym}${_activeProfile()?.geminiKey ? `<button class="gc-gemini-btn" onclick="openGeminiChat('${sym}')" title="Chat with Gemini">${GEMINI_ICON}</button>` : ''}</div>
           <div style="font-size:11px;color:var(--muted)">${pos?.name||''}</div>
-          ${(pos?.price||pos?.qty||pos?.avgPrice) ? `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
-            ${pos.price  != null ? `<span>Last&nbsp;<strong style="color:var(--ink)">${fmtUSD(pos.price)}</strong></span>` : ''}
-            ${pos.qty    >  0    ? `<span>Qty&nbsp;<strong style="color:var(--ink)">${pos.qty.toFixed(4)}</strong></span>` : ''}
-            ${pos.avgPrice > 0  ? `<span>Avg&nbsp;<strong style="color:var(--ink)">${fmtUSD(pos.avgPrice)}</strong></span>` : ''}
-          </div>` : ''}
+          ${metaHtml}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -6104,22 +6150,182 @@ window.openActionModal = function(sym, port) {
         <button class="tx-close" onclick="destroyActionCharts();document.getElementById('actionModal').classList.remove('open')">×</button>
       </div>
     </div>
-    <div style="display:flex;background:var(--track);border-radius:8px;padding:3px;margin-bottom:16px;gap:2px">
-      ${tabs.map(tab=>`<button class="action-tab-btn${tab===actionModalTab?' active':''}" data-tab="${tab}" onclick="switchActionTab('${tab}')">${t('tab_'+tab)}</button>`).join('')}
+    <div class="ax-body">
+      <div id="axSummaryBar" role="button" tabindex="0" aria-expanded="false" onclick="axToggleContext()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();axToggleContext();}"></div>
+      <section id="axContext" class="ax-context"></section>
+      <section class="ax-panel">
+        <div class="ax-seg">
+          ${segs.map(seg=>`<button class="ax-seg-btn${seg===actionModalTab?' active':''}" data-seg="${seg}" onclick="switchActionTab('${seg}')">${t('tab_'+seg)}</button>`).join('')}
+        </div>
+        <div id="actionTabContent"></div>
+      </section>
     </div>
-    <div id="actionTabContent"></div>
   </div>`;
   overlay.classList.add('open');
+  renderActionContext();
   renderActionTabContent();
 };
+
+// Left-column context: symbol header facts, price chart (built once per open — survives segment
+// switches), weight-vs-target block, and collapsed trade history. Rebuilt only on open/re-open,
+// never by switchActionTab.
+function renderActionContext() {
+  const el = document.getElementById('axContext');
+  const barEl = document.getElementById('axSummaryBar');
+  if (!el) return;
+  const sym = actionModalSym;
+  const actionModel = planState.model || currentModel;
+  const pos = findPosIn(actionModel, sym) || findPos(sym);
+  if (!pos) {
+    el.innerHTML = `<div style="color:var(--muted);padding:12px 0">No position data</div>`;
+    if (barEl) barEl.innerHTML = '';
+    return;
+  }
+
+  const chg = pos.dayChange, chgPct = pos.dayChangePct;
+  const chgUp = chg >= 0;
+  const chgHtml = (chg != null && chgPct != null)
+    ? `<span style="font-size:13px;font-weight:600;color:${chgUp?'var(--gain)':'var(--loss)'}">${chgUp?'+':''}${fmtUSD(chg)} (${chgUp?'+':''}${chgPct.toFixed(2)}%)</span>`
+    : '';
+  const priceHtml = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:var(--sp-3)">
+    <span style="font-size:26px;font-weight:700;font-family:var(--font-mono)">${pos.price!=null?fmtUSD(pos.price):'—'}</span>
+    ${chgHtml}
+  </div>`;
+
+  const facts = [];
+  if (pos.qty > 0)      facts.push(['Qty', pos.qty.toFixed(4)]);
+  if (pos.avgPrice > 0)  facts.push(['Avg cost', fmtUSD(pos.avgPrice)]);
+  if (pos.qty > 0 && pos.currentValue != null) facts.push(['Market value', fmtCurr(pos.currentValue)]);
+  if (pos.qty > 0 && pos.pnl != null && pos.pnlPct != null) {
+    const pnlUp = pos.pnl >= 0;
+    facts.push(['Unrealized', `<span style="color:${pnlUp?'var(--gain)':'var(--loss)'}">${fmtCurr(pos.pnl)} · ${pnlUp?'+':''}${pos.pnlPct.toFixed(1)}%</span>`]);
+  }
+  const factsHtml = facts.length
+    ? `<div class="ax-facts">${facts.map(([l,v])=>`<div><div class="ax-fact-label">${l}</div><div class="ax-fact-value">${v}</div></div>`).join('')}</div>`
+    : '';
+
+  const chartHtml = `<div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin:var(--sp-4) 0">
+    <div id="actionTvChartEl" style="height:260px"></div>
+  </div>`;
+
+  // Weight-vs-target block — only when this position carries a target (watchlist rows don't).
+  let weightHtml = '';
+  if (pos.target != null && pos.investWeightPct != null) {
+    const td = getTargetDollar(pos, actionModel);
+    const currPct = getCurrentPct(pos, actionModel);
+    const fillPct = Math.max(0, Math.min(currPct, 100));
+    const room = Math.max(0, td - (pos.currentValue || 0));
+    // Ladder: tranches are a buy-the-dip entry plan, so a tranche counts as "filled" once price
+    // has traded down to (or through) its entry — i.e. its entry price is at/above the current
+    // price. If none qualify, surface the next tranche still below the current price — via
+    // axNextTranche, the single shared helper the Trade segment's "Fill T{n}" chip also uses
+    // (pass 3), so the two can never disagree.
+    const priced = (planState.tranches || []).filter(tr => tr.price != null);
+    const price = pos.price || 0;
+    let ladderStr = '—';
+    if (priced.length && price > 0) {
+      const filled = priced.filter(tr => tr.price >= price).length;
+      if (filled > 0) ladderStr = `T${filled} filled`;
+      else {
+        const next = axNextTranche(sym, actionModalPort, price);
+        ladderStr = next ? `T${next.idx+1} next` : '—';
+      }
+    }
+    weightHtml = `<div class="ax-weight-wrap">
+      <div class="ax-weight-track"><div class="ax-weight-fill" style="width:${fillPct}%;background:${colorFor(sym)}"></div><div class="ax-weight-tick"></div></div>
+      <div class="ax-weight-kv"><span>Weight now / target</span><strong>${pos.investWeightPct.toFixed(1)}% / ${(pos.target*100).toFixed(1)}%</strong></div>
+      <div class="ax-weight-kv"><span>Room to target</span><strong>${fmtCurr(room)}</strong></div>
+      <div class="ax-weight-kv"><span>Ladder</span><strong>${ladderStr}</strong></div>
+    </div>`;
+  }
+
+  // Open by default every time the modal opens (no remembered collapsed state — renderActionContext
+  // always renders it fresh with `open`, unlike _axPlanHalf/_axTradeDetailsOpen which persist).
+  const histHtml = `<details class="ax-hist" open><summary>${t('tx_panel_title')}</summary>${symTxHistoryHtml(sym, actionModalPort)}</details>`;
+
+  el.innerHTML = priceHtml + factsHtml + chartHtml + weightHtml + histHtml;
+
+  // Sticky summary bar — collapses the context column below 1100px (see #axSummaryBar CSS).
+  // Always (re)rendered so it stays in sync with the context content above, even though it's
+  // CSS-hidden ≥1100px.
+  if (barEl) {
+    const weightChipHtml = (pos.target != null && pos.investWeightPct != null)
+      ? `<span class="ax-summary-chip">${pos.investWeightPct.toFixed(1)}% / ${(pos.target * 100).toFixed(1)}%</span>` : '';
+    barEl.innerHTML = `${logoCell(sym, colorFor(sym))}
+      <span style="font-weight:700;font-size:13px">${sym}</span>
+      <span style="font-family:var(--font-mono);font-size:13px;font-weight:700">${pos.price != null ? fmtUSD(pos.price) : '—'}</span>
+      ${chgHtml}
+      ${weightChipHtml}
+      <span class="ax-summary-chevron">▾</span>`;
+    // First open of a symbol this session -> expanded; any later open -> collapsed
+    // (axInitialContextExpanded/_axSeen). Only matters below 1100px — above it #axContext is
+    // always visible regardless (enforced both here and by the matchMedia listener below, per
+    // the "don't rely on CSS alone" requirement).
+    const narrow   = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 1100px)').matches;
+    const expanded = !narrow || axInitialContextExpanded(_axSeen, sym);
+    el.hidden = !expanded;
+    barEl.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    barEl.classList.toggle('ax-summary-open', expanded);
+  }
+
+  setTimeout(() => buildActionTvChart(sym), 0);
+}
+
+// Symbols whose action-modal context column has been shown at least once this session — drives
+// axInitialContextExpanded's first-open-expanded/later-open-collapsed rule for #axSummaryBar.
+// Reset alongside the rest of the profile-switch state (see showSetupModal's 'edit'/'add' resets).
+let _axSeen = new Set();
+// Pure aside from recording `sym` into `seen`: first call for a given symbol -> true (expanded),
+// every later call for the same symbol -> false (collapsed). Small and standalone on purpose so
+// it's testable without the DOM (see the pass-4 node test).
+function axInitialContextExpanded(seen, sym) {
+  const first = !seen.has(sym);
+  seen.add(sym);
+  return first;
+}
+
+// Toggles the context column open/closed below 1100px (tap target: #axSummaryBar itself).
+// The chart isn't destroyed by the collapse (#axContext is only `hidden`, never emptied) — but
+// Lightweight Charts can come back zero-width if it doesn't get an explicit resize on reveal, so
+// this always nudges it (belt-and-suspenders alongside the chart's own ResizeObserver — see
+// amEnsurePieResizeObserver for the same reasoning applied to the allocation-management pies).
+window.axToggleContext = function() {
+  const ctx = document.getElementById('axContext');
+  const bar = document.getElementById('axSummaryBar');
+  if (!ctx || !bar) return;
+  ctx.hidden = !ctx.hidden;
+  bar.setAttribute('aria-expanded', ctx.hidden ? 'false' : 'true');
+  bar.classList.toggle('ax-summary-open', !ctx.hidden);
+  if (!ctx.hidden) axResizeContextChart();
+};
+function axResizeContextChart() {
+  const el = document.getElementById('actionTvChartEl');
+  if (!el || !actionTvChart) return;
+  actionTvChart.resize(el.clientWidth, 260);
+}
+// Belt-and-suspenders for the "toggle can't leave the desktop layout with a hidden context
+// column" requirement: CSS already forces #axContext visible ≥1100px regardless of its `hidden`
+// attribute (see the media query), but if a symbol was left collapsed on a narrow viewport and
+// the window is then resized wider without closing the modal, this clears the attribute itself
+// so a later resize back down doesn't silently reopen a symbol the user explicitly collapsed.
+// Registered once at module load (not per modal open), so nothing leaks across opens.
+if (typeof window.matchMedia === 'function') {
+  window.matchMedia('(min-width: 1101px)').addEventListener('change', e => {
+    if (!e.matches) return;
+    const ctx = document.getElementById('axContext');
+    if (!ctx) return;
+    ctx.hidden = false;
+    axResizeContextChart();
+  });
+}
 
 // Switch the portfolio the action modal operates on; rebuild it on the same symbol/tab.
 window.setActionPort = function(port) {
   if (port === actionModalPort) return;
   const sym = actionModalSym, tab = actionModalTab;
   openActionModal(sym, port);
-  // openActionModal resets tab to 'plan'; restore the tab the user was on (if still valid for this port).
-  if (tab && tab !== 'plan') switchActionTab(tab === 'allocation' && port === 'Trade' ? 'plan' : tab);
+  // openActionModal resets tab to 'plan'; restore the segment the user was on.
+  if (tab && tab !== 'plan') switchActionTab(tab);
 };
 
 window.onPlanTargetChange = function(val) {
@@ -6141,27 +6347,20 @@ function saveTabDraft() {
     const sl = parseFloat(document.getElementById('planSL')?.value);
     planState.sl   = isNaN(sl) ? null : sl;
     planState.note = document.getElementById('planNote')?.value?.trim() || '';
-  } else if (tab === 'transaction') {
-    tabDraft.transaction = {
+  } else if (tab === 'trade') {
+    tabDraft.trade = {
       date:   document.getElementById('txDate')?.value   || '',
       time:   document.getElementById('txTime')?.value   || '',
       shares: document.getElementById('txShares')?.value || '',
       price:  document.getElementById('txPrice')?.value  || '',
       noComm: document.getElementById('txNoCommission')?.checked || false,
     };
-  } else if (tab === 'edit') {
-    tabDraft.edit = {
-      qty: document.getElementById('editQty')?.value     || '',
-      avg: document.getElementById('editAvgCost')?.value || '',
+  } else if (tab === 'manage') {
+    tabDraft.manage = {
+      qty: document.getElementById('editQty')?.value      || '',
+      avg: document.getElementById('editAvgCost')?.value  || '',
+      cat: document.getElementById('editCategory')?.value || '',
     };
-  } else if (tab === 'allocation') {
-    const tgt = document.getElementById('editTargetPct')?.value || '';
-    const cat = document.getElementById('editCategory')?.value  || '';
-    tabDraft.allocation = { tgt, cat };
-    // Mirror into planState so plan tab calculations use the new target
-    const tgtNum = parseFloat(tgt);
-    planState.pendingTarget   = !isNaN(tgtNum) ? tgtNum / 100 : null;
-    planState.pendingCategory = cat || null;
   }
 }
 
@@ -6170,7 +6369,7 @@ function restoreTabDraft() {
   const d = tabDraft[tab];
   if (!d) return;
   const set = (id, val) => { if (val) { const el = document.getElementById(id); if (el) el.value = val; } };
-  if (tab === 'transaction') {
+  if (tab === 'trade') {
     set('txDate',   d.date);
     set('txTime',   d.time);
     set('txShares', d.shares);
@@ -6178,22 +6377,25 @@ function restoreTabDraft() {
     const nc = document.getElementById('txNoCommission');
     if (nc) nc.checked = d.noComm;
     recomputeTradeFrom('qty');
-  } else if (tab === 'edit') {
+  } else if (tab === 'manage') {
     set('editQty',     d.qty);
     set('editAvgCost', d.avg);
-  } else if (tab === 'allocation') {
-    set('editTargetPct', d.tgt);
     if (d.cat !== undefined) { const el = document.getElementById('editCategory'); if (el) el.value = d.cat; }
-    updateActionChartsPreview();
   }
 }
 
+// Legacy tab names map onto the new three-segment layout so a stale call site can't wedge the
+// modal in an unknown state (PLAN unchanged; TRANSACTION -> trade; EDIT/ALLOCATION -> manage).
+const _AX_TAB_ALIAS = { transaction: 'trade', edit: 'manage', allocation: 'manage' };
 window.switchActionTab = function(tab) {
+  tab = _AX_TAB_ALIAS[tab] || tab;
   saveTabDraft();
-  destroyActionCharts();
+  // NOTE: no destroyActionCharts() here — the price chart lives in the left context column
+  // (#axContext) and is not re-rendered on a segment switch, only on modal open/close/symbol
+  // change (see renderActionContext / openActionModal / setActionPort).
   actionModalTab = tab;
-  document.querySelectorAll('.action-tab-btn').forEach(b =>
-    b.className = 'action-tab-btn' + (b.dataset.tab === tab ? ' active' : ''));
+  document.querySelectorAll('.ax-seg-btn').forEach(b =>
+    b.className = 'ax-seg-btn' + (b.dataset.seg === tab ? ' active' : ''));
   renderActionTabContent();
   setTimeout(restoreTabDraft, 0);
 };
@@ -6228,6 +6430,48 @@ window.pickTag = function(id, val) {
   if (input) input.value = val;
   document.getElementById(id + 'Pick')?.classList.remove('open');
 };
+
+// Entries/Exits sub-toggle for the action modal's Plan panel. Both halves stay in the DOM at all
+// times (renderPlanBar/updateNewAvgs/renderTrimSection/updateTrimCalcs/renderRebalFundPanel and
+// the chart-line updaters all query ids that can live in either half) — switching only flips the
+// `hidden` attribute on the two wrapper elements, no re-render.
+window.axSetPlanHalf = function(half) {
+  if (half !== 'entries' && half !== 'exits') return;
+  _axPlanHalf = half;
+  const entriesEl = document.getElementById('axPlanEntries');
+  const exitsEl   = document.getElementById('axPlanExits');
+  if (entriesEl) entriesEl.hidden = half !== 'entries';
+  if (exitsEl)   exitsEl.hidden   = half !== 'exits';
+  document.querySelectorAll('.ax-half-btn').forEach(b => {
+    const active = b.dataset.half === half;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+};
+
+// One-shot: highlights + scrolls to the row an alert-triggered open landed on (see
+// axAlertFocus), then clears _axPendingFocus so a later re-render of the plan branch (save,
+// clear, switching segments away and back) never repeats it. No-op when nothing is pending.
+function applyAxFocusRow() {
+  if (!_axPendingFocus) return;
+  const { row } = _axPendingFocus;
+  _axPendingFocus = null; // consume once, regardless of whether a target element is found
+  if (!row) return;
+  let target = null;
+  if (row === 'sl') {
+    target = document.getElementById('axSlRow');
+  } else if (row.startsWith('tp')) {
+    target = document.querySelector(`#axPlanExits .tranche-row[data-idx="${row.slice(2)}"]`);
+  } else if (row.startsWith('t')) {
+    target = document.querySelector(`#axPlanEntries .tranche-row[data-idx="${row.slice(1)}"]`);
+  }
+  if (!target) return;
+  target.classList.add('ax-focus-row');
+  target.scrollIntoView({ block: 'nearest' });
+  const clear = () => target.classList.remove('ax-focus-row');
+  const timer = setTimeout(clear, 2500);
+  target.addEventListener('input', () => { clearTimeout(timer); clear(); }, { once: true });
+}
 
 function renderActionTabContent() {
   const el = document.getElementById('actionTabContent');
@@ -6276,55 +6520,48 @@ function renderActionTabContent() {
     }).join('');
     const pendingTgtPct = planState.pendingTarget != null ? (planState.pendingTarget * 100).toFixed(2)
                         : pos.target != null               ? (pos.target * 100).toFixed(2) : '';
+    const halves = [['entries','ax_entries'],['exits','ax_exits']];
+    const savedLine = hasSavedPlan(sym, actionModalPort) ? t('ax_saved_plan') : t('ax_no_plan');
     el.innerHTML = `
-      <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
-        <div id="actionTvChartEl" style="height:220px"></div>
+      <div class="ax-half">
+        ${halves.map(([h,key])=>`<button class="ax-half-btn${h===_axPlanHalf?' active':''}" data-half="${h}" aria-pressed="${h===_axPlanHalf}" onclick="axSetPlanHalf('${h}')">${t(key)}</button>`).join('')}
       </div>
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm);margin-bottom:12px">
-        <span style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">${t('target_alloc_label')}</span>
-        <div class="tranche-input-wrap has-suffix" style="width:90px">
-          <input class="tranche-input" id="planTargetPct" type="number" step="any" min="0" max="100"
-            value="${pendingTgtPct}" placeholder="e.g. 5"
-            oninput="onPlanTargetChange(this.value)">
-          <span class="ti-suffix">%</span>
+      <div id="axPlanEntries"${_axPlanHalf==='entries'?'':' hidden'}>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm);margin-bottom:12px">
+          <span style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">${t('target_alloc_label')}</span>
+          <div class="tranche-input-wrap has-suffix" style="width:90px">
+            <input class="tranche-input" id="planTargetPct" type="number" step="any" min="0" max="100"
+              value="${pendingTgtPct}" placeholder="e.g. 5"
+              oninput="onPlanTargetChange(this.value)">
+            <span class="ti-suffix">%</span>
+          </div>
+          ${isReadOnly() ? '' : `<button type="button" class="ax-mini-btn" onclick="axOpenAllocFor('${sym}', actionModalPort)" title="${t('ax_manage_alloc')} — ${actionModalPort}">${AX_ALLOC_ICON}${t('ax_manage_alloc')}</button>`}
+          <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtUSD(getTargetDollar(pos, actionModel)) : t('set_pct_hint')}</span>
         </div>
-        <span id="planTargetDollar" style="font-size:11px;color:var(--muted)">${pendingTgtPct ? fmtUSD(getTargetDollar(pos, actionModel)) : t('set_pct_hint')}</span>
+        <div class="plan-bar-wrap">
+          <div class="plan-bar-track" id="planBarTrack"></div>
+          <div class="plan-bar-labels" id="planBarLabels"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:44px 1fr 1fr 1fr 1fr 28px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--line);margin-bottom:8px">
+          <div></div>
+          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Entry Price</div>
+          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">% of Target</div>
+          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Amount ($)</div>
+          <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Qty</div>
+          <div></div>
+        </div>
+        <div id="planTranches">${tranchesHtml}</div>
+        <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>
+        <div id="rebalFundPanel" class="rebalfund-panel" style="display:none"></div>
       </div>
-      <div class="plan-bar-wrap">
-        <div class="plan-bar-track" id="planBarTrack"></div>
-        <div class="plan-bar-labels" id="planBarLabels"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:44px 1fr 1fr 1fr 1fr 28px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--line);margin-bottom:8px">
-        <div></div>
-        <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Entry Price</div>
-        <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">% of Target</div>
-        <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Amount ($)</div>
-        <div style="font-size:10px;font-weight:600;color:var(--muted);text-align:center">Qty</div>
-        <div></div>
-      </div>
-      <div id="planTranches">${tranchesHtml}</div>
-      <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>
-      <div id="rebalFundPanel" class="rebalfund-panel" style="display:none"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 10px">
-        <div>
+      <div id="axPlanExits"${_axPlanHalf==='exits'?'':' hidden'}>
+        <div id="axSlRow" style="margin-bottom:14px">
           <label style="font-size:10px;font-weight:600;color:var(--loss);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('stop_loss_label')}</label>
           <input class="tranche-input" id="planSL" type="number" step="any" min="0"
             value="${planState.sl||''}" placeholder="${t('optional_placeholder')}"
             oninput="planState.sl=parseFloat(this.value)||null;updateActionTvLines()"
             style="width:100%;${planState.sl?'border-color:var(--loss);background:rgba(220,38,38,.06)':''}">
         </div>
-        <div>
-          <label style="font-size:10px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('note_label')}</label>
-          <input class="tranche-input" id="planNote" type="text"
-            value="${planState.note||''}" placeholder="${t('optional_placeholder')}" style="width:100%">
-        </div>
-      </div>
-      <div class="plan-actions">
-        <button class="pa-clear" onclick="clearTranchesInAction()">${t('clear_tranches_btn')}</button>
-        <button class="pa-save" onclick="savePlanInAction()">${t('save_plan_btn')}</button>
-      </div>
-      <!-- Take Profit / Trim -->
-      <div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px">
         <div style="font-size:10px;font-weight:700;color:var(--gain);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">${t('take_profit_trim_label')}</div>
         <div id="trimBar" style="margin-bottom:10px"></div>
         <div style="display:grid;grid-template-columns:44px 1fr 1fr 1fr 1fr 30px;gap:8px;padding:0 0 6px;border-bottom:1px solid var(--line);margin-bottom:6px">
@@ -6337,29 +6574,41 @@ function renderActionTabContent() {
         </div>
         <div id="planTrimRows"></div>
         <div id="planTrimSummary" style="font-size:10px;color:var(--muted);margin-top:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm)"></div>
+      </div>
+      <div class="ax-foot">
+        <div class="tx-field" style="margin-bottom:8px">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('note_label')}</label>
+          <input class="tranche-input" id="planNote" type="text"
+            value="${planState.note||''}" placeholder="${t('optional_placeholder')}" style="width:100%">
+        </div>
+        <div class="plan-actions">
+          <button class="pa-clear" onclick="clearTranchesInAction()">${t('clear_tranches_btn')}</button>
+          <button class="pa-save" onclick="savePlanInAction()">${t('save_plan_btn')}</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">${savedLine}</div>
       </div>`;
     renderPlanBar(); updateNewAvgs(); renderTrimSection(); renderRebalFundPanel();
-    setTimeout(() => buildActionTvChart(sym), 0);
+    // The price chart lives in the context column (#axContext) — built once per open, not per
+    // segment switch. No buildActionTvChart() call here; see renderActionContext().
+    applyAxFocusRow();
 
-  } else if (actionModalTab === 'transaction') {
+  } else if (actionModalTab === 'trade') {
     // Full Trade (buy/sell) UI hosted in-tab — reuses the trade-modal functions, scoped to the
-    // action modal's symbol/portfolio via tradeModalSym/tradeModalPort.
+    // action modal's symbol/portfolio via tradeModalSym/tradeModalPort. Pass 3: always-visible
+    // core (side · price · shares · amount · intent chips · before→after · Record), everything
+    // else folded into <details> — see axIntentChips/tradeSummaryRowsHtml/updateTxImpact.
     const price = pos?.price || '';
     tradeModalSym = sym; tradeModalPort = actionModalPort;
     txType = 'Buy'; txSellAll = false;
     const now = new Date();
-    const nowTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
+    const nowDateStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const nowTime     = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
+    // "17 Sep 14:32" — day/short-month + HH:MM, same Asia/Bangkok clock as txDate/txTime above.
+    const nowSubLabel = now.toLocaleDateString('en-GB', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' }) + ' ' + nowTime.slice(0, 5);
     el.innerHTML = `
-      <div style="background:var(--track);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px">
-        <div id="actionTvChartEl" style="height:220px"></div>
-      </div>
       <div class="tx-type-toggle" style="margin-bottom:14px">
         <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
         <button id="txSellBtn" class="tx-type-btn" onclick="onTradeTypeChange('Sell')">${t('sell_now_label')}</button>
-      </div>
-      <div class="tx-row2">
-        <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${now.toLocaleDateString('en-CA', {timeZone:'Asia/Bangkok'})}"></div>
-        <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}"></div>
       </div>
       <input type="hidden" id="txTicker" value="${sym}">
       <div class="tx-row2">
@@ -6375,26 +6624,43 @@ function renderActionTabContent() {
       <div class="tx-field"><label class="tx-label">${t('trade_cost_label')}</label>
         <input class="tx-input" id="tradeCost" type="number" step="any" min="0" placeholder="0" oninput="onTradeCost()">
       </div>
-      <div class="tx-field" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--track);border-radius:8px">
-        <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="onTradeCommToggle()">
-        <div>
-          <label for="txNoCommission" style="font-size:13px;font-weight:600;cursor:pointer">${t('comm_free_label')}</label>
-          <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
-        </div>
-      </div>
-      ${txNoteFieldHtml('')}
-      <div id="txAllocBars"></div>
-      <div id="txImpactPanel"></div>
-      ${buildCashSelectorHtml()}
-      <div id="tradeSummary" style="margin-top:10px;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
+      <div class="ax-intent" id="axIntentChips">${axIntentChipsHtml(sym, actionModalPort)}</div>
+      <div id="tradeSummary" class="ax-sum" style="margin:12px 0;padding:10px;background:var(--track);border-radius:8px;font-size:11px"></div>
       <button class="tx-submit" id="txSubmit" onclick="submitTradeModal()">${t('record_tx_btn')}</button>
       <div class="tx-status" id="txStatus"></div>
-      ${symTxHistoryHtml(sym, actionModalPort)}`;
-    setTimeout(() => { buildActionTvChart(sym); recomputeTradeFrom('qty'); }, 0);
+      <details class="ax-details" id="axImpactDetails">
+        <summary id="axImpactLine"></summary>
+        <div id="txImpactPanel"></div>
+      </details>
+      <details class="ax-details" id="axTradeDetails"${_axTradeDetailsOpen ? ' open' : ''}>
+        <summary>${t('ax_details')} <span class="ax-details-sub" id="axTradeDetailsSub">${nowSubLabel} · USD</span></summary>
+        <div class="tx-row2">
+          <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${nowDateStr}" onchange="axUpdateTradeDetailsSub()"></div>
+          <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}" onchange="axUpdateTradeDetailsSub()"></div>
+        </div>
+        <div class="tx-field" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--track);border-radius:8px">
+          <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="onTradeCommToggle()">
+          <div>
+            <label for="txNoCommission" style="font-size:13px;font-weight:600;cursor:pointer">${t('comm_free_label')}</label>
+            <div style="font-size:10px;color:var(--muted)">${t('comm_free_hint')}</div>
+          </div>
+        </div>
+        ${txNoteFieldHtml('')}
+        <div id="txAllocBars"></div>
+        ${buildCashSelectorHtml()}
+      </details>`;
+    document.getElementById('axTradeDetails')?.addEventListener('toggle', e => { _axTradeDetailsOpen = e.target.open; });
+    setTimeout(() => { recomputeTradeFrom('qty'); renderAxIntentChips(); }, 0);
 
-  } else if (actionModalTab === 'edit') {
-    // Move-shares block: only when this symbol is held in the current port and >1 portfolio exists.
-    const curQty   = pos?.qty || 0;
+  } else if (actionModalTab === 'manage') {
+    // Three labelled groups (pass 4): Tags (open — the one people actually touch), Corrections
+    // and Move shares (both folded <details>, off by default). No donuts (dropped with
+    // EDIT/ALLOCATION) and no target-% input — target now lives on the PLAN segment
+    // (planTargetPct). One Save button pinned at the bottom via the shared .ax-foot pattern
+    // (also used by Plan's Note+Save/Clear footer).
+    const curQty  = pos?.qty || 0;
+    const curCat  = pos?.category || '';
+    const cats    = ['Big Name','Wait for sell','Medium Cap','Small Cap','Growth','Dividend'];
     const customOpts  = [...new Set(_allRows.map(r => r.custom).filter(Boolean))];
     const myGroupOpts = [...new Set(_allRows.map(r => r.myGroup).filter(Boolean))];
     const customBlock =
@@ -6406,8 +6672,8 @@ function renderActionTabContent() {
       .map(p => `<option value="${p.name}">${p.name}</option>`)
       .join('');
     const moveBlock = showMove ? `
-      <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
-        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Move to portfolio</div>
+      <details class="ax-details">
+        <summary>${t('ax_move')}</summary>
         <div style="font-size:11px;color:var(--muted);margin-bottom:10px">From <strong>${actionModalPort}</strong> · carried avg <strong>${fmtUSD(pos?.avgPrice || 0)}</strong> — no P&amp;L is realized.</div>
         <div class="tx-row2">
           <div class="tx-field"><label class="tx-label" style="display:flex;justify-content:space-between">Shares
@@ -6419,54 +6685,38 @@ function renderActionTabContent() {
             <select class="tx-input" id="moveDest">${destOpts}</select>
           </div>
         </div>
-        <button class="tx-submit" id="moveSubmit" onclick="submitMoveShares('${sym}')">Move shares</button>
+        <button class="tx-submit" id="moveSubmit" onclick="submitMoveShares('${sym}')">${t('ax_move')}</button>
         <div class="tx-status" id="moveStatus"></div>
-      </div>` : '';
-    el.innerHTML = actionChartsHtml(sym) + `
-      <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">CURRENT</div>
-        <div>Qty: <strong>${pos?.qty?.toFixed(4)||'—'}</strong> &nbsp;·&nbsp; Avg Cost: <strong>${fmtCurr(pos?.avgPrice)}</strong></div>
-      </div>
-      <div class="tx-row2">
-        <div class="tx-field"><label class="tx-label">Quantity</label>
-          <input class="tx-input" id="editQty" type="number" step="any" min="0" value="${pos?.qty||''}" oninput="updateActionChartsPreview()">
-        </div>
-        <div class="tx-field"><label class="tx-label">Avg Cost ($)</label>
-          <input class="tx-input" id="editAvgCost" type="number" step="any" min="0" value="${pos?.avgPrice||''}" oninput="updateActionChartsPreview()">
-        </div>
-      </div>${customBlock}
-      <button class="tx-submit" onclick="submitSymbolEdit('${sym}','edit')">Save to Google Sheet</button>
-      <div class="tx-status" id="symbolEditStatus"></div>${moveBlock}`;
-    setTimeout(() => renderActionCharts(sym), 0);
-
-  } else if (actionModalTab === 'allocation') {
-    const cats   = ['Big Name','Wait for sell','Medium Cap','Small Cap','Growth','Dividend'];
-    const curCat = pos?.category || '';
-    const curTgt = pos?.target != null ? (pos.target*100).toFixed(1) : '';
-    el.innerHTML = actionChartsHtml(sym) + `
-      <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">CURRENT</div>
-        <div>${t('target')}: <strong>${curTgt ? curTgt+'%' : '—'}</strong> &nbsp;·&nbsp; ${t('category_label')}: <strong>${curCat||'—'}</strong></div>
-      </div>
-      <div class="tx-field"><label class="tx-label">${t('target_alloc_pct_label')}</label>
-        <input class="tx-input" id="editTargetPct" type="number" step="any" min="0" max="100" value="${curTgt}" placeholder="e.g. 8" oninput="updateActionChartsPreview()">
-      </div>
+      </details>` : '';
+    el.innerHTML = `
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${t('ax_tags')}</div>
       <div class="tx-field"><label class="tx-label">${t('category_label')}</label>
-        <select class="tx-input" id="editCategory" onchange="updateActionCategoryChange()">
+        <select class="tx-input" id="editCategory">
           <option value="">${t('none_option')}</option>
           ${cats.map(c=>`<option value="${c}"${c===curCat?' selected':''}>${c}</option>`).join('')}
         </select>
-      </div>
-      <button class="tx-submit" onclick="submitSymbolEdit('${sym}','allocation')">Save to Google Sheet</button>
-      <div class="tx-status" id="symbolEditStatus"></div>`;
-    setTimeout(() => {
-      // Initial render uses current target as planned value
-      const initTgt = parseFloat(document.getElementById('editTargetPct')?.value);
-      const initVal = (!isNaN(initTgt) && actionModel?.investable > 0)
-        ? (initTgt / 100) * actionModel.investable
-        : null;
-      renderActionCharts(sym, initVal);
-    }, 0);
+      </div>${customBlock}
+      <details class="ax-details">
+        <summary>${t('ax_corrections')}</summary>
+        <div style="background:var(--track);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">CURRENT</div>
+          <div>Qty: <strong>${pos?.qty?.toFixed(4)||'—'}</strong> &nbsp;·&nbsp; Avg Cost: <strong>${fmtCurr(pos?.avgPrice)}</strong></div>
+        </div>
+        <div class="tx-row2">
+          <div class="tx-field"><label class="tx-label">Quantity</label>
+            <input class="tx-input" id="editQty" type="number" step="any" min="0" value="${pos?.qty||''}">
+          </div>
+          <div class="tx-field"><label class="tx-label">Avg Cost ($)</label>
+            <input class="tx-input" id="editAvgCost" type="number" step="any" min="0" value="${pos?.avgPrice||''}">
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--honey)">${t('ax_manual_warn')}</div>
+      </details>
+      ${moveBlock}
+      <div class="ax-foot">
+        <button class="tx-submit" onclick="submitSymbolEdit('${sym}','manage')">Save to Google Sheet</button>
+        <div class="tx-status" id="symbolEditStatus"></div>
+      </div>`;
   }
 }
 
@@ -6746,17 +6996,16 @@ window.submitSymbolEdit = async function(sym, tab) {
   const statusEl = document.getElementById('symbolEditStatus');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, portfolio: actionModalPort || DEFAULT_PORT });
-  if (tab === 'edit') {
+  if (tab === 'manage') {
+    // MANAGE merges the old EDIT + ALLOCATION tabs — qty/avg/custom/myGroup AND category in one
+    // updateSymbol call. Target % moved to the PLAN segment (planTargetPct / savePlanInAction).
     const qty = parseFloat(document.getElementById('editQty')?.value);
     const avg = parseFloat(document.getElementById('editAvgCost')?.value);
     if (!isNaN(qty)) params.set('qty', qty);
     if (!isNaN(avg)) params.set('avgPrice', avg);
     if (document.getElementById('editCustom'))  params.set('custom',  document.getElementById('editCustom').value.trim());
     if (document.getElementById('editMyGroup')) params.set('myGroup', document.getElementById('editMyGroup').value.trim());
-  } else {
-    const tgt = parseFloat(document.getElementById('editTargetPct')?.value);
     const cat = document.getElementById('editCategory')?.value;
-    if (!isNaN(tgt)) params.set('target', (tgt/100).toFixed(6));
     if (cat !== undefined) params.set('category', cat);
   }
   try {
@@ -6772,6 +7021,16 @@ window.submitSymbolEdit = async function(sym, tab) {
 const TRANCHE_COLORS = ['#6b7eb8','#8a5a7e','#b56a8a','#c79038','#6b8e5a','#7aa3b8','#9a7aa3','#9ca85a'];
 let planState = { symbol: null, name: '', tranches: [], model: null, sl: null, note: '', pendingTarget: null, pendingCategory: null };
 let planCache = {}; // { [portfolio]: { [sym]: { tranches, sl, note, trimTranches } } } — loaded at startup
+// Action modal Plan panel: Entries/Exits sub-toggle. Reset per openActionModal.
+let _axPlanHalf = 'entries';
+// Pending row highlight from an alert-triggered open — {half,row} or null; consumed (set back to
+// null) the first time the plan branch renders after being set, so a later re-render (save/clear/
+// switch away and back) never re-triggers the scroll+highlight.
+let _axPendingFocus = null;
+// Trade segment's folded "Details" <details> open/closed, remembered for the session (default
+// closed). Toggled from the `toggle` DOM event, not a click handler, so it also tracks the
+// native <summary> click/keyboard-Enter/Space open path, not just a JS-driven one.
+let _axTradeDetailsOpen = false;
 
 // Plan lookup. With an explicit port → that port's plan. Without → the active view's port;
 // in ALL view, prefer Long-Term then any port that has a plan for the symbol.
@@ -6792,6 +7051,39 @@ function hasSavedPlan(sym, port) {
   const hasEntries = d.tranches?.some(tr => (tr.price != null && tr.price !== '') || (tr.cumPct ?? 0) > 0);
   const hasTp = d.trimTranches?.some(t => t.price > 0);
   return !!(hasEntries || hasTp || d.sl || d.note);
+}
+
+// Which half of the action modal's Plan panel (and which row in it) a triggered alert points at,
+// for the modal to land on when opened from that alert. Mirrors renderPlanWatch's SL/TP/entry HIT
+// thresholds verbatim (same pct formulas, same <=0/>=0 boundaries) so the two can never disagree —
+// near-misses (renderPlanWatch's *_NEAR alerts) do not move the half, only a HIT does.
+// Priority when several are hit at once: SL hit -> TP hit -> entry hit (first match wins).
+function axAlertFocus(sym, port) {
+  const d = getPlan(sym, port);
+  if (!d) return null;
+  const pmodel = modelForPort(port);
+  const pos = findPosIn(pmodel, sym) || findPos(sym);
+  const price = pos?.price ?? null;
+  if (!price) return null;
+  const { sl, tranches = [], trimTranches = [] } = d;
+
+  if (sl) {
+    const pct = (price - sl) / sl * 100;
+    if (pct <= 0) return { half: 'exits', row: 'sl' };
+  }
+  for (let i = 0; i < trimTranches.length; i++) {
+    const tp = trimTranches[i];
+    if (!tp.price) continue;
+    const pct = (price - tp.price) / tp.price * 100;
+    if (pct >= 0) return { half: 'exits', row: `tp${i}` };
+  }
+  for (let i = 0; i < tranches.length; i++) {
+    const tr = tranches[i];
+    if (!tr.price) continue;
+    const pct = (price - tr.price) / tr.price * 100;
+    if (pct <= 0) return { half: 'entries', row: `t${i}` };
+  }
+  return null;
 }
 
 // ── Plan sheet helpers ────────────────────────────────────────────────────────
@@ -6882,6 +7174,28 @@ function getTargetDollar(pos, model) {
 function getCurrentPct(pos, model) { const td = getTargetDollar(pos, model); return td > 0 ? (pos.currentValue ?? 0) / td * 100 : 0; }
 function getPrevEndPct(idx, tranches, currPct) { return idx === 0 ? currPct : Math.max(currPct, tranches[idx-1]?.cumPct ?? currPct); }
 function getTrancheDollar(idx, tranches, currPct, td) { const prev = getPrevEndPct(idx, tranches, currPct); return Math.max(0, ((tranches[idx]?.cumPct ?? 0) - prev) / 100 * td); }
+
+// Next tranche in the buy ladder still waiting to trigger — the single shared source for both
+// the context column's ladder line and the Trade segment's "Fill T{n}" intent chip, so the two
+// can never disagree (pass 3 of the Action-modal redesign). Same "filled" definition used
+// everywhere else in this file (axAlertFocus, the pass-1 ladder line): a tranche is filled once
+// price has traded down to/through its entry, i.e. entry price >= current price; "next" is the
+// first tranche, in ladder order, whose entry is still below the given price (not yet reached).
+// Reads the live in-progress plan (planState) when this modal has it loaded for `sym`, else falls
+// back to the saved plan cache (getPlan) — the latter is what makes this testable standalone.
+// Returns null when there's no priced tranche left waiting, or no price to compare against.
+function axNextTranche(sym, port, price) {
+  if (!price || price <= 0) return null;
+  const tranches = (planState.symbol === sym ? planState.tranches : getPlan(sym, port)?.tranches) || [];
+  const idx = tranches.findIndex(tr => tr.price != null && tr.price < price);
+  if (idx < 0) return null;
+  const model  = modelForPort(port);
+  const pos    = findPosIn(model, sym) || findPos(sym);
+  const td      = getTargetDollar(pos, model);
+  const currPct = getCurrentPct(pos, model);
+  const dollar  = getTrancheDollar(idx, tranches, currPct, td);
+  return { idx, price: tranches[idx].price, dollar };
+}
 function trancheColor(i) {
   const stockColor = planState.symbol ? colorFor(planState.symbol) : null;
   const available  = stockColor ? TRANCHE_COLORS.filter(c => c !== stockColor) : TRANCHE_COLORS;
@@ -14609,7 +14923,7 @@ window.submitSetup = function() {
     if (_bmImg) _bmImg.src = profileIconSrc();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null;
     txCache = null; historyCache = null; planCache = {}; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set();
   } else if (_setupMode === 'add') {
     const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
     if (!newProfile.writeKey) newProfile.writeKey = '';
@@ -14619,7 +14933,7 @@ window.submitSetup = function() {
     closeSetupModal();
     _applyActiveProfile();
     shellBuilt = false; benchmarkLoaded = false; benchmarkData = null; pnlData = null; txCache = null; _journalTrades = [];
-    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL';
+    _allRows = []; _portfolioRegistry = []; _allTxCache = null; _lastQuotes = null; _etfDataCache = {}; _stockReturnsCache = {}; _contribCache = {}; _contribList = []; _topHoldingSectors = {}; _sectorFetchInFlight = false; activePortfolio = 'ALL'; _axSeen = new Set();
   } else {
     // 'first' — brand new setup
     const newProfile = { id: 'p' + Date.now(), ...profileData, ..._newProfilePrefs() };
@@ -14818,12 +15132,16 @@ function allocAddWatch(model, rows, sym) {
   return rows;
 }
 
-// Direct edit of one row's target (works on locked rows too — locking only guards group ops/quick
-// buttons). Clamped to the room left under the 100% cap; `capped` tells the caller the request was
-// trimmed so it can flash a hint instead of silently eating the input.
+// Direct edit of one row's target. A locked row is frozen against EVERY automatic adjustment and
+// its own edits alike — once locked, only unlocking (or Undo) can move it — so this is a no-op on
+// a locked row: returns `locked: true` instead of mutating anything, letting the caller skip the
+// capped-flash UI it would otherwise show. Unlocked rows are clamped to the room left under the
+// 100% cap; `capped` tells the caller the request was trimmed so it can flash a hint instead of
+// silently eating the input.
 function allocSetTarget(rows, sym, fraction) {
   const r = rows.find(x => x.sym === sym);
   if (!r) return { rows, capped: false };
+  if (r.locked) return { rows, capped: false, locked: true };
   const room = allocRoomFor(rows, sym);
   const capped = fraction > room + ALLOC_EPS;
   r.target = allocRound(Math.max(0, Math.min(fraction, room)));
@@ -14910,13 +15228,17 @@ function allocFillRest(rows) {
   return rows;
 }
 
-// Every row back to its last-saved target. Locks are left as the user set them.
+// Every UNLOCKED row back to its last-saved target — Reset is a preset like Match Current/Equal
+// Weight/Fill Rest, so it obeys locks the same way they do; a locked row never moves. Locks
+// themselves are left as the user set them.
 function allocResetAll(rows) {
-  rows.forEach(r => { r.target = r.saved; });
+  rows.forEach(r => { if (!r.locked) r.target = r.saved; });
   return rows;
 }
 
-// One row back to its last-saved target, capped by room the way a direct edit would be.
+// One row back to its last-saved target, capped by room the way a direct edit would be. Routes
+// through allocSetTarget, so a locked row is automatically a no-op here too (rows come back
+// unchanged) — no separate lock check needed.
 function allocRevertRow(rows, sym) {
   const r = rows.find(x => x.sym === sym);
   if (!r) return rows;
@@ -15340,6 +15662,15 @@ const amPieCenterPlugin = {
   }
 };
 
+// A chart bound to a canvas the last render replaced can never paint again — amRender's innerHTML
+// rewrite (on open AND on every portfolio switch) detaches the old <canvas> elements, so reuse
+// needs the SAME canvas object, not just a same-id lookup, on top of the existing slice-count check
+// (see renderAllocPies for why count, not labels, decides reuse-vs-recreate). Pure/DOM-agnostic —
+// `existing`/`canvas` are just objects with a `.canvas`/identity to compare — so it's unit-testable.
+function amCanReuseChart(existing, canvas, count) {
+  return !!existing && existing.canvas === canvas && existing.data.datasets[0].data.length === count;
+}
+
 // Called after every state change (throttled — see amSchedulePies). Four two-ring doughnuts —
 // outer ring = target %, inner ring = current weight %, sharing one Unallocated/Cash final slice
 // so all four always foot to the same whole-portfolio total. Slice order is value-descending
@@ -15410,9 +15741,9 @@ function renderAllocPies() {
     // Sorting means the labels array changes on almost every render (a drag can reorder slices
     // constantly) — recreating the chart for that would be needless churn mid-drag. Chart.js is
     // fine with a changed labels array on the SAME instance, so only recreate when the slice
-    // COUNT changes (a row/group added or removed); every reorder is just a data/label reassign.
+    // COUNT changes (a row/group added or removed) or the canvas itself was replaced (amCanReuseChart).
     const existing = amPieCharts[def.id];
-    if (existing && existing.data.datasets[0].data.length === outerData.length) {
+    if (amCanReuseChart(existing, canvas, outerData.length)) {
       existing.data.labels = labels;
       existing.data.datasets[0].data = outerData;
       existing.data.datasets[0].backgroundColor = outerColors;
@@ -15488,15 +15819,30 @@ function amLoad(port) {
   };
 }
 
-window.openAllocMgmt = function() {
+// port/focusSym are optional — the Allocation page's Manage button still calls this with no args
+// (defaults to the active view's portfolio, as before). The Action modal's Plan panel calls it
+// with both, via axOpenAllocFor below, so the two never duplicate this body.
+window.openAllocMgmt = function(port, focusSym) {
   if (!currentModel) return;
-  const port = activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio;
-  amLoad(port);
+  const p = port || (activePortfolio === 'ALL' ? DEFAULT_PORT : activePortfolio);
+  amLoad(p);
   const overlay = document.getElementById('allocMgmtModal');
   if (!overlay) return;
   amBindOverlay();
   amRender();
   overlay.classList.add('open');
+  // Deferred a tick — amRender() just rewrote the overlay's innerHTML and the browser hasn't
+  // necessarily laid it out yet; scrollIntoView/focus right after classList.add('open') can be
+  // flaky on a node that isn't stable yet.
+  if (focusSym) setTimeout(() => amFocusRow(focusSym), 0);
+};
+
+// Opens Allocation Management for the Action modal's OWN portfolio (not the active view) and
+// jumps straight to `sym`'s row — the "Manage allocation" mini-button next to planTargetPct.
+// The Action modal stays open underneath (see #allocMgmtModal's z-index bump, and closeAllocMgmt's
+// Plan-target refresh below for the way back).
+window.axOpenAllocFor = function(sym, port) {
+  openAllocMgmt(port, sym);
 };
 
 window.closeAllocMgmt = function(force) {
@@ -15513,6 +15859,31 @@ window.closeAllocMgmt = function(force) {
   // The optimistic Save path never redraws the whole app while the modal is open (that full
   // redraw is part of what made Save feel slow) — do it now, once, on the way out.
   if (_allocAppDirty) { _allocAppDirty = false; applyPortfolioView(); }
+
+  // The Action modal may still be open underneath (opened via axOpenAllocFor) — its Plan panel's
+  // target can now be stale. Refresh only the target-dependent bits; never re-render the whole
+  // plan branch, which would rebuild the tranche inputs and lose in-progress typing. Every step
+  // is guarded on the element existing, since the Action modal may be on Trade or Manage (or on
+  // Plan but showing the Exits half, where planTargetPct still exists — it lives in Entries only,
+  // so that guard also covers that case correctly).
+  if (document.getElementById('actionModal')?.classList.contains('open') && actionModalSym && planState.symbol === actionModalSym) {
+    const freshModel = modelForPort(actionModalPort);
+    const freshPos = findPosIn(freshModel, actionModalSym) || findPos(actionModalSym);
+    if (freshPos) {
+      planState.model = freshModel;
+      planState.pendingTarget = null; // the sheet value is the truth now
+      const pctEl = document.getElementById('planTargetPct');
+      if (pctEl) pctEl.value = freshPos.target != null ? (freshPos.target * 100).toFixed(2) : '';
+      const dollarEl = document.getElementById('planTargetDollar');
+      if (dollarEl) {
+        dollarEl.textContent = freshPos.target != null
+          ? fmtUSD(getTargetDollar(freshPos, freshModel))
+          : t('set_pct_hint');
+      }
+      renderPlanBar(); updateNewAvgs(); renderRebalFundPanel();
+      renderActionContext(); // weight bar + header follow the new target too
+    }
+  }
 };
 
 // ── Confirm strip (replaces window.confirm() so it can host "Keep editing" too) ──────────────
@@ -15584,13 +15955,20 @@ const AM_LOCK_CLOSED_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fil
 function amRender() {
   const overlay = document.getElementById('allocMgmtModal');
   if (!overlay || !allocMgr) return;
+  // The innerHTML rewrite below detaches every <canvas> this modal currently has (open AND every
+  // portfolio switch rewrite the whole overlay). Destroy the old charts/observer FIRST, while they
+  // still point at the about-to-be-discarded canvases — amPieCharts must never hold a chart bound
+  // to a detached canvas, and _amPieResizeObs must be re-armed on the NEW .am-pies element (its own
+  // guard is "only arm once", so leaving the old instance in place would leave it watching a
+  // detached node forever, silently doing nothing on every subsequent switch).
+  amDestroyPies();
   const hidden = getHiddenPorts();
   const portOpts = _portfolioRegistry
     .filter(p => p.name === allocMgr.port || !hidden.includes(p.name))
     .map(p => `<option value="${escHtml(p.name)}"${p.name === allocMgr.port ? ' selected' : ''}>${escHtml(p.name)}</option>`)
     .join('');
 
-  overlay.innerHTML = `<div class="tx-modal am-modal" onclick="event.stopPropagation()">
+  overlay.innerHTML = `<div class="tx-modal am-modal">
     <header class="am-head">
       <div class="am-head-title">
         <span class="tx-title">${t('am_title')}</span>
@@ -15715,6 +16093,7 @@ function amRowHtml(row) {
   const driftStr = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%';
   const dollar   = fmtCurr(row.target * (allocMgr.model.investable || 0));
   const cls = ['am-row', row.locked ? 'locked' : '', row.isPos ? '' : 'watch', changed ? 'changed' : ''].filter(Boolean).join(' ');
+  const disabledAttr = row.locked ? ' disabled' : ''; // locked = frozen against its own inputs too
   return `<div class="${cls}" data-sym="${escHtml(row.sym)}" style="--am-c:${colorFor(row.sym)}">
     <div class="am-dot"></div>
     <div class="am-sym"><strong>${escHtml(row.sym)}</strong><span class="am-name">${escHtml(row.name)}</span></div>
@@ -15725,15 +16104,15 @@ function amRowHtml(row) {
         <div class="am-tick" style="left:${Math.min(100, (row.now || 0) / scaleMax * 100)}%"></div>
         <div class="am-over" style="left:${roomPct}%;width:${Math.max(0, 100 - roomPct)}%"></div>
       </div>
-      <input type="range" class="am-range" data-sym="${escHtml(row.sym)}" min="0" max="${scaleMax}" step="0.1" value="${pct}" aria-label="${escHtml(row.sym)} target %">
+      <input type="range" class="am-range" data-sym="${escHtml(row.sym)}" min="0" max="${scaleMax}" step="0.1" value="${pct}" aria-label="${escHtml(row.sym)} target %"${disabledAttr}>
     </div>
     <div class="am-pct">
-      <span class="am-pct-wrap"><span class="am-changed-dot"></span><input type="number" class="am-pct-input" data-sym="${escHtml(row.sym)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"><span class="am-pct-suffix">%</span></span>
-      ${changed ? `<button type="button" class="am-old" data-sym="${escHtml(row.sym)}" title="${t('am_revert')}">${(row.saved * 100).toFixed(1)}%</button>` : ''}
+      <span class="am-pct-wrap"><span class="am-changed-dot"></span><input type="number" class="am-pct-input" data-sym="${escHtml(row.sym)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"${disabledAttr}><span class="am-pct-suffix">%</span></span>
+      ${changed && !row.locked ? `<button type="button" class="am-old" data-sym="${escHtml(row.sym)}" title="${t('am_revert')}">${(row.saved * 100).toFixed(1)}%</button>` : ''}
     </div>
     <div class="am-dollar">${dollar}</div>
     <div class="am-drift"${Math.abs(drift) >= 2 ? ' style="font-weight:600"' : ''}>${row.isPos ? driftStr : '—'}</div>
-    <button type="button" class="am-lock" data-sym="${escHtml(row.sym)}" aria-pressed="${row.locked}" title="${t('am_lock')}">${row.locked ? AM_LOCK_CLOSED_ICON : AM_LOCK_OPEN_ICON}</button>
+    <button type="button" class="am-lock" data-sym="${escHtml(row.sym)}" aria-pressed="${row.locked}" title="${row.locked ? t('am_unlock') : t('am_lock')}">${row.locked ? AM_LOCK_CLOSED_ICON : AM_LOCK_OPEN_ICON}</button>
   </div>`;
 }
 
@@ -15743,15 +16122,18 @@ function amGroupHeaderHtml(g) {
   const drift    = pct - g.now;
   const driftStr = (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%';
   const label = allocMgr.groupBy === 'category' ? t(g.key) : (g.key === 'Untagged' ? t('am_untagged') : escHtml(g.key));
-  return `<div class="am-group" data-group="${escHtml(g.key)}">
+  // Every member locked → scaling this group can't move anything, so disable it too.
+  const allLocked = g.syms.length > 0 && g.syms.every(sym => allocMgr.rows.find(r => r.sym === sym)?.locked);
+  const disabledAttr = allLocked ? ' disabled' : '';
+  return `<div class="am-group${allLocked ? ' locked' : ''}" data-group="${escHtml(g.key)}">
     <div class="am-dot"></div>
     <div class="am-sym"><strong>${label}</strong><span class="am-name">${g.syms.length}</span></div>
     <div class="am-now">${g.now.toFixed(1)}%</div>
     <div class="am-slider">
       <div class="am-track"><div class="am-fill" style="width:${Math.min(100, pct)}%"></div></div>
-      <input type="range" class="am-range" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct}" aria-label="${label} target %">
+      <input type="range" class="am-range" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct}" aria-label="${label} target %"${disabledAttr}>
     </div>
-    <div class="am-pct"><span class="am-pct-wrap"><input type="number" class="am-pct-input" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"><span class="am-pct-suffix">%</span></span></div>
+    <div class="am-pct"><span class="am-pct-wrap"><input type="number" class="am-pct-input" data-group="${escHtml(g.key)}" min="0" max="100" step="0.1" value="${pct.toFixed(2)}"${disabledAttr}><span class="am-pct-suffix">%</span></span></div>
     <div class="am-dollar">${dollar}</div>
     <div class="am-drift">${driftStr}</div>
     <div class="am-lock"></div>
@@ -15863,8 +16245,12 @@ function amToggleLock(sym) {
   const r = allocMgr.rows.find(x => x.sym === sym);
   if (!r) return;
   r.locked = !r.locked; // not history — lock state isn't an undoable target edit
-  const btn = document.querySelector(`#amRows .am-lock[data-sym="${CSS.escape(sym)}"]`);
-  if (btn) { btn.setAttribute('aria-pressed', r.locked); btn.innerHTML = r.locked ? AM_LOCK_CLOSED_ICON : AM_LOCK_OPEN_ICON; }
+  // Full row-list re-render rather than a targeted patch: toggling one row's lock can also flip a
+  // GROUP header's all-members-locked state (its own slider/input need to go disabled too), which
+  // a single row patch can't express. A lock toggle is a deliberate click, not a drag tick, so the
+  // extra render cost here doesn't matter the way it would mid-drag.
+  amRenderRows();
+  amSchedulePies();
 }
 function amRevertRow(sym) {
   if (!allocMgr || !sym) return;
@@ -16071,7 +16457,12 @@ function amHandlePctChange(input) {
 }
 
 // Bound once (the overlay element is never destroyed, only its innerHTML — see amRender), so
-// re-renders never lose these listeners and rows never need per-row bindings.
+// re-renders never lose these listeners and rows never need per-row bindings. Because these are
+// DELEGATED to the overlay, nothing inside the modal may call event.stopPropagation() — that would
+// silently kill every click-driven handler below (lock, revert, watch-picks) while leaving
+// input/change/keydown/pointerdown untouched, since those are on separate listeners. (This is
+// exactly how the lock button went dead — the modal's own container had an inline
+// onclick="event.stopPropagation()" — see amRender.)
 function amBindOverlay() {
   const overlay = document.getElementById('allocMgmtModal');
   if (!overlay || overlay._amBound) return;
