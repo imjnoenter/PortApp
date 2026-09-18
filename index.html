@@ -1271,6 +1271,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-tile { background: var(--card); border: 1px solid var(--card-edge); border-radius: var(--radius-sm); padding: var(--sp-3); }
 .sym-tile-v { font-family: var(--font-mono); font-size: 20px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
 .sym-tile-l { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.sym-tile-bar { position: relative; margin-top: var(--sp-2); }
 
 /* ── Below-the-fold: "the money" + "the story" sections (pass 2a) ── */
 .sym-sect-h { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
@@ -1301,17 +1302,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 /* trade record strip */
 .sym-record { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-size: 11px; color: var(--muted); }
 .sym-record b { font-family: var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
-
-/* 52-week range */
-.sym-rng { position: relative; height: 8px; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--track), var(--hover), var(--track)); margin: 20px 0 12px; }
-.sym-rng-now { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: var(--terracotta); border: 2px solid var(--card); transform: translate(-50%, -50%); }
-.sym-rng-avg { position: absolute; top: 50%; width: 2px; height: 16px; background: var(--ink); opacity: .55; transform: translate(-50%, -50%); }
-.sym-rng-end { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
-
-/* weight vs target */
-.sym-wt { position: relative; height: 11px; border-radius: var(--radius-pill); background: var(--track); overflow: visible; margin: 18px 0 8px; }
-.sym-wt > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--terracotta); }
-.sym-wt-notch { position: absolute; top: -4px; right: 0; width: 2px; height: 19px; background: var(--ink); opacity: .7; }
 
 /* shared label/value rows (weight vs target, calendar) */
 .sym-krow { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: 12px; }
@@ -4971,20 +4961,54 @@ function renderSymbolModal() {
     if (idx >= 0) rankSuffix = ` · #${idx + 1} of ${ranked.length}`;
   }
 
-  let rangeStr = '—', rangeLbl = 'of 52W range';
+  // rangeBarHtml reuses the Positions table's weekRange52Bar() verbatim (index.html:10529) so this
+  // page and Positions always agree on scale/colour — never modified, never relied on its em-dash
+  // fallback (the tile guard above covers that). weekRange52Bar's own low/from-high/high label row
+  // already carries the $ prices, so the tile's own label is trimmed to just "of 52W range" —
+  // otherwise the range would print twice in one tile. The avg-cost tick is layered on top via an
+  // absolutely-positioned overlay; weekRange52Bar itself and its CSS are untouched.
+  let rangeStr = '—', rangeLbl = 'of 52W range', rangeBarHtml = '';
   const hi = pos.week52High, lo = pos.week52Low;
   if (hi && lo && price != null && hi > lo) {
     const pct = Math.max(0, Math.min(100, (price - lo) / (hi - lo) * 100));
     rangeStr = pct.toFixed(0) + '%';
-    rangeLbl = `of 52W range · ${fmtUSD(lo)}–${fmtUSD(hi)}`;
+    const avgPos = (pos.avgPrice > 0) ? Math.max(0, Math.min(100, (pos.avgPrice - lo) / (hi - lo) * 100)) : null;
+    rangeBarHtml = `
+    <div class="sym-tile-bar">
+      ${weekRange52Bar(pos)}
+      ${avgPos != null ? `<div style="position:absolute;top:2.5px;left:${avgPos.toFixed(1)}%;width:2px;height:11px;background:var(--ink);opacity:.6;transform:translate(-50%,-50%);pointer-events:none;z-index:1" title="Avg cost ${fmtUSD(pos.avgPrice)}"></div>` : ''}
+    </div>`;
   }
 
-  let toTargetStr = '—', toTargetLbl = 'to reach target', toTargetColor = 'var(--ink)';
+  // targetBarHtml reuses the Positions table's .pos-bar-bg/.pos-bar track+fill (used at
+  // index.html:9651) so the fill colour/animation match Positions exactly. The fill encodes
+  // nowWeight (investWeightPct) directly — the same quantity plan targets are stored against (see
+  // CLAUDE.md recomputeValuation) — scaled against scaleMax = max(nowWeight, targetPct) * 1.2 so
+  // the target always has 20% of headroom past it; the notch sits at targetPct/scaleMax, i.e. its
+  // position on the track marks the target itself, and an overweight fill visibly runs past it (no
+  // clamp needed — scaleMax already keeps the fill in range). scaleMax is floored at a small
+  // epsilon so nowWeight=targetPct=0 can't divide by zero. The notch sits outside .pos-bar-bg
+  // (which clips at 7px) so it can overhang without touching that shared rule. The tile's own label
+  // already states the target %, so the bar adds no repeat text — the under/over-by-pp figure was
+  // dropped rather than appended: at the narrowest 4-up tile width (~174px content, just above the
+  // 900px breakpoint) it risks wrapping past one line, and the bar/notch already convey the same
+  // information visually.
+  let toTargetStr = '—', toTargetLbl = 'to reach target', toTargetColor = 'var(--ink)', targetBarHtml = '';
   if (tc.pos && tc.pos.target != null && td > 0) {
     const diff = td - (tc.pos.currentValue || 0);
     toTargetStr = (diff >= 0 ? '+' : '-') + fmtCurr(Math.abs(diff));
-    toTargetLbl = `to reach ${(tc.pos.target * 100).toFixed(0)}% target`;
+    const targetPct = tc.pos.target * 100;
+    toTargetLbl = `to reach ${targetPct.toFixed(0)}% target`;
     toTargetColor = 'var(--terracotta)';
+    const nowWeight = tc.pos.investWeightPct ?? 0;
+    const scaleMax   = Math.max(nowWeight, targetPct, 0.01) * 1.2;
+    const fillPct    = Math.max(0, nowWeight / scaleMax * 100);
+    const notchPct   = Math.max(0, Math.min(100, targetPct / scaleMax * 100));
+    targetBarHtml = `
+    <div class="sym-tile-bar">
+      <div class="pos-bar-bg"><div class="pos-bar" style="width:${fillPct.toFixed(1)}%;background:${color}"></div></div>
+      <div style="position:absolute;left:${notchPct.toFixed(1)}%;top:-4px;width:2px;height:15px;background:var(--ink);opacity:.7"></div>
+    </div>`;
   }
 
   const pm = perfMetrics(pos);
@@ -5062,43 +5086,6 @@ function renderSymbolModal() {
         <span>Best <b class="${best >= 0 ? 'gain' : 'loss'}">${best >= 0 ? '+' : ''}${fmtCurr(best)}</b></span>
         <span>Realized <b class="${totalRealized >= 0 ? 'gain' : 'loss'}">${totalRealized >= 0 ? '+' : ''}${fmtCurr(totalRealized)}</b></span>
       </div>
-    </div>`;
-  })() : '';
-
-  // ── 52-week range: today's price + avg cost plotted on the 52W scale. ──
-  const rangeHtml = (pos.week52High && pos.week52Low && price != null && pos.week52High > pos.week52Low) ? (() => {
-    const rHi = pos.week52High, rLo = pos.week52Low;
-    const nowPos = Math.max(0, Math.min(100, (price - rLo) / (rHi - rLo) * 100));
-    const avgPos = (pos.avgPrice > 0) ? Math.max(0, Math.min(100, (pos.avgPrice - rLo) / (rHi - rLo) * 100)) : null;
-    return `
-    <div class="card">
-      <div class="card-title">52-week range</div>
-      <div class="sym-rng">
-        ${avgPos != null ? `<div class="sym-rng-avg" style="left:${avgPos.toFixed(1)}%" title="Avg cost ${fmtUSD(pos.avgPrice)}"></div>` : ''}
-        <div class="sym-rng-now" style="left:${nowPos.toFixed(1)}%"></div>
-      </div>
-      <div class="sym-rng-end"><span>${fmtUSD(rLo)}</span><span>${nowPos.toFixed(0)}% of range</span><span>${fmtUSD(rHi)}</span></div>
-    </div>`;
-  })() : '';
-
-  // ── Weight vs target: getCurrentPct is a ratio (currentValue / targetDollar), i.e. "% of the
-  // target filled" — that's what the bar/notch encode. The text labels use investWeightPct, the
-  // weight basis plan targets are actually stored against (see CLAUDE.md recomputeValuation). ──
-  const wtHtml = (td > 0) ? (() => {
-    const barPct    = Math.max(0, Math.min(100, getCurrentPct(tc.pos, tc.model)));
-    const nowWeight = tc.pos.investWeightPct ?? 0;
-    const targetPct = (tc.pos.target || 0) * 100;
-    const diff      = td - (tc.pos.currentValue || 0);
-    const diffPp    = targetPct - nowWeight;
-    return `
-    <div class="card">
-      <div class="card-title">Weight vs target</div>
-      <div class="sym-wt">
-        <span style="width:${barPct.toFixed(1)}%"></span>
-        <div class="sym-wt-notch"></div>
-      </div>
-      <div class="sym-krow"><span class="sym-klabel">now <b class="sym-kval">${nowWeight.toFixed(1)}%</b> → target <b class="sym-kval">${targetPct.toFixed(1)}%</b></span></div>
-      <div class="sym-krow" style="margin-top:5px"><span class="sym-klabel">${diffPp >= 0 ? 'under' : 'over'} by ${Math.abs(diffPp).toFixed(1)}pp</span><span class="sym-kval" style="color:var(--terracotta)">${diff >= 0 ? 'buy' : 'sell'} ${fmtCurr(Math.abs(diff))}</span></div>
     </div>`;
   })() : '';
 
@@ -5228,7 +5215,7 @@ function renderSymbolModal() {
   // other card here, so the section's existing moneyLeft||moneyRight empty-gating covers them
   // automatically — no separate slot div to keep in sync. ──
   const moneyLeft  = [wfHtml, recordHtml].filter(Boolean).join('');
-  const moneyRight = [donutsHtml, trueExpHtml, rangeHtml, wtHtml, calHtml].filter(Boolean).join('');
+  const moneyRight = [donutsHtml, trueExpHtml, calHtml].filter(Boolean).join('');
   const moneySectionHtml = (moneyLeft || moneyRight) ? `
     <div class="sym-sect-h">The money <span>— where the return came from</span></div>
     <div class="sym-grid">
@@ -5292,8 +5279,8 @@ function renderSymbolModal() {
 
     <div class="sym-tiles">
       <div class="sym-tile"><div class="sym-tile-v">${weightStr}</div><div class="sym-tile-l">of portfolio${rankSuffix}</div></div>
-      <div class="sym-tile"><div class="sym-tile-v">${rangeStr}</div><div class="sym-tile-l">${rangeLbl}</div></div>
-      <div class="sym-tile"><div class="sym-tile-v" style="color:${toTargetColor}">${toTargetStr}</div><div class="sym-tile-l">${toTargetLbl}</div></div>
+      <div class="sym-tile"><div class="sym-tile-v">${rangeStr}</div><div class="sym-tile-l">${rangeLbl}</div>${rangeBarHtml}</div>
+      <div class="sym-tile"><div class="sym-tile-v" style="color:${toTargetColor}">${toTargetStr}</div><div class="sym-tile-l">${toTargetLbl}</div>${targetBarHtml}</div>
       <div class="sym-tile"><div class="sym-tile-v" style="color:${perfColor}">${perfStr}</div><div class="sym-tile-l">${perfLbl}</div></div>
     </div>
 
