@@ -1220,6 +1220,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 #symbolModalBody { display: flex; flex-direction: column; gap: var(--sp-5); overflow-y: auto; flex: 1; min-height: 0; padding: var(--sp-4); }
 #symModalBelow:empty { display: none; }
 
+/* Research picture — images/<TICKER>.png dropped into the repo by hand. The card ships hidden and
+   is revealed by the image's own onload, so a symbol with no file leaves nothing behind. */
+/* flex-shrink:0 is load-bearing: #symbolModalBody is a column flex container, and `overflow:hidden`
+   here drops this card's automatic minimum size to 0 — without it the tallest item in an overflowing
+   column gets shrunk to a sliver and the picture renders as a thin line. */
+#symImageCard { padding: 0; overflow: hidden; flex: 0 0 auto; }
+#symImageCard img { display: block; width: auto; max-width: 100%; max-height: 70vh; margin: 0 auto; cursor: zoom-in; }
+.symimg-overlay { z-index: var(--z-modal); align-items: center; }
+.symimg-overlay img { max-width: 100%; max-height: calc(100vh - var(--sp-7)); object-fit: contain; border-radius: var(--radius); box-shadow: var(--shadow-lg); cursor: zoom-out; }
+.symimg-overlay.open > img { animation: modalIn .25s var(--ease-out-quint); }
+
 .sym-modal .tx-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 50%;
@@ -5179,6 +5190,52 @@ function _symThesisCardHtml(sym, plan) {
     </div>`;
 }
 
+// Research picture for a symbol: images/<TICKER>.png (or .jpg), dropped into the repo by hand.
+// There is no upload and no lookup service — the filename IS the lookup, so the ticker must match
+// exactly, case included (GitHub Pages is case-sensitive). The card is emitted hidden and revealed
+// only by the image's own onload, which is what makes "nothing when there's no file" free: a miss
+// leaves no empty box and nothing to clean up. onerror walks the extension list the same way
+// logoFallback walks LOGO_SOURCES, then gives up quietly.
+// NOTE: deliberately NOT loading="lazy" — a lazy image inside a hidden (display:none) card is never
+// in the viewport, so it would never load, never fire onload, and the card would never appear.
+const SYM_IMG_EXTS = ['png', 'jpg'];
+window._symImgStep = function(img) {
+  const next = (+img.dataset.imgStep || 0) + 1;
+  if (next >= SYM_IMG_EXTS.length) { img.onerror = null; return; }
+  img.dataset.imgStep = next;
+  img.src = `images/${encodeURIComponent(img.dataset.sym)}.${SYM_IMG_EXTS[next]}`;
+};
+window._symImgShow = function(img) { img.closest('.card')?.removeAttribute('hidden'); };
+function symImageCardHtml(sym) {
+  return `
+    <div class="card" id="symImageCard" hidden>
+      <img src="images/${encodeURIComponent(sym)}.${SYM_IMG_EXTS[0]}" alt="${escHtml(sym)}"
+           data-sym="${escHtml(sym)}" data-img-step="0"
+           onload="_symImgShow(this)" onerror="_symImgStep(this)"
+           onclick="openSymImgModal(this.currentSrc || this.src, this.dataset.sym)">
+    </div>`;
+}
+
+// Fullscreen view of that picture. Its own overlay rather than a reuse of the symbol window's, so
+// it can sit above it at --z-modal and be dismissed independently. Registered ABOVE symbolModal in
+// both close-handler lists (Escape, floating close button) — those walk in order and break on the
+// first open modal, so listing it lower would close the whole window out from under the picture.
+window.openSymImgModal = function(src, sym) {
+  const ov  = document.getElementById('symImgModal');
+  const img = document.getElementById('symImgModalImg');
+  if (!ov || !img) return;
+  img.src = src;
+  img.alt = sym || '';
+  ov.classList.add('open');
+};
+window.closeSymImgModal = function() {
+  const ov = document.getElementById('symImgModal');
+  if (!ov) return;
+  ov.classList.remove('open');
+  // Drop the src so a multi-megabyte decoded bitmap isn't held for a panel nobody is looking at.
+  document.getElementById('symImgModalImg')?.removeAttribute('src');
+};
+
 // Switch which portfolio's plan the Plan chips + Thesis card show, without re-rendering the
 // whole modal (that would tear down and rebuild the TV chart — see buildSdTvChart/renderSymbolModal).
 window._symSwitchPlanPort = function(port) {
@@ -5634,6 +5691,8 @@ function renderSymbolModal() {
     </div>
 
     <div id="symModalBelow">${belowHtml}</div>
+
+    ${symImageCardHtml(sym)}
   `;
 
   setTimeout(async () => {
@@ -16143,7 +16202,8 @@ function buildShell() {
   <div id="actionModal" class="tx-overlay"></div>
   <div id="tradeModal" class="tx-overlay"></div>
   <div id="addSymbolModal" class="tx-overlay"></div>
-  <div id="symbolModal" class="tx-overlay"></div>`;
+  <div id="symbolModal" class="tx-overlay"></div>
+  <div id="symImgModal" class="tx-overlay symimg-overlay"><img id="symImgModalImg" alt=""></div>`;
   // Re-apply theme & tone icons after shell rebuild
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark');
   applyTone(document.documentElement.getAttribute('data-tone') === 'cool');
@@ -18074,6 +18134,7 @@ async function init() {
           { id: 'allocMgmtModal',    close: () => closeAllocMgmt() },
           { id: 'actionModal',       close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
           { id: 'tradeModal',        close: () => closeTradeModal() },
+          { id: 'symImgModal',       close: () => closeSymImgModal() },
           { id: 'symbolModal',       close: () => closeSymbolModal() },
           { id: 'txModal',           close: () => closeTx() },
           { id: 'txHistoryModal',    close: () => document.getElementById('txHistoryModal').classList.remove('open') },
@@ -18123,6 +18184,9 @@ async function init() {
       setupOverlayDismiss('symbolModal',        () => closeSymbolModal());
       const _dov = document.getElementById('donutModal');
       if (_dov) _dov.addEventListener('click', e => { if (e.target === _dov) closeDonutModal(); });
+      // Click anywhere — backdrop or the picture itself — to leave the fullscreen view.
+      const _siv = document.getElementById('symImgModal');
+      if (_siv) _siv.addEventListener('click', () => closeSymImgModal());
     }
 
     document.getElementById('lastUpdated').textContent =
@@ -18193,6 +18257,7 @@ document.addEventListener('keydown', e => {
     { id: 'allocMgmtModal',   close: () => closeAllocMgmt() },
     { id: 'actionModal',      close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
     { id: 'tradeModal',       close: () => closeTradeModal() },
+    { id: 'symImgModal',      close: () => closeSymImgModal() },
     { id: 'symbolModal',      close: () => closeSymbolModal() },
     { id: 'txModal',          close: () => closeTx() },
     { id: 'txHistoryModal',   close: () => document.getElementById('txHistoryModal').classList.remove('open') },
