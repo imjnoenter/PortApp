@@ -2493,6 +2493,34 @@ function _buildUrls(c) {
            CONTRIBUTIONS_URL: b+'Contributions',
            RECORD_URL: c.recordUrl, WRITE_KEY: c.writeKey };
 }
+// Every gviz read goes through this. Google's CDN caches these for ~5-30s (see CLAUDE.md), which
+// is a *feature* for routine reads (the 60s auto-refresh loop alone does 4+ of these a cycle) —
+// so by default this is a plain, cacheable fetch. The buster is opt-in (fresh=true) for the one
+// narrow case where staleness actually matters: re-reading a sheet moments after writing to it.
+// Appended here, at fetch time, rather than baked into _buildUrls, since those URLs are built once
+// per profile and stored in globals.
+function gvizFetch(url, fresh) { return fetch(fresh ? url + '&_=' + Date.now() : url); }
+// In-flight de-dup for the raw table parse: concurrent reads of the identical gviz URL within the
+// same refresh cycle (fetchTransactions + fetchTxList both read the transactions sheet) share one
+// fetch+parse instead of issuing duplicate network requests. Only holds the promise while the
+// request is in flight — cleared as soon as it settles, so the next call gets a fresh read.
+// Keyed on url+fresh (not url alone) so a fresh=true caller can never be handed the result of an
+// in-flight fresh=false request (or vice versa) — the two are different requests with different
+// cache semantics and must never share a slot.
+const _gvizTablePromises = {};
+async function fetchGvizTable(url, fresh) {
+  const key = url + (fresh ? '|fresh' : '');
+  if (_gvizTablePromises[key]) return _gvizTablePromises[key];
+  const p = (async () => {
+    const res  = await gvizFetch(url, fresh);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
+    return json.table;
+  })();
+  _gvizTablePromises[key] = p;
+  try { return await p; }
+  finally { delete _gvizTablePromises[key]; }
+}
 function _applyActiveProfile() {
   const a = _activeProfile();
   if (!a) return;
@@ -2641,6 +2669,83 @@ async function recordFetch(params, needsResponse = false) {
     return null;
   }
   try { await fetch(url, { mode: 'no-cors' }); } catch (_) {}
+}
+
+// ── Background save runner ────────────────────────────────────────────────────
+// Generalises the "commit optimistically, sync in the background" pattern the Allocation
+// Management modal pioneered (see amSave/allocRunJob, search for them) so every write that's safe
+// to fire without blocking the UI — an absolute-value write, or an idempotent delete — shares one
+// job registry instead of each caller reinventing its own beforeunload guard and failure toast.
+// allocRunJob keeps its own bespoke reconciliation body (it's the newest, most-tested code in this
+// area) but points its job bookkeeping at these same primitives, so ANY in-flight background save —
+// allocation or otherwise — is what the beforeunload guard below actually watches.
+let _bgJobSeq = 0;
+let _bgPending = new Map(); // jobId -> { kind } — present only while its network call is in flight
+let _bgBeforeUnloadBound = false;
+function _bgEnsureBeforeUnload() {
+  if (_bgBeforeUnloadBound) return;
+  _bgBeforeUnloadBound = true;
+  window.addEventListener('beforeunload', e => {
+    if (_bgPending.size) { e.preventDefault(); e.returnValue = ''; }
+  });
+}
+
+// Persistent (until dismissed/retried) toast for a background save that failed after the modal
+// that started it already closed — a transient auto-dismiss toast would be easy to miss. Reuses
+// the Allocation Management modal's `.am-toast` styling verbatim (already tokenised, needs no
+// changes) and its `am_retry`/`am_discard` i18n strings, since "sync failed, retry?" reads the
+// same regardless of which flow triggered it. Only one toast is ever shown at a time (there's no
+// stacking layout for `.am-toast` and adding one is out of scope) — a second failure while one is
+// already up replaces its message/retry handler; `id` (the failing job's `kind`) is stamped on the
+// element only so that's inspectable, not to key multiple simultaneous toasts.
+function bgToast(id, msg, onRetry) {
+  let toast = document.getElementById('bgSyncToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'bgSyncToast';
+    toast.className = 'am-toast';
+    toast.setAttribute('role', 'status');
+    document.body.appendChild(toast);
+  }
+  toast.dataset.bgId = id;
+  toast.innerHTML = `<span class="am-toast-msg">${escHtml(msg)}</span>
+    <button type="button" class="am-btn" id="bgToastRetry">${escHtml(t('am_retry'))}</button>
+    <button type="button" class="am-toast-close" id="bgToastClose" aria-label="${escHtml(t('am_discard'))}">×</button>`;
+  document.getElementById('bgToastRetry').onclick = () => { toast.remove(); onRetry(); };
+  document.getElementById('bgToastClose').onclick = () => toast.remove();
+}
+
+// Runs one background save job. `send()` resolves `{ ok, bad? }` and must never reject (network
+// failures are swallowed the same way recordFetch already swallows them). On failure:
+//   - `revert` (nullable) undoes the optimistic commit, but ONLY when `stillMine()` (also nullable,
+//     defaults to "yes") confirms nothing newer — a later edit, or a later job of the same kind —
+//     already overwrote what this job wrote. A newer change always wins over an older job's failure.
+//     Pass `revert: null` when undoing is riskier than leaving the optimistic state applied (see
+//     removeFromWatchlist) — the next full load reconciles it instead.
+//   - `status(reverted)` gets one chance to show an in-modal message; return true if it actually
+//     found somewhere to show it (the modal is still open on the same context this job wrote),
+//     false otherwise. A false (or missing) `status` routes the failure to `bgToast` instead, with
+//     a Retry that just re-runs this same job.
+// Refuses to start a second job of the same `kind` while one is already in flight, so a double
+// click can't queue two conflicting syncs for the same thing.
+function runBgSave({ kind, send, revert, stillMine, status, toastMsg }) {
+  for (const job of _bgPending.values()) if (job.kind === kind) return;
+  const id = ++_bgJobSeq;
+  _bgEnsureBeforeUnload();
+  _bgPending.set(id, { kind });
+  (async () => {
+    let res;
+    try { res = await send(); } catch (e) { res = { ok: false, bad: e }; }
+    _bgPending.delete(id);
+    if (res && res.ok) return;
+
+    let reverted = false;
+    if (revert && (!stillMine || stillMine())) { revert(); reverted = true; }
+
+    const retry = () => runBgSave({ kind, send, revert, stillMine, status, toastMsg });
+    const handled = status ? status(reverted) : false;
+    if (!handled) bgToast(kind, toastMsg, retry);
+  })();
 }
 
 // ── i18n ─────────────────────────────────────────────────────────────────────
@@ -3776,14 +3881,18 @@ function buildCashSelectorHtml() {
   </div>`;
 }
 
+// Fires the two writes (updateSymbol/removeSymbol + updateCash) exactly as before, and also
+// RETURNS what it computed — newQty/newAvg/whether it took the sell-all branch/the cash port's
+// new FCD+USD — so callers can mutate their in-memory caches instead of re-reading every sheet.
+// The writes themselves stay fire-and-forget (not awaited) — only the return value is new.
 async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfolio) {
   const port = portfolio || DEFAULT_PORT;
   // Use the raw (portfolio, symbol) holding row — NOT currentModel, which is the active view slice.
   const row = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
   const curQty = Number(row?.qty) || 0, curAvg = Number(row?.avgPrice) || 0;
   // 1. Recalculate Qty and Avg Cost (upsert — creates row if symbol is new)
+  let newQty = curQty, newAvg = curAvg, sellAll = false;
   if (txTypeVal === 'Buy' || txTypeVal === 'Sell') {
-    let newQty, newAvg;
     const fifo = fifoAfterTrade(port, ticker, curQty, txTypeVal, shares, price);
     if (txTypeVal === 'Buy') {
       newQty = curQty + shares;
@@ -3797,6 +3906,7 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
     // Sell All: if qty reaches 0, delete from Claude sheet
     if (txSellAll && txTypeVal === 'Sell' && newQty < 0.0001) {
       recordFetch({ action:'removeSymbol', symbol:ticker, portfolio:port });
+      sellAll = true;
       txSellAll = false;
     } else {
       recordFetch({ action:'updateSymbol', symbol:ticker, portfolio:port, qty:newQty.toFixed(6), avgPrice:newAvg.toFixed(6) });
@@ -3816,6 +3926,62 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
   if (txTypeVal === 'Buy')  { if (src==='FCD') nFcd = fcd-amount; else nUsd = usd-amount; }
   if (txTypeVal === 'Sell') { if (src==='FCD') nFcd = fcd+amount; else nUsd = usd+amount; }
   recordFetch({ action:'updateCash', portfolio: cashPort, fcd:nFcd.toFixed(4), usd:nUsd.toFixed(4) });
+  return { newQty, newAvg, sellAll, cashPort, fcd: nFcd, usd: nUsd };
+}
+
+// Mutates _allRows / _portfolioRegistry / _allTxCache / txList to match a just-appended Buy/Sell
+// transaction, so the caller can render via applyPortfolioView() with zero network instead of a
+// full init(). Shared by submitTx / submitTradeModal / submitTxInAction — all three build an
+// identically-keyed `params` (date/time/type/ticker/shares/price/tradeValue/commissionFree/
+// portfolio/note) before calling this. `post` is postTransactionUpdates()'s return value.
+function applyLocalTxWrite(params, post) {
+  const ticker    = params.get('ticker');
+  const port      = params.get('portfolio') || DEFAULT_PORT;
+  const txTypeVal = params.get('type');
+  const shares    = Number(params.get('shares')) || 0;
+  const price     = Number(params.get('price')) || 0;
+  const tv        = Number(params.get('tradeValue')) || shares * price;
+  const commissionFree = params.get('commissionFree') === 'TRUE';
+  const note      = params.get('note') || '';
+  const dateStr   = params.get('date');
+  const timeStr   = params.get('time');
+
+  // _allRows: update, remove (sell-all) or create the (portfolio, symbol) holding row.
+  const row = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
+  if (post.sellAll) {
+    if (row) _allRows.splice(_allRows.indexOf(row), 1);
+  } else if (row) {
+    row.qty = post.newQty;
+    row.avgPrice = post.newAvg;
+  } else {
+    // New symbol in this portfolio — Name/Sector/Industry etc. are server-derived and land on the
+    // next real read; empty defaults here match what parseRows() would produce for a blank cell.
+    _allRows.push({
+      portfolio: port, symbol: ticker, name: null, sector: null, industry: null,
+      category: null, custom: null, myGroup: null,
+      qty: post.newQty, avgPrice: post.newAvg, target: null, price,
+      marketCap: null, cash: null, cashRes: null, fcd: null, usd: null,
+    });
+  }
+
+  // _portfolioRegistry — the one shared wallet (see Shared Cash Pool in CLAUDE.md). `cash` is
+  // derived server-side by updateCashAction; omitting it here leaves every cash-derived figure
+  // stale until the next full load (same trap submitEditCash already guards against).
+  const cashRow = _portfolioRegistry.find(p => p.name === post.cashPort);
+  if (cashRow) { cashRow.fcd = post.fcd; cashRow.usd = post.usd; cashRow.cash = post.fcd + post.usd; }
+
+  // _allTxCache — exact shape of fetchTransactions()'s minimal tx object.
+  if (_allTxCache) {
+    _allTxCache.push({ dateStr, type: txTypeVal, ticker, shares, price, tradeValue: tv, commissionFree, portfolio: port });
+  }
+
+  // txList — exact shape of fetchTxList()'s rich tx object, plus `pending` (a client-only guard —
+  // see TX_EDITABLE in renderTxPanel — since `row` below is a guess until the next real read).
+  const { comm, tax } = feesOn(tv, commissionFree);
+  const total = txTypeVal === 'Buy' ? tv + comm + tax : tv - comm - tax;
+  const nextRow = txList.reduce((m, x) => Math.max(m, x.row), 1) + 1;
+  txList.push({ row: nextRow, date: dateStr, time: timeStr, type: txTypeVal, ticker, shares, price,
+                tradeValue: tv, portfolio: port, com: comm, tax, total, commissionFree, note, pending: true });
 }
 
 // Move shares between portfolios — no cash change, no realized P&L. Apps Script writes the
@@ -3826,10 +3992,56 @@ async function transferShares(sym, shares, fromPort, toPort) {
   const avg = Number(fromRow?.avgPrice) || 0;
   await recordFetch({ action:'transferShares', symbol:sym, shares:Number(shares).toFixed(6),
                       fromPortfolio:fromPort, toPortfolio:toPort, price:avg.toFixed(6) });
-  _allTxCache = null;
+  // No cache invalidation here — the caller (submitMoveShares) mutates _allRows/_allTxCache/txList
+  // itself so the view can re-render with zero network.
   return true;
 }
 window.transferShares = transferShares;
+
+// Mutates _allRows / _allTxCache / txList to match a just-written share transfer, mirroring
+// transferSharesAction's server-side branches (apps_script.js) exactly: decrement/delete the
+// source row, increment-at-blended-avg or create the destination row, and append a zero-fee
+// Transfer-Out/Transfer-In pair (appendTransferTxn zeroes Com/Tax/Trade_Value+Fee and sets
+// Commission_Free true for transfer rows).
+function applyTransferToCaches(sym, shares, from, to, avg) {
+  const fromRow = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === from);
+  if (fromRow) {
+    fromRow.qty = (Number(fromRow.qty) || 0) - shares;
+    if (fromRow.qty <= 1e-6) _allRows.splice(_allRows.indexOf(fromRow), 1);
+  }
+  const toRow = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === to);
+  if (toRow) {
+    const q0 = Number(toRow.qty) || 0, a0 = Number(toRow.avgPrice) || 0;
+    const nq = q0 + shares;
+    toRow.avgPrice = nq > 0 ? (q0 * a0 + shares * avg) / nq : avg;
+    toRow.qty = nq;
+  } else {
+    const anyRow = _allRows.find(r => r.symbol === sym);
+    _allRows.push({
+      portfolio: to, symbol: sym,
+      name: anyRow?.name ?? null, sector: anyRow?.sector ?? null, industry: anyRow?.industry ?? null,
+      category: anyRow?.category ?? null, custom: anyRow?.custom ?? null, myGroup: anyRow?.myGroup ?? null,
+      qty: shares, avgPrice: avg, target: null, price: anyRow?.price ?? null,
+      marketCap: anyRow?.marketCap ?? null, cash: null, cashRes: null, fcd: null, usd: null,
+    });
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const timeStr = now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
+  const tv = shares * avg;
+  const legs = [{ type: 'Transfer-Out', portfolio: from }, { type: 'Transfer-In', portfolio: to }];
+  for (const leg of legs) {
+    if (_allTxCache) {
+      _allTxCache.push({ dateStr, type: leg.type, ticker: sym, shares, price: avg,
+                         tradeValue: tv, commissionFree: true, portfolio: leg.portfolio });
+    }
+    const nextRow = txList.reduce((m, x) => Math.max(m, x.row), 1) + 1;
+    txList.push({ row: nextRow, date: dateStr, time: timeStr, type: leg.type, ticker: sym,
+                  shares, price: avg, tradeValue: tv, portfolio: leg.portfolio,
+                  com: 0, tax: 0, total: 0, commissionFree: true, note: '', pending: true });
+  }
+}
 
 window.updateTxPrice = function(val) {
   const custom = document.getElementById('txTickerCustom');
@@ -3937,9 +4149,11 @@ window.submitTx = async function() {
       note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
-    await postTransactionUpdates(ticker, shares, price, txType, portfolio);
+    const post = await postTransactionUpdates(ticker, shares, price, txType, portfolio);
+    applyLocalTxWrite(params, post);
     statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved to Google Sheet</span>';
-    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 1200);
+    applyPortfolioView();
+    setTimeout(closeTx, 300); // just long enough to read the "✓ Saved" tick
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
@@ -3947,11 +4161,8 @@ window.submitTx = async function() {
 };
 
 // ── Transactions panel ────────────────────────────────────────────────────────
-async function fetchTxList() {
-  const res  = await fetch(TX_LIST_URL);
-  const text = await res.text();
-  const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
-  const table = json.table;
+async function fetchTxList(fresh) {
+  const table = await fetchGvizTable(TX_LIST_URL, fresh);
   const idx = {};
   table.cols.forEach((c, i) => { if (c.label) idx[c.label] = i; });
   const cell = (row, label) => { const i = idx[label]; if (i == null) return null; const c = row.c[i]; return c == null ? null : c.v; };
@@ -4106,6 +4317,54 @@ function txWriteError(res) {
   return res.error || 'Failed';
 }
 
+// Shared by submitEditTx / confirmDeleteTx after a successful edit or delete. Apps Script's
+// applyHoldingCorrection_ rewrote Qty/Avg for the affected (symbol, portfolio) — with a rolling
+// average in its fallback branch, which reconcileFifoBasis below repairs — and adjustPortfolioCash_
+// moved cash. `patch`, when given ({symbol, portfolio, qty, avg}, read straight from the write's
+// response — see applyHoldingCorrection_ in apps_script.js), lets the caller skip re-reading the
+// WHOLE sheet and just mutate the one affected _allRows row directly; null falls back to the
+// previous full fetchSheet(true) re-parse (an old, not-yet-redeployed apps_script.js won't have
+// sent qty/avg, or the edit changed the tx's ticker/portfolio — see submitEditTx). The ledger read
+// (fetchTransactions) is NEVER skipped either way: reconcileFifoBasis writes an avg price back into
+// the user's sheet and must only ever run against a freshly-read ledger, never a locally-patched
+// one. gviz's ~5-30s CDN cache means an un-busted read could still return the pre-write copy, so
+// every read below is cache-busted (fresh=true). reconcileFifoBasis's only caller before this pass
+// was inside init() — since this path bypasses init() entirely, it must be called explicitly or the
+// FIFO repair silently stops firing.
+async function _reloadAfterTxWrite(patch) {
+  const [portfolios, allTx, freshTxList, table] = await Promise.all([
+    fetchPortfolios(true), fetchTransactions(true), fetchTxList(true),
+    patch ? null : fetchSheet(true),
+  ]);
+  if (patch) {
+    for (const row of _allRows) {
+      if (row.symbol === patch.symbol && row.portfolio === patch.portfolio) {
+        row.qty = patch.qty;
+        row.avgPrice = patch.avg;
+      }
+    }
+  } else {
+    // Mirrors init()'s handling right after parseRows/fetchPortfolios, verbatim (stale saved-view
+    // guard + pre-migration cash seed) — reconcileFifoBasis below needs _allRows' qty to already be
+    // the server's post-write value, exactly like init()'s ordering.
+    _allRows = parseRows(table);
+  }
+  _portfolioRegistry = portfolios;
+  if (activePortfolio !== 'ALL' && !_portfolioRegistry.some(p => p.name === activePortfolio)) {
+    activePortfolio = 'ALL'; localStorage.setItem('portfolioView.v1', 'ALL');
+    const prof = _activeProfile(); if (prof) { prof.portfolioView = 'ALL'; _saveCfg(_cfg); }
+  }
+  if (_portfolioRegistry[0]?._fallback && _allRows[0]) {
+    const r0 = _allRows[0], reg = _portfolioRegistry[0];
+    reg.cash = Number(r0.cash) || 0; reg.cashRes = Number(r0.cashRes) || 0;
+    reg.fcd = Number(r0.fcd) || 0; reg.usd = Number(r0.usd) || 0;
+  }
+  _allTxCache = allTx;
+  reconcileFifoBasis(); // _allRows and _allTxCache are both fresh now — never run this against a stale ledger
+  txList = freshTxList;
+  applyPortfolioView(); // rebuilds currentModel + txCache and re-renders the tx panel from txList
+}
+
 function renderTxPanel(fullList) {
   const body = document.getElementById('txPanelBody');
   const countEl = document.getElementById('txPanelCount');
@@ -4124,15 +4383,19 @@ function renderTxPanel(fullList) {
     const time = (tx.time || '').slice(0,5);
     const badge = tx.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy';
     // Transfer legs come in pairs (reverse one with Move shares) and Dividend rows have no
-    // holdings or cash effect to correct — neither is editable from here.
-    const actions = TX_EDITABLE(tx.type)
-      ? `<div class="tx-actions">
+    // holdings or cash effect to correct — neither is editable from here. A pending row's `row`
+    // is a client-side guess (see applyLocalTxWrite/applyTransferToCaches) — edit/delete address
+    // rows by index, so hide those controls until the next fetchTxList() confirms the real one.
+    const actions = !TX_EDITABLE(tx.type)
+      ? `<span style="color:var(--muted);font-size:11px" title="${
+          tx.type === 'Dividend' ? t('tx_dividend_hint') : t('tx_transfer_hint')}">—</span>`
+      : tx.pending
+      ? `<span style="font-size:10px;color:var(--muted)">${t('saving_msg') || 'Syncing…'}</span>`
+      : `<div class="tx-actions">
           <button class="tx-action-btn${tx.note ? ' has-note' : ''}" title="${tx.note ? t('tx_note_label') : t('tx_note_add')}" onclick="startTxNote(${tx.row})">${NOTE_ICON}</button>
           <button class="tx-action-btn" title="Edit" onclick="openEditTx(${tx.row})">${EDIT_ICON}</button>
           <button class="tx-action-btn danger" title="Delete" onclick="deleteTxRow(${tx.row},this)">${TRASH_ICON}</button>
-        </div>`
-      : `<span style="color:var(--muted);font-size:11px" title="${
-          tx.type === 'Dividend' ? t('tx_dividend_hint') : t('tx_transfer_hint')}">—</span>`;
+        </div>`;
     return `<tr data-row="${tx.row}">
       <td><div class="tx-date-main">${fmtDate(tx.date)}</div><div class="tx-date-sub">${time}</div></td>
       <td style="text-align:left"><span class="${badge}">${tx.type}</span></td>
@@ -4308,12 +4571,14 @@ window.submitEditTx = async function(row) {
   const shares = parseFloat(document.getElementById('txShares').value) || 0;
   const price  = parseFloat(document.getElementById('txPrice').value)  || 0;
   const noCommission = document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE';
+  const portfolio = document.getElementById('txPortfolio')?.value || DEFAULT_PORT;
   const statusEl = document.getElementById('txStatus');
   if (!ticker)           { statusEl.innerHTML = '<span style="color:var(--loss)">Enter a ticker.</span>'; return; }
   if (!shares || !price) { statusEl.innerHTML = '<span style="color:var(--loss)">Enter shares and price.</span>'; return; }
   const tv = shares * price;
   document.getElementById('txSubmit').disabled = true;
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
+  let res;
   try {
     const params = new URLSearchParams({
       action: 'update', row: String(row),
@@ -4321,13 +4586,13 @@ window.submitEditTx = async function(row) {
       time: document.getElementById('txTime').value,
       type: txType, ticker, shares, price,
       tradeValue: tv.toFixed(4), commissionFree: noCommission,
-      portfolio: document.getElementById('txPortfolio')?.value || DEFAULT_PORT,
+      portfolio,
       // Must be sent: writeTxnRow writes col M unconditionally, so omitting it here would blank
       // the note on every edit instead of preserving it.
       note: document.getElementById('txNote')?.value.trim() || '',
       expect: _editOrigTx ? txExpectSig(_editOrigTx) : '',
     });
-    const res = await recordFetch(params, true);
+    res = await recordFetch(params, true);
     const err = txWriteError(res);
     if (err) {
       statusEl.innerHTML = `<span style="color:var(--loss)">${err}</span>`;
@@ -4337,11 +4602,30 @@ window.submitEditTx = async function(row) {
     statusEl.innerHTML = res?.avgSkipped
       ? `<span style="color:var(--gain)">✓ Saved</span> <span style="color:var(--muted);font-size:11px">${t('tx_avg_kept')}</span>`
       : '<span style="color:var(--gain)">✓ Saved</span>';
-    _basisFixPending = true; // Apps Script replayed the holding with a rolling average — re-derive after reload
-    setTimeout(() => { closeTx(); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, res?.avgSkipped ? 2500 : 800);
+    _basisFixPending = true; // Apps Script replayed the holding with a rolling average — reconciled in the reload below
+    setTimeout(closeTx, 300); // cosmetic — just long enough to read the "✓ Saved" tick
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
+    return;
+  }
+  try {
+    // Direct-patch shortcut only when the response carries {qty, avg} — read defensively, an old
+    // not-yet-redeployed apps_script.js simply won't have them (see applyHoldingCorrection_) — AND
+    // the edit didn't change which (symbol, portfolio) the tx belongs to. An identity change moves
+    // shares between TWO positions server-side, but the response only carries the corrected qty/avg
+    // for the NEW one (see updateTxnAction) — the old position would be left stale by a direct
+    // patch, so that case keeps falling back to _reloadAfterTxWrite's full re-read.
+    const identityUnchanged = !!_editOrigTx && ticker === _editOrigTx.ticker
+      && portfolio === (_editOrigTx.portfolio || DEFAULT_PORT);
+    const patch = (identityUnchanged && res?.qty != null && res?.avg != null)
+      ? { symbol: ticker, portfolio, qty: res.qty, avg: res.avg }
+      : null;
+    await _reloadAfterTxWrite(patch);
+  } catch(e) {
+    // The edit itself already succeeded and closed the modal — don't overwrite that with an
+    // error; just log it so a failed refresh isn't silent.
+    console.error('reload after tx edit:', e);
   }
 };
 
@@ -4367,10 +4651,11 @@ window.confirmDeleteTx = async function(row, btnEl) {
   const cell = btnEl.closest('td');
   const tx = txList.find(x => x.row === row);
   if (cell) cell.innerHTML = '<span style="color:var(--muted);font-size:11px">Deleting…</span>';
+  let res;
   try {
     // needsResponse: the server can refuse (stale row / non-editable type) and can report that
     // it kept the avg cost, and none of that is visible through a fire-and-forget write.
-    const res = await recordFetch(
+    res = await recordFetch(
       { action: 'delete', row: String(row), expect: tx ? txExpectSig(tx) : '' }, true);
     const err = txWriteError(res);
     if (err) {
@@ -4378,15 +4663,28 @@ window.confirmDeleteTx = async function(row, btnEl) {
       setTimeout(refreshTxPanel, 2500);
       return;
     }
-    txCache = null; _allTxCache = null;
-    _basisFixPending = true; // Apps Script replayed the holding with a rolling average — re-derive after reload
-    // The holding and cash balance moved too, so the whole model has to be rebuilt — a panel
-    // refresh alone would leave the stat cards and positions showing the old numbers.
-    const notice = res?.avgSkipped ? t('tx_avg_kept') : '';
-    if (notice && cell) cell.innerHTML = `<span style="color:var(--muted);font-size:10px">${notice}</span>`;
-    setTimeout(() => { refreshTxPanel(); init(); }, notice ? 2500 : 700);
   } catch(e) {
     if (cell) cell.innerHTML = `<span style="color:var(--loss);font-size:11px">Failed</span>`;
+    return;
+  }
+  _basisFixPending = true; // Apps Script replayed the holding with a rolling average — reconciled in the reload below
+  // The holding and cash balance moved too, so the whole model has to be rebuilt — a panel
+  // refresh alone would leave the stat cards and positions showing the old numbers.
+  const notice = res?.avgSkipped ? t('tx_avg_kept') : '';
+  if (notice && cell) cell.innerHTML = `<span style="color:var(--muted);font-size:10px">${notice}</span>`;
+  try {
+    // Direct-patch shortcut when the response carries {symbol, qty, avg} — read defensively, an
+    // old not-yet-redeployed apps_script.js simply won't have them (see applyHoldingCorrection_).
+    // A delete never changes which (symbol, portfolio) is affected, so unlike submitEditTx there's
+    // no identity-change case to guard against here.
+    const patch = (res?.symbol && res?.qty != null && res?.avg != null)
+      ? { symbol: res.symbol, portfolio: tx?.portfolio || DEFAULT_PORT, qty: res.qty, avg: res.avg }
+      : null;
+    await _reloadAfterTxWrite(patch);
+  } catch(e) {
+    // The delete itself already succeeded — don't overwrite that with an error; just log it so a
+    // failed refresh isn't silent.
+    console.error('reload after tx delete:', e);
   }
 };
 
@@ -5630,7 +5928,11 @@ window.updateCashPreview = function() {
   el.innerHTML = `<strong>${fmtCurr(fcd + usd)}</strong> <span style="color:var(--muted)">(FCD: ${fmtCurr(fcd)} + USD: ${fmtCurr(usd)})</span><div style="color:var(--muted);margin-top:2px">${splitParts.join(' · ')} · ${CAP_PORT} ${fmtCurr(tradeDollar)} · Reserve ${fmtCurr(reserveDollar)}</div>`;
 };
 
-window.submitEditCash = async function() {
+// Optimistic like amSave/submitSymbolEdit: commits to _portfolioRegistry and re-renders (and
+// closes the modal) IMMEDIATELY, then the updateCash round trips run in the background via
+// runBgSave — the UI never waits on them. Not async, and must never become so.
+window.submitEditCash = function() {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   const fcd   = parseFloat(document.getElementById('editCashFcd')?.value) || 0;
   const usd   = parseFloat(document.getElementById('editCashUsd')?.value) || 0;
   const cashRes = (parseFloat(document.getElementById('editCashReserve')?.value) || 0) / 100;
@@ -5639,24 +5941,77 @@ window.submitEditCash = async function() {
     .map(el => ({ port: el.dataset.port, pct: parseFloat(el.value) || 0 }));
   const sum = splits.reduce((s, x) => s + x.pct, 0);
   if (Math.abs(sum - 100) >= 0.01) return;
-  const statusEl = document.getElementById('editCashStatus');
-  statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  try {
-    // Wallet + reserve live on the cash port; Trade's limit on its own row; each split port's share
-    // on its own row (Long-Term's split write is a second, separate call to that same row).
-    await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: _cashPort(), fcd, usd, cashRes }));
-    if (_portfolioRegistry.some(p => p.name === CAP_PORT))
-      await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: CAP_PORT, capPct }));
-    for (const s of splits)
-      await recordFetch(new URLSearchParams({ action: 'updateCash', portfolio: s.port, capPct: s.pct / 100 }));
-    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    setTimeout(() => {
-      document.getElementById('editCashModal')?.classList.remove('open');
-      init();
-    }, 1000);
-  } catch(e) {
-    statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+
+  // Wallet + reserve live on the cash port; Trade's limit on its own row; each split port's share
+  // on its own row. updateCashAction writes each field via its own sh.getRange(row,col).setValue()
+  // — never a read-modify-write of the whole row — so none of these calls can clobber another.
+  // Safe to fire all of them together instead of sequential round trips.
+  const hasCap = _portfolioRegistry.some(p => p.name === CAP_PORT);
+  const calls = [new URLSearchParams({ action: 'updateCash', portfolio: _cashPort(), fcd, usd, cashRes })];
+  if (hasCap) calls.push(new URLSearchParams({ action: 'updateCash', portfolio: CAP_PORT, capPct }));
+  for (const s of splits) calls.push(new URLSearchParams({ action: 'updateCash', portfolio: s.port, capPct: s.pct / 100 }));
+
+  // Snapshot exactly what this job is about to overwrite, so a genuine (non-ambiguous) failure can
+  // restore it — see runBgSave's `revert`/`stillMine` contract just after recordFetch.
+  const cashRow = _portfolioRegistry.find(p => p.name === _cashPort());
+  const capRow  = hasCap ? _portfolioRegistry.find(p => p.name === CAP_PORT) : null;
+  const prev = {
+    cash: cashRow ? { fcd: cashRow.fcd, usd: cashRow.usd, cashRes: cashRow.cashRes, cash: cashRow.cash } : null,
+    cap:  capRow ? capRow.capPct : null,
+    splits: splits.map(s => ({ port: s.port, capPct: _portfolioRegistry.find(p => p.name === s.port)?.capPct })),
+  };
+
+  // Mirror updateCashAction's per-field writes (apps_script.js ~:646-676): wallet+reserve on the
+  // cash port, with Cash kept as FCD + USD; Trade's own capPct; each split port's capPct.
+  if (cashRow) { cashRow.fcd = fcd; cashRow.usd = usd; cashRow.cashRes = cashRes; cashRow.cash = fcd + usd; }
+  if (capRow) capRow.capPct = capPct;
+  for (const s of splits) {
+    const row = _portfolioRegistry.find(p => p.name === s.port);
+    if (row) row.capPct = s.pct / 100;
   }
+  document.getElementById('editCashModal')?.classList.remove('open');
+  applyPortfolioView();
+
+  runBgSave({
+    kind: 'editCash',
+    send: async () => {
+      const results = await Promise.all(calls.map(p => recordFetch(p, true)));
+      // Same ambiguity as submitSymbolEdit: a null (no-cors fallback) result almost always means
+      // the write went through — only an explicit { ok:false } is a real failure.
+      const failed = results.some(r => r && r.ok === false);
+      return failed ? { ok: false } : { ok: true };
+    },
+    stillMine: () => {
+      if (cashRow && (cashRow.fcd !== fcd || cashRow.usd !== usd || cashRow.cashRes !== cashRes)) return false;
+      if (capRow && capRow.capPct !== capPct) return false;
+      for (const s of splits) {
+        const row = _portfolioRegistry.find(p => p.name === s.port);
+        if (row && row.capPct !== s.pct / 100) return false;
+      }
+      return true;
+    },
+    revert: () => {
+      if (cashRow && prev.cash) Object.assign(cashRow, prev.cash);
+      if (capRow && prev.cap != null) capRow.capPct = prev.cap;
+      for (const p of prev.splits) {
+        const row = _portfolioRegistry.find(r => r.name === p.port);
+        if (row) row.capPct = p.capPct;
+      }
+      applyPortfolioView();
+    },
+    // The modal always closes synchronously above, so in practice this only finds somewhere to
+    // report to if the user reopened Edit Cash before the round trip finished — otherwise it falls
+    // through to the toast below.
+    status: (reverted) => {
+      const el = document.getElementById('editCashStatus');
+      if (!el || !document.getElementById('editCashModal')?.classList.contains('open')) return false;
+      el.innerHTML = reverted
+        ? '<span style="color:var(--loss)">Sync failed — previous values restored.</span>'
+        : '<span style="color:var(--loss)">Sync failed.</span>';
+      return true;
+    },
+    toastMsg: `Couldn't save cash settings — reverted.`,
+  });
 };
 
 // ── Add Contribution modal ─────────────────────────────────────────────────────
@@ -5805,19 +6160,31 @@ window.saveContribution = async function(row) {
         res.error === 'row_changed' ? t('contrib_row_changed') : res.error}</span>`;
       return;
     }
-    statusEl.innerHTML = `<span style="color:var(--gain)">${t('saved_sheet_msg')}</span>`;
+    document.getElementById('contribModal')?.classList.remove('open');
     if (editing) {
       // Apply locally rather than re-reading: the gviz read behind this panel is CDN-cached for
       // up to ~30s, so an immediate re-fetch would usually repaint the pre-edit values and look
-      // like the save silently failed. The next init() reconciles against the sheet.
+      // like the save silently failed. The next fetchContributions() reconciles against the sheet.
       // amount/currency move too — they back both the legacy read path and the row fingerprint.
       Object.assign(editing, { portfolio, date, type, thb, usd, rate, note, amount, currency });
       applyContribChange();
+    } else {
+      // The server appends the row, so its real sheet row number is unknown here — mark it
+      // pending so renderContribPanel hides its edit/delete controls (they address rows by
+      // index, and a wrong guess would edit/delete somebody else's row). The next real
+      // fetchContributions() replaces this guess with the actual row.
+      const nextRow = _contribList.reduce((m, c) => Math.max(m, c.row), 1) + 1;
+      _contribList.push({ row: nextRow, portfolio, date, type, amount, currency, note, thb, usd, rate, pending: true });
+      // Mirror addContributionAction's adjustPortfolioCash_(ss, cashPortFor_(...), 'FCD', delta)
+      // (apps_script.js ~:680-701, ~:754-776): the wallet always lives on DEFAULT_PORT's row
+      // (cashPortFor_ ignores the contribution's own portfolio), and Cash is kept as FCD + USD.
+      const walletRow = _portfolioRegistry.find(p => p.name === DEFAULT_PORT);
+      if (walletRow) {
+        walletRow.fcd = (walletRow.fcd || 0) + (type === 'Withdraw' ? -usd : usd);
+        walletRow.cash = (walletRow.fcd || 0) + (walletRow.usd || 0);
+      }
+      applyContribChange();
     }
-    setTimeout(() => {
-      document.getElementById('contribModal')?.classList.remove('open');
-      if (!editing) init();
-    }, 1000);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
   }
@@ -6712,12 +7079,11 @@ window.submitTradeModal = async function() {
       note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
-    postTransactionUpdates(sym, shares, price, txType, portfolio);
+    const post = await postTransactionUpdates(sym, shares, price, txType, portfolio);
+    applyLocalTxWrite(params, post);
     if (s) s.innerHTML = `<span style="color:var(--gain)">${t('saved_msg')}</span>`;
-    setTimeout(() => {
-      document.getElementById('actionModal')?.classList.remove('open');
-      setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500);
-    }, 1000);
+    applyPortfolioView();
+    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); }, 300);
   } catch(e) {
     if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     if (submitBtn) submitBtn.disabled = false;
@@ -7637,9 +8003,11 @@ window.submitTxInAction = async function(sym) {
       note: document.getElementById('txNote')?.value.trim() || '',
     });
     await recordFetch(params);
-    postTransactionUpdates(sym, shares, price, txType, portfolio);
+    const post = await postTransactionUpdates(sym, shares, price, txType, portfolio);
+    applyLocalTxWrite(params, post);
     if (s) s.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500); }, 1000);
+    applyPortfolioView();
+    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); }, 300);
   } catch(e) {
     if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     document.getElementById('txSubmit').disabled = false;
@@ -7660,24 +8028,30 @@ window.submitMoveShares = async function(sym) {
   const btn = document.getElementById('moveSubmit');
   if (btn) btn.disabled = true;
   if (s) s.innerHTML = '<span style="color:var(--muted)">Moving…</span>';
+  // Carried avg cost — read before the transfer below mutates _allRows, same source
+  // transferShares() itself reads to send `price` to the server.
+  const avg = Number(_allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === from)?.avgPrice) || 0;
   try {
     const ok = await transferShares(sym, shares, from, dest);
     if (!ok) throw new Error('transfer rejected');
+    applyTransferToCaches(sym, shares, from, dest, avg);
     if (s) s.innerHTML = '<span style="color:var(--gain)">✓ Moved</span>';
-    setTimeout(() => {
-      document.getElementById('actionModal')?.classList.remove('open');
-      setTimeout(() => { txCache = null; _allTxCache = null; refreshTxPanel(); init(); }, 1500);
-    }, 1000);
+    applyPortfolioView();
+    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); }, 300);
   } catch(e) {
     if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
     if (btn) btn.disabled = false;
   }
 };
 
-window.submitSymbolEdit = async function(sym, tab) {
-  const statusEl = document.getElementById('symbolEditStatus');
-  if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, portfolio: actionModalPort || DEFAULT_PORT });
+// Optimistic like amSave: commits to _allRows and re-renders (and closes the modal) IMMEDIATELY,
+// then the updateSymbol round trip runs in the background via runBgSave — the UI never waits on
+// it. Not async, and must never become so: that's what stops anything after this point from
+// accidentally awaiting the network call.
+window.submitSymbolEdit = function(sym, tab) {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
+  const port = actionModalPort || DEFAULT_PORT;
+  const params = new URLSearchParams({ action: 'updateSymbol', symbol: sym, portfolio: port });
   if (tab === 'manage') {
     // MANAGE merges the old EDIT + ALLOCATION tabs — qty/avg/custom/myGroup AND category in one
     // updateSymbol call. Target % moved to the PLAN segment (planTargetPct / savePlanInAction).
@@ -7690,13 +8064,78 @@ window.submitSymbolEdit = async function(sym, tab) {
     const cat = document.getElementById('editCategory')?.value;
     if (cat !== undefined) params.set('category', cat);
   }
-  try {
-    await recordFetch(params);
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved — refreshing…</span>';
-    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); init(); }, 1200);
-  } catch(e) {
-    if (statusEl) statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+
+  // Snapshot exactly what this job is about to overwrite, so a genuine (non-ambiguous) failure can
+  // restore it — see runBgSave's `revert`/`stillMine` contract just after recordFetch.
+  const prevRow = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === port);
+  const prev = {
+    qty: prevRow?.qty, avgPrice: prevRow?.avgPrice, category: prevRow?.category,
+    custom: prevRow?.custom, myGroup: prevRow?.myGroup,
+  };
+
+  // Mirror updateSymbolAction's scoping exactly (apps_script.js ~:886-924): qty/avgPrice/category
+  // are written to the single (symbol, portfolio) row; custom/myGroup are symbol-level tags
+  // propagated to every row for this symbol across ALL portfolios.
+  for (const r of _allRows) {
+    if (r.symbol !== sym) continue;
+    if ((r.portfolio || DEFAULT_PORT) === port) {
+      if (params.has('qty'))      r.qty      = Number(params.get('qty'));
+      if (params.has('avgPrice')) r.avgPrice = Number(params.get('avgPrice'));
+      if (params.has('category')) r.category = params.get('category');
+    }
+    if (params.has('custom'))  r.custom  = params.get('custom');
+    if (params.has('myGroup')) r.myGroup = params.get('myGroup');
   }
+  document.getElementById('actionModal')?.classList.remove('open');
+  applyPortfolioView();
+
+  runBgSave({
+    kind: `symbolEdit:${port}:${sym}`,
+    send: async () => {
+      const res = await recordFetch(params, true);
+      // recordFetch's no-cors fallback returns null even when the write actually went through
+      // (see runBgSave's doc comment) — updateSymbol is an absolute-value write, so treating that
+      // ambiguity as success is safe. Only an explicit { ok:false } from the server is a real
+      // failure worth reverting for.
+      if (res && res.ok === false) return { ok: false };
+      return { ok: true };
+    },
+    stillMine: () => {
+      const ar = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === port);
+      if (!ar) return false;
+      if (params.has('qty')      && ar.qty      !== Number(params.get('qty')))      return false;
+      if (params.has('avgPrice') && ar.avgPrice !== Number(params.get('avgPrice'))) return false;
+      if (params.has('category') && ar.category !== params.get('category'))        return false;
+      return true;
+    },
+    revert: () => {
+      const ar = _allRows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === port);
+      if (ar) {
+        if (params.has('qty'))      ar.qty      = prev.qty;
+        if (params.has('avgPrice')) ar.avgPrice = prev.avgPrice;
+        if (params.has('category')) ar.category = prev.category;
+      }
+      for (const r of _allRows) {
+        if (r.symbol !== sym) continue;
+        if (params.has('custom'))  r.custom  = prev.custom;
+        if (params.has('myGroup')) r.myGroup = prev.myGroup;
+      }
+      applyPortfolioView();
+    },
+    // The modal always closes synchronously above, so in practice this only finds somewhere to
+    // report to if the user reopened the SAME symbol's Manage segment before the round trip
+    // finished — otherwise it falls through to the toast below.
+    status: (reverted) => {
+      const el = document.getElementById('symbolEditStatus');
+      const open = document.getElementById('actionModal')?.classList.contains('open');
+      if (!el || !open || actionModalSym !== sym || actionModalPort !== port) return false;
+      el.innerHTML = reverted
+        ? '<span style="color:var(--loss)">Sync failed — previous values restored.</span>'
+        : '<span style="color:var(--loss)">Sync failed.</span>';
+      return true;
+    },
+    toastMsg: `Couldn't save ${sym} — reverted.`,
+  });
 };
 
 // ── Plan modal ────────────────────────────────────────────────────────────────
@@ -7803,7 +8242,7 @@ function parsePlanTable(table) {
 
 async function loadAllPlansFromSheet() {
   try {
-    const res  = await fetch(PLAN_URL);
+    const res  = await gvizFetch(PLAN_URL);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
     planCache = parsePlanTable(json.table);
@@ -8492,8 +8931,8 @@ function colorFor(key) {
 }
 
 // ── Data fetching ─────────────────────────────────────────────────────────────
-async function fetchSheet() {
-  const res  = await fetch(SHEET_URL);
+async function fetchSheet(fresh) {
+  const res  = await gvizFetch(SHEET_URL, fresh);
   const text = await res.text();
   const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
   return json.table;
@@ -8549,10 +8988,10 @@ const CAP_PORT = 'Trade';
 // Used pre-migration (no Portfolios sheet) so the app still loads as a single portfolio.
 const _fallbackRegistry = () => [{ id: DEFAULT_PORT, name: DEFAULT_PORT, color: '#4ade80', cash: 0, cashRes: 0, fcd: 0, usd: 0, capPct: 0, _fallback: true }];
 
-async function fetchPortfolios() {
+async function fetchPortfolios(fresh) {
   if (!PORTFOLIOS_URL) return _fallbackRegistry();
   try {
-    const res  = await fetch(PORTFOLIOS_URL);
+    const res  = await gvizFetch(PORTFOLIOS_URL, fresh);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
     const table = json.table;
@@ -9648,7 +10087,7 @@ function renderPosList(model) {
 async function fetchSheetQuotes() {
   if (!QUOTES_URL) return null;
   try {
-    const res = await fetch(QUOTES_URL);
+    const res = await gvizFetch(QUOTES_URL);
     if (!res.ok) return null;
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
@@ -10092,7 +10531,7 @@ async function fetchEtfData(symbols) {
 async function fetchStockReturns() {
   if (!RETURNS_URL) return;
   try {
-    const res = await fetch(RETURNS_URL);
+    const res = await gvizFetch(RETURNS_URL);
     if (!res.ok) return;
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
@@ -11293,41 +11732,134 @@ window.openAddSymbol = function() {
         </select>
       </div>
     </div>
-    <button class="tx-submit" onclick="submitAddSymbol()">${t('add_to_sheet_btn')}</button>
+    <button class="tx-submit" id="addSymSubmit" onclick="submitAddSymbol()">${t('add_to_sheet_btn')}</button>
     <div class="tx-status" id="addSymStatus"></div>
   </div>`;
   overlay.classList.add('open');
   setTimeout(() => document.getElementById('addSymTicker')?.focus(), 50);
 };
 
-window.removeFromWatchlist = async function(sym) {
+// Optimistic like amSave/submitSymbolEdit: splices the row and re-renders (and closes the modal)
+// IMMEDIATELY, then removeSymbol runs in the background via runBgSave — the UI never waits on it.
+// Not async, and must never become so. `revert` is deliberately null: re-inserting a spliced row
+// from memory risks a duplicate or stale entry more than leaving it removed does — the next full
+// load reconciles either way (removeSymbol is an idempotent delete, so a Retry from the failure
+// toast is always safe to re-send).
+window.removeFromWatchlist = function(sym) {
   if (!confirm(`Remove ${sym} from watchlist?`)) return;
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   destroyActionCharts();
+  const port = actionModalPort || defaultPortFor(sym);
+  const params = { action: 'removeSymbol', symbol: sym, portfolio: port };
+
+  // Mirror removeSymbolAction (apps_script.js ~:989-1020): deletes the single (symbol, portfolio)
+  // row from Claude and the Plan row for that same (symbol, portfolio). (It may also drop a
+  // Calendar row once the symbol has no rows left under any portfolio — Calendar isn't cached
+  // client-side, so nothing to mirror there; the next loadCalendar() picks it up.)
+  const idx = _allRows.findIndex(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === port);
+  if (idx >= 0) _allRows.splice(idx, 1);
+  deletePlan(sym, port);
   document.getElementById('actionModal')?.classList.remove('open');
-  await recordFetch({ action:'removeSymbol', symbol:sym, portfolio: actionModalPort || defaultPortFor(sym) });
-  setTimeout(init, 1500);
+  applyPortfolioView();
+
+  runBgSave({
+    kind: `removeWatchlist:${port}:${sym}`,
+    send: async () => {
+      const res = await recordFetch(params, true);
+      if (res && res.ok === false) return { ok: false };
+      return { ok: true };
+    },
+    revert: null,
+    toastMsg: `Couldn't remove ${sym} from the sheet — it may still show on reload.`,
+  });
 };
 
 window.submitAddSymbol = async function() {
   const ticker = document.getElementById('addSymTicker')?.value.trim().toUpperCase();
   const statusEl = document.getElementById('addSymStatus');
   if (!ticker) { statusEl.innerHTML = '<span style="color:var(--loss)">Enter a symbol.</span>'; return; }
-  const qty    = document.getElementById('addSymQty')?.value.trim();
-  const avg    = document.getElementById('addSymAvg')?.value.trim();
-  const target = document.getElementById('addSymTarget')?.value.trim();
-  const cat    = document.getElementById('addSymCat')?.value;
+  const qty      = document.getElementById('addSymQty')?.value.trim();
+  const avg      = document.getElementById('addSymAvg')?.value.trim();
+  const target   = document.getElementById('addSymTarget')?.value.trim();
+  const cat      = document.getElementById('addSymCat')?.value;
+  const portfolio = document.getElementById('addSymPortfolio')?.value || DEFAULT_PORT;
+  const btn = document.getElementById('addSymSubmit');
+  // addSymbol used to be the slowest write in the app (server made 6-9 sequential outbound fetches
+  // for Yahoo metadata + GICS + Returns + Calendar, ~5-15s) — a later pass cut Returns/Calendar
+  // from the critical path and cached the crumb/GICS lookups (apps_script.js addSymbolAction), down
+  // to ~1-4 fetches / ~1-2s. Still guard the button: a double-click could still fire two calls.
+  if (btn) btn.disabled = true;
   statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  const params = new URLSearchParams({ action:'addSymbol', symbol:ticker, portfolio: document.getElementById('addSymPortfolio')?.value || DEFAULT_PORT });
+  const params = new URLSearchParams({ action:'addSymbol', symbol:ticker, portfolio });
   if (qty)    params.set('qty',    qty);
   if (avg)    params.set('avgPrice', avg);
   if (target) params.set('target', (parseFloat(target)/100).toFixed(6));
   if (cat)    params.set('category', cat);
+  let res;
   try {
-    await recordFetch(params);
-    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Added — refreshing…</span>';
-    setTimeout(() => { document.getElementById('addSymbolModal')?.classList.remove('open'); init(); }, 1200);
+    // needsResponse: addSymbolAction refuses a duplicate (symbol, portfolio) with
+    // { ok:false, error:'Already exists: ...' } (apps_script.js addSymbolAction) — a
+    // fire-and-forget no-cors write would hide that refusal, so the modal would report success
+    // while nothing was written.
+    res = await recordFetch(params, true);
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const err = txWriteError(res);
+  if (err) {
+    statusEl.innerHTML = `<span style="color:var(--loss)">${err}</span>`;
+    if (btn) btn.disabled = false;
+    return;
+  }
+  document.getElementById('addSymbolModal')?.classList.remove('open');
+  // addSymbolAction no longer resolves Returns/Calendar synchronously (that used to add a Yahoo
+  // chart?range=5y fetch, a crumb + v7/quote fetch, and two more openById calls to the path the
+  // user is waiting on — see apps_script.js addSymbolAction / CLAUDE.md). Fire both backfill pings
+  // fire-and-forget right away instead: their per-symbol cooldown keys (lastAttempt:RET:/CAL:<sym>)
+  // are empty for this brand-new symbol, so this ping is the one that actually does the fetch,
+  // landing the data within one execution rather than waiting for the next 60s/5min auto-refresh.
+  recordFetch({ action: 'backfillReturns' });
+  recordFetch({ action: 'backfillCalendar' });
+  // Optimistic row so the symbol appears immediately. Name/Sector/Industry come back directly in
+  // the addSymbol response now (server-resolved Yahoo metadata + GICS overlay) — read defensively
+  // (`res?.name ?? null`) so a user who edited apps_script.js but forgot to redeploy still works;
+  // an old deployment's response simply lacks these fields, same as parseRows would produce for a
+  // blank cell (index.html parseRows, ~9085). Qty/avgPrice stay null (not 0) when left blank —
+  // matching parseRows' numCell/watchlist convention exactly, since a 0 would misread as a held
+  // position with zero shares instead of a watchlist entry.
+  const hasMeta      = !!(res && 'name' in res);
+  const optName      = res?.name     || null;
+  const optSector    = res?.sector   || null;
+  const optIndustry  = res?.industry || null;
+  const optQty = qty ? Number(qty) : null;
+  const optAvg = avg ? Number(avg) : null;
+  // price must NOT stay null when qty+avg are both entered: buildModel's `held` test
+  // (index.html ~9285) requires qty>0 && avgPrice>0 && price!=null to count as a position, and its
+  // watchlist fallback requires price==null && !(qty>0) && !(avgPrice>0) to count as a watchlist
+  // row — a qty+avg row with price left null satisfies NEITHER branch and silently vanishes from
+  // the UI until a later re-read lands. Seed it with the entered avg cost (0% unrealized until the
+  // next quote tick brings the real price), mirroring applyLocalTxWrite's identical seeding of
+  // `price` for a brand-new (portfolio,symbol) row (index.html ~3882-3887). A blank/watchlist-only
+  // add correctly leaves price null — that's the combination the watchlist branch already handles.
+  const optPrice = (optQty != null && optAvg != null) ? optAvg : null;
+  _allRows.push({
+    portfolio, symbol: ticker, name: optName, sector: optSector, industry: optIndustry,
+    category: cat || null, custom: null, myGroup: null,
+    qty: optQty, avgPrice: optAvg,
+    target: target ? parseFloat(target) / 100 : null,
+    price: optPrice, marketCap: null, cash: null, cashRes: null, fcd: null, usd: null,
+  });
+  applyPortfolioView();
+  // The response already carried the resolved metadata (redeployed script) — nothing left for a
+  // full re-read to fill in, so skip it entirely. Only an old deployment (response missing those
+  // fields) falls back to the deferred re-read this pass replaced as the normal path.
+  if (!hasMeta) {
+    fetchSheet(true).then(table => {
+      _allRows = parseRows(table);
+      applyPortfolioView();
+    }).catch(e => console.error('post-add-symbol refresh:', e));
   }
 };
 
@@ -13193,7 +13725,7 @@ function renderDividendBreakdown(txs) {
 // ── Render: calendar ─────────────────────────────────────────────────────────
 async function readCalendarSheet() {
   try {
-    const res  = await fetch(CALENDAR_URL);
+    const res  = await gvizFetch(CALENDAR_URL);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
     const table = json.table;
@@ -13239,7 +13771,7 @@ async function readCalendarSheet() {
 async function fetchContributions(){
   _contribList = [];
   try{
-    const res = await fetch(CONTRIBUTIONS_URL);
+    const res = await gvizFetch(CONTRIBUTIONS_URL);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(')+1, text.lastIndexOf(')')));
     const rows = json.table?.rows || [];
@@ -13372,7 +13904,12 @@ function renderContribPanel(){
   const rows = list.map(c => {
     const a = contribAmounts(c);
     const rate = c.rate || (a.thb && a.usd ? a.thb / a.usd : null);
-    const actions = `<div class="tx-actions">
+    // A pending row's row number is a client-side guess (see saveContribution) — its edit/delete
+    // controls address rows by index, so hide them until the next fetchContributions() confirms
+    // the real sheet row.
+    const actions = c.pending
+      ? `<span style="font-size:10px;color:var(--muted)">${t('saving_msg') || 'Syncing…'}</span>`
+      : `<div class="tx-actions">
       <button class="tx-action-btn" title="Edit" onclick="openAddContribution(${c.row})">${EDIT_ICON}</button>
       <button class="tx-action-btn danger" title="Delete" onclick="deleteContribRow(${c.row},this)">${TRASH_ICON}</button>
     </div>`;
@@ -14068,13 +14605,10 @@ window.setPriceSource = function(src) {
 };
 
 // ── Benchmark ─────────────────────────────────────────────────────────────────
-async function fetchTransactions() {
+async function fetchTransactions(fresh) {
   const url = TRANSACTION_URL;
   if (!url) return null;
-  const res  = await fetch(url);
-  const text = await res.text();
-  const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
-  const table = json.table;
+  const table = await fetchGvizTable(url, fresh);
   const idx = {};
   table.cols.forEach((c, i) => { if (c.label) idx[c.label] = i; });
   const cell = (row, label) => { const i = idx[label]; if (i == null) return null; const c = row.c[i]; return c == null ? null : c.v; };
@@ -14300,7 +14834,7 @@ function renderBenchmarkChart(data) {
 // ── Price history: read / trigger / wait ─────────────────────────────────────
 async function readHistory() {
   try {
-    const res  = await fetch(HISTORY_URL);
+    const res  = await gvizFetch(HISTORY_URL);
     const text = await res.text();
     const json = JSON.parse(text.substring(text.indexOf('(') + 1, text.lastIndexOf(')')));
     const table = json.table;
@@ -16063,56 +16597,38 @@ function amEnsurePieResizeObserver() {
 // only touches the app-wide re-render (applyPortfolioView) once it's actually needed: right away if
 // the modal is closed and something had to be reverted, or deferred to closeAllocMgmt if the modal
 // is still open (see _allocAppDirty) — no need to redraw the whole app while the user is still in it.
-let _allocJobSeq = 0;
-let _allocPending = new Map();  // jobId -> job, only while its network call is in flight
+// Job bookkeeping (_bgJobSeq/_bgPending/_bgEnsureBeforeUnload) and the failure toast (bgToast) are
+// the shared primitives defined just after recordFetch — allocRunJob's own reconciliation logic
+// below is otherwise untouched.
 let _allocAppDirty = false;     // true once an optimistic commit has landed and the app hasn't redrawn yet
-let _allocBeforeUnloadBound = false;
-function _allocEnsureBeforeUnload() {
-  if (_allocBeforeUnloadBound) return;
-  _allocBeforeUnloadBound = true;
-  window.addEventListener('beforeunload', e => {
-    if (_allocPending.size) { e.preventDefault(); e.returnValue = ''; }
-  });
-}
 // Tiny DOM wrapper so the background job logic (allocRunJob) stays testable without a real DOM.
 function amSetStatus(html) {
   const el = document.getElementById('amStatus');
   if (el) el.innerHTML = html;
 }
 // Persistent (until dismissed/retried) toast for a failed background save once the modal that
-// started it has already closed — a transient auto-dismiss toast would be easy to miss.
+// started it has already closed — a transient auto-dismiss toast would be easy to miss. Thin
+// adapter over the shared bgToast: alloc's retry needs to re-apply this job's pairs optimistically
+// before re-running the job, which a generic caller has no business knowing about.
 function allocShowSyncToast(job, badSyms) {
-  let toast = document.getElementById('allocSyncToast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'allocSyncToast';
-    toast.className = 'am-toast';
-    toast.setAttribute('role', 'status');
-    document.body.appendChild(toast);
-  }
   const pairs = job.pairs.filter(p => badSyms.includes(p.sym));
-  toast.innerHTML = `<span class="am-toast-msg">${escHtml(t('am_err_sync').replace('{n}', pairs.length))}</span>
-    <button type="button" class="am-btn" id="allocToastRetry">${escHtml(t('am_retry'))}</button>
-    <button type="button" class="am-toast-close" id="allocToastClose" aria-label="${escHtml(t('am_discard'))}">×</button>`;
-  document.getElementById('allocToastRetry').onclick = () => {
-    toast.remove();
+  bgToast(`alloc:${job.port}`, t('am_err_sync').replace('{n}', pairs.length), () => {
     pairs.forEach(pair => {
       const ar = _allRows.find(r => r.symbol === pair.sym && (r.portfolio || DEFAULT_PORT) === job.port);
       if (ar) ar.target = pair.target;
     });
     applyPortfolioView();
-    allocRunJob({ id: ++_allocJobSeq, port: job.port, pairs });
-  };
-  document.getElementById('allocToastClose').onclick = () => toast.remove();
+    allocRunJob({ id: ++_bgJobSeq, port: job.port, pairs });
+  });
 }
 // Sends one job's targets in the background and reconciles afterward. Never touches anything the
 // optimistic commit in amSave already updated UNLESS that value is still exactly what THIS job set
 // it to — a newer edit (or a newer job) always wins over an older job's failure.
 async function allocRunJob(job) {
-  _allocEnsureBeforeUnload();
-  _allocPending.set(job.id, job);
+  _bgEnsureBeforeUnload();
+  _bgPending.set(job.id, job);
   const res = await allocSendTargets(job.port, job.pairs.map(({ sym, target }) => ({ sym, target })));
-  _allocPending.delete(job.id);
+  _bgPending.delete(job.id);
 
   const bad = new Set([...(res.missing || []), ...(res.failed || [])]);
   const modalOpenSamePort = !!(allocMgr && allocMgr.port === job.port);
@@ -16135,7 +16651,7 @@ async function allocRunJob(job) {
   }
 
   if (!bad.size) {
-    if (modalOpenSamePort && _allocPending.size === 0) {
+    if (modalOpenSamePort && _bgPending.size === 0) {
       let html = `<span style="color:var(--gain)">${escHtml(t('am_saved').replace('{n}', res.saved))}</span>`;
       if (res.fallback) html += ` <span style="color:var(--gain)">· ${escHtml(t('am_fallback'))}</span>`;
       amSetStatus(html);
@@ -17238,7 +17754,7 @@ window.amSave = function() {
   if (isReadOnly()) { amSetStatus(`<span style="color:var(--loss)">${escHtml(t('am_err_readonly'))}</span>`); return; }
 
   const port = allocMgr.port;
-  const job = { id: ++_allocJobSeq, port, pairs: changed.map(r => ({ sym: r.sym, target: r.target, prev: r.saved })) };
+  const job = { id: ++_bgJobSeq, port, pairs: changed.map(r => ({ sym: r.sym, target: r.target, prev: r.saved })) };
 
   changed.forEach(row => {
     row.saved = row.target;
@@ -17339,13 +17855,16 @@ window.setPortfolioView = function(port) {
 };
 
 async function init() {
-  if (init._running) return;
+  if (init._running) { init._queued = true; return; }
   init._running = true;
+
+  try {
+  do {
+  init._queued = false;
 
   if (!_cfg) {
     showSetupModal();
-    init._running = false;
-    return;
+    break;
   }
 
   searchTerm = '';
@@ -17396,12 +17915,11 @@ async function init() {
         if (isOvernight()) refreshFutures();
         fetchEtfData(_quoteSyms);
         fetchStockReturns();
-        recordFetch({ action: 'backfillMetadata' });
-        recordFetch({ action: 'backfillReturns' });
-        recordFetch({ action: 'refreshReturns' });
-        recordFetch({ action: 'backfillCalendar' });
-        recordFetch({ action: 'refreshCalendar' });
-        recordFetch({ action: 'refreshGics' });
+        // One execution runs all six cooldown-gated maintenance checks (see CLAUDE.md ->
+        // Maintenance Ping) instead of six separate doGet calls competing for Apps Script's
+        // per-user concurrency slot with a save. Falls back to a silent no-op cycle on an
+        // un-redeployed script (doGet's unknown-action path).
+        recordFetch({ action: 'maintenance' });
         const fEl = document.getElementById('quotesFreshness');
         if (fEl) {
           if (_lastQuoteSource?.type === 'sheet') {
@@ -17529,7 +18047,14 @@ async function init() {
       if (el) { el.textContent = t('refresh_failed'); el.style.color = 'var(--loss)'; }
     }
     console.error(e);
+  }
+  } while (init._queued);
   } finally {
+    // Must be `finally`, not statements after the loop: if a throw ever escapes the do/while body
+    // (including the inner try/catch above, e.g. a bug in the catch handler itself), this still
+    // runs. Without it init._running would stay true forever, permanently rejecting every future
+    // init() call — auto-refresh silently stops, Refresh is swallowed forever, spinner stuck on,
+    // and only a page reload recovers. Don't "simplify" this back to post-loop statements.
     setRefreshing(false);
     init._running = false;
   }
@@ -17953,6 +18478,11 @@ setInterval(() => {
   if (!_cfg) return;
   const anyOpen = document.querySelector('.tx-overlay.open, .plan-overlay.open, .donut-overlay.open');
   if (anyOpen) return;
+  // A background save's write can still be in flight when this timer fires; init() would re-parse
+  // the whole sheet and gviz's CDN lags 5-30s behind a just-completed write, so a refresh landing
+  // mid-save can pull pre-save data and visibly undo a save that actually succeeded. Skip this tick
+  // entirely rather than race it — the next tick picks up wherever the save left off.
+  if (_bgPending.size) return;
   if (isMarketOpen()) { init(); return; }
   if (isExtendedHours()) {
     const now = Date.now();
