@@ -1265,12 +1265,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-editplan:focus-visible { outline: 2px solid var(--terracotta); outline-offset: 2px; }
 .sym-hero-actions { display: flex; align-items: center; gap: 8px; }
 
-.sym-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: var(--sp-3); }
-.sym-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--track); color: var(--muted); font-variant-numeric: tabular-nums; }
-.sym-chip.t-hit  { background: color-mix(in oklab, var(--peri) 25%, var(--card)); color: var(--peri); }
-.sym-chip.sl-hit { background: color-mix(in oklab, var(--loss) 22%, var(--card)); color: var(--loss); }
-.sym-chip.tp-hit { background: color-mix(in oklab, var(--gain) 25%, var(--card)); color: var(--gain); }
-.sym-chip.t-near, .sym-chip.sl-near, .sym-chip.tp-near { background: color-mix(in oklab, var(--honey) 20%, var(--card)); color: var(--honey); }
 
 .sym-chart-box { background: var(--track); border-radius: var(--radius-sm); padding: var(--sp-3); }
 .sym-chart-ctrls { display: flex; gap: 5px; margin-top: var(--sp-2); flex-wrap: wrap; }
@@ -1309,6 +1303,10 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-period { flex: 1; min-width: 58px; background: var(--track); border-radius: 9px; padding: 6px 4px; text-align: center; }
 .sym-period-l { font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--muted); }
 .sym-period-v { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+/* Needed because the rule above sets an explicit colour: the global .gain/.loss carry the same
+   specificity but are declared earlier, so without these the period strip stayed ink-coloured. */
+.sym-period-v.gain { color: var(--gain); }
+.sym-period-v.loss { color: var(--loss); }
 
 /* trade record strip */
 .sym-record { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-size: 11px; color: var(--muted); }
@@ -1354,7 +1352,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-thesis-btn.primary:hover { background: var(--btn-bg); opacity: .88; }
 .sym-thesis-btn:disabled { opacity: .6; cursor: default; }
 .sym-thesis-status { font-size: 11px; margin-top: 6px; }
-#symPlanChips:empty { display: none; }
 .sym-plan-switch { flex: 0 0 auto; margin: 0 0 0 auto; min-width: 150px; }
 
 /* "Where SYM sits" donuts (pass 2b) */
@@ -5126,39 +5123,6 @@ function _symInitPlanPort(sym) {
   return withPlan[0] || dp;
 }
 
-// Plan status chips (entry tranches / SL / TP) for a given plan + price — shared by the initial
-// hero render and _symRenderPlanFragments (the portfolio-plan-switch / thesis-save updater) so
-// the two can never drift apart. Mirrors renderPlansPanel's SL/tranche/TP status thresholds
-// verbatim, so this page and Plan Watch / the Plans panel can never disagree either.
-function _symPlanChipsHtml(plan, price) {
-  const { tranches = [], sl } = plan;
-  const realTps = (plan.trimTranches || []).filter(t => t.price > 0);
-  let slStatus = 'none';
-  if (sl && price != null) {
-    const pct = (price - sl) / sl * 100;
-    slStatus = pct <= 0 ? 'hit' : pct <= 5 ? 'near' : 'none';
-  }
-  const tStatus = tranches.map(tr => {
-    if (!tr.price || price == null) return 'none';
-    const pct = (price - tr.price) / tr.price * 100;
-    return pct <= 0 ? 'hit' : pct <= 3 ? 'near' : 'above';
-  });
-  const tpStatus = realTps.map(tp => {
-    if (!tp.price || price == null) return 'none';
-    const pct = (price - tp.price) / tp.price * 100;
-    return pct >= 0 ? 'hit' : pct >= -3 ? 'near' : 'below';
-  });
-  const symChip = (label, status, kind, suffix) => {
-    const cls = status === 'hit' ? ` ${kind}-hit` : status === 'near' ? ` ${kind}-near` : '';
-    const badge = status === 'hit' ? suffix : status === 'near' ? ' ≈' : '';
-    return `<span class="sym-chip${cls}">${label}${badge}</span>`;
-  };
-  const tChips  = tranches.map((tr, i) => tr.price ? symChip(`T${i+1} ${fmtCurr(tr.price)}`, tStatus[i], 't', ' ↓') : '').join('');
-  const slChip  = sl ? symChip(`SL ${fmtCurr(sl)}`, slStatus, 'sl', ' 🔴') : '';
-  const tpChips = realTps.map((tp, i) => symChip(`TP${i+1} ${fmtCurr(tp.price)}`, tpStatus[i], 'tp', ' ✓')).join('');
-  return tChips + slChip + tpChips;
-}
-
 // Thesis card body — quote (click-to-edit when writable), "Add a thesis" CTA when empty and
 // writable, or a muted placeholder when empty and read-only (view-only sheets can't write a
 // plan at all, so there is nothing to click into).
@@ -5244,17 +5208,15 @@ window._symSwitchPlanPort = function(port) {
   _symRenderPlanFragments();
 };
 
-// Re-renders only the plan-dependent fragments — the hero's Plan chips row and the Thesis card —
-// in place. Called after a plan-port switch and after a thesis save. Deliberately never calls
-// renderSymbolModal: a full re-render would tear down the TV chart (losing the user's zoom/range)
-// and rebuild every donut for no reason, since nothing else in the modal depends on _symPlanPort.
+// Re-renders only the plan-dependent fragment — the Thesis card — in place. Called after a
+// plan-port switch and after a thesis save. Deliberately never calls renderSymbolModal: a full
+// re-render would tear down the TV chart (losing the user's zoom/range) and rebuild every donut
+// for no reason, since nothing else in the modal depends on _symPlanPort.
 function _symRenderPlanFragments() {
   const sym = _symPageSym;
   const pos = sym ? findPos(sym) : null;
   if (!sym || !pos) return;
   const plan = getPlan(sym, _symPlanPort) || {};
-  const chipsEl = document.getElementById('symPlanChips');
-  if (chipsEl) chipsEl.innerHTML = _symPlanChipsHtml(plan, pos.price ?? null);
   const thesisEl = document.getElementById('symThesisCard');
   if (thesisEl) thesisEl.outerHTML = _symThesisCardHtml(sym, plan);
 }
@@ -5328,7 +5290,6 @@ function renderSymbolModal() {
   const isWatchlistOnly = inWatchlist && !inPositions;
   const plan  = getPlan(sym, _symPlanPort) || {};
   const price = pos.price ?? null;
-  const chipsHtml = _symPlanChipsHtml(plan, price);
 
   // ── Price + day change ──
   const dc$ = pos.dayChange, dcPct = pos.dayChangePct;
@@ -5354,6 +5315,13 @@ function renderSymbolModal() {
   if (hasDivs) { totalGain += divsByTicker[sym]; anyGain = true; }
   const totalGainDisplay = anyGain ? totalGain : null;
   const totalPct = (anyGain && totalCost > 0) ? (totalGain / totalCost * 100) : null;
+
+  // The hero's "Total return" is deliberately pos.pnl / pos.pnlPct — the exact pair the Positions
+  // table's Total Return column renders (see stockRow) — so a symbol can never show one number in
+  // the table and a different one here. The lifetime figure computed just above, which also folds
+  // in realized P/L and dividends, is shown by the Total P/L tile instead.
+  const posPnl    = pos.pnl ?? null;
+  const posPnlPct = pos.pnlPct ?? null;
 
   // ── Four tiles ──
   const tc = targetCtxFor(sym);
@@ -5418,15 +5386,14 @@ function renderSymbolModal() {
   }
 
   const pm = perfMetrics(pos);
-  let perfStr = '—', perfLbl = 'YTD return', perfColor = 'var(--ink)';
-  if (pm.ytdRet != null) {
-    perfStr = `${pm.ytdRet >= 0 ? '+' : ''}${pm.ytdRet.toFixed(1)}%`;
-    perfColor = pm.ytdRet >= 0 ? 'var(--gain)' : 'var(--loss)';
-    perfLbl = pm['1Y'] != null ? `YTD · 1Y ${pm['1Y'] >= 0 ? '+' : ''}${pm['1Y'].toFixed(1)}%` : 'YTD';
-  } else if (pm['1Y'] != null) {
-    perfStr = `${pm['1Y'] >= 0 ? '+' : ''}${pm['1Y'].toFixed(1)}%`;
-    perfColor = pm['1Y'] >= 0 ? 'var(--gain)' : 'var(--loss)';
-    perfLbl = '1Y return';
+  // Fourth tile: lifetime P/L on this symbol — unrealized + realized + dividends, both figures on
+  // one line. Deliberately a different number from the hero's Total return, which is the held
+  // position's unrealized gain only (matching the Positions table).
+  let perfStr = '—', perfLbl = 'Total P/L', perfColor = 'var(--ink)';
+  if (totalGainDisplay != null) {
+    const sign = totalGainDisplay >= 0 ? '+' : '';
+    perfStr = `${sign}${fmtCurr(totalGainDisplay)}${totalPct != null ? ` (${fmtPct(totalPct)})` : ''}`;
+    perfColor = totalGainDisplay >= 0 ? 'var(--gain)' : 'var(--loss)';
   }
 
   const metaParts = [pos.name, pos.sector ? t(pos.sector) : null, pos.industry].filter(Boolean);
@@ -5655,8 +5622,8 @@ function renderSymbolModal() {
         </div>
         <div class="sym-hero-tr">
           <div class="l">Total return</div>
-          <div class="v" style="color:${totalGainDisplay != null ? `var(${totalGainDisplay >= 0 ? '--gain' : '--loss'})` : 'var(--muted)'}">${totalGainDisplay != null ? `${totalGainDisplay >= 0 ? '+' : ''}${fmtCurr(totalGainDisplay)}` : '—'}</div>
-          ${totalPct != null ? `<div class="sub" style="color:var(${totalGainDisplay >= 0 ? '--gain' : '--loss'})">${totalGainDisplay >= 0 ? '+' : ''}${totalPct.toFixed(1)}% on cost</div>` : ''}
+          <div class="v" style="color:${posPnl != null ? `var(${posPnl >= 0 ? '--gain' : '--loss'})` : 'var(--muted)'}">${posPnl != null ? `${posPnl >= 0 ? '+' : ''}${fmtCurr(posPnl)}` : '—'}</div>
+          ${posPnlPct != null ? `<div class="sub" style="color:var(${posPnl >= 0 ? '--gain' : '--loss'})">${fmtPct(posPnlPct)}</div>` : ''}
         </div>
         <div class="sym-hero-actions">
           ${isWatchlistOnly
@@ -5665,7 +5632,6 @@ function renderSymbolModal() {
           <button class="tx-close" onclick="closeSymbolModal()" aria-label="Close">×</button>
         </div>
       </div>
-      <div class="sym-chips" id="symPlanChips">${chipsHtml}</div>
     </div>
 
     <div class="card">
