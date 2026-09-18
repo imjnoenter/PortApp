@@ -2658,17 +2658,27 @@ function _showReadOnlyMsg() {
   }
 }
 
-async function recordFetch(params, needsResponse = false) {
+// `strict` (default false, purely additive — every existing caller omits it and is byte-for-byte
+// unaffected) lets a genuine network-level rejection propagate instead of being swallowed, so a
+// background send() can detect "this request never left the browser" (offline, DNS failure,
+// connection refused) and report failure to runBgSave. It does NOT make HTTP error statuses or
+// server-side logical refusals detectable — a `no-cors` response is opaque, so `strict` can only
+// ever mean "the fetch call itself rejected," nothing more.
+// In the needsResponse path, the FIRST fetch (CORS, same-origin-readable) failing is normal and
+// expected in production — Apps Script's redirect to script.googleusercontent.com breaks CORS — so
+// that catch stays unconditional even under `strict`. Only the SECOND, `no-cors` fetch rejecting
+// means the request genuinely could not be dispatched at all; that's the one `strict` lets through.
+async function recordFetch(params, needsResponse = false, strict = false) {
   if (isReadOnly()) { _showReadOnlyMsg(); return needsResponse ? null : undefined; }
   const p = params instanceof URLSearchParams ? params : new URLSearchParams(params);
   p.set('key', _WRITE_KEY);
   const url = `${RECORD_URL}?${p}`;
   if (needsResponse) {
     try { const r = await fetch(url); if (r.ok) return await r.json(); } catch (_) {}
-    try { await fetch(url, { mode: 'no-cors' }); } catch (_) {}
+    try { await fetch(url, { mode: 'no-cors' }); } catch (e) { if (strict) throw e; }
     return null;
   }
-  try { await fetch(url, { mode: 'no-cors' }); } catch (_) {}
+  try { await fetch(url, { mode: 'no-cors' }); } catch (e) { if (strict) throw e; }
 }
 
 // ── Background save runner ────────────────────────────────────────────────────
@@ -2744,7 +2754,11 @@ function runBgSave({ kind, send, revert, stillMine, status, toastMsg }) {
 
     const retry = () => runBgSave({ kind, send, revert, stillMine, status, toastMsg });
     const handled = status ? status(reverted) : false;
-    if (!handled) bgToast(kind, toastMsg, retry);
+    // toastMsg may be a string (every existing caller) or a function — evaluated here, after send()
+    // has resolved and revert() has had its chance to run, so a caller whose message depends on
+    // which failure branch send() took (e.g. submitAddSymbol's explicit-refusal-vs-network-failure
+    // split) sees the final state, not a snapshot taken before send() ran.
+    if (!handled) bgToast(kind, typeof toastMsg === 'function' ? toastMsg() : toastMsg, retry);
   })();
 }
 
@@ -3885,13 +3899,25 @@ function buildCashSelectorHtml() {
 // RETURNS what it computed — newQty/newAvg/whether it took the sell-all branch/the cash port's
 // new FCD+USD — so callers can mutate their in-memory caches instead of re-reading every sheet.
 // The writes themselves stay fire-and-forget (not awaited) — only the return value is new.
-async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfolio) {
+// Plain function, not async: it never awaited anything internally even before this pass (the
+// writes above are fire-and-forget), so dropping `async` changes nothing at runtime but lets the
+// now-synchronous submitTx/submitTradeModal/submitTxInAction call it without an `await` — see
+// their "STRUCTURAL DISCIPLINE" comment (they must contain no await, so runBgSave is the only
+// thing left that touches the network).
+// Returns { newQty, newAvg, sellAll, cashPort, fcd, usd, writes } — `writes` is the ordered list of
+// companion recordFetch param objects (updateSymbol/removeSymbol, then updateCash) this trade needs
+// written to the sheet. Deliberately does NOT send them itself — see runBgSave callers (submitTx /
+// submitTradeModal / submitTxInAction), which fold these into the trade's own background-save job
+// so the append + holding + cash writes share one failure surface, one Retry, and the beforeunload
+// guard instead of three untracked fire-and-forget fetches.
+function postTransactionUpdates(ticker, shares, price, txTypeVal, portfolio) {
   const port = portfolio || DEFAULT_PORT;
   // Use the raw (portfolio, symbol) holding row — NOT currentModel, which is the active view slice.
   const row = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
   const curQty = Number(row?.qty) || 0, curAvg = Number(row?.avgPrice) || 0;
   // 1. Recalculate Qty and Avg Cost (upsert — creates row if symbol is new)
   let newQty = curQty, newAvg = curAvg, sellAll = false;
+  const writes = [];
   if (txTypeVal === 'Buy' || txTypeVal === 'Sell') {
     const fifo = fifoAfterTrade(port, ticker, curQty, txTypeVal, shares, price);
     if (txTypeVal === 'Buy') {
@@ -3905,11 +3931,11 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
     }
     // Sell All: if qty reaches 0, delete from Claude sheet
     if (txSellAll && txTypeVal === 'Sell' && newQty < 0.0001) {
-      recordFetch({ action:'removeSymbol', symbol:ticker, portfolio:port });
+      writes.push({ action:'removeSymbol', symbol:ticker, portfolio:port });
       sellAll = true;
       txSellAll = false;
     } else {
-      recordFetch({ action:'updateSymbol', symbol:ticker, portfolio:port, qty:newQty.toFixed(6), avgPrice:newAvg.toFixed(6) });
+      writes.push({ action:'updateSymbol', symbol:ticker, portfolio:port, qty:newQty.toFixed(6), avgPrice:newAvg.toFixed(6) });
       txSellAll = false;
     }
   }
@@ -3925,8 +3951,8 @@ async function postTransactionUpdates(ticker, shares, price, txTypeVal, portfoli
   let nFcd = fcd, nUsd = usd;
   if (txTypeVal === 'Buy')  { if (src==='FCD') nFcd = fcd-amount; else nUsd = usd-amount; }
   if (txTypeVal === 'Sell') { if (src==='FCD') nFcd = fcd+amount; else nUsd = usd+amount; }
-  recordFetch({ action:'updateCash', portfolio: cashPort, fcd:nFcd.toFixed(4), usd:nUsd.toFixed(4) });
-  return { newQty, newAvg, sellAll, cashPort, fcd: nFcd, usd: nUsd };
+  writes.push({ action:'updateCash', portfolio: cashPort, fcd:nFcd.toFixed(4), usd:nUsd.toFixed(4) });
+  return { newQty, newAvg, sellAll, cashPort, fcd: nFcd, usd: nUsd, writes };
 }
 
 // Mutates _allRows / _portfolioRegistry / _allTxCache / txList to match a just-appended Buy/Sell
@@ -4123,7 +4149,15 @@ function buildTxModal(defaultSymbol, editData) {
   </div>`;
 }
 
-window.submitTx = async function() {
+// Optimistic like amSave/submitSymbolEdit: mutates the local caches and re-renders (and closes the
+// modal) IMMEDIATELY, then the transaction append runs in the background via runBgSave — the UI
+// never waits on it. Not async, and must never become so. `revert` is deliberately null: a trade
+// that actually landed on the sheet must never be undone from the client just because the response
+// was ambiguous (see runBgSave's doc comment on recordFetch's no-cors fallback) — a retry is safe
+// instead, since appendTxnAction dedupes on this exact content (date|time|type|ticker|shares|price|
+// portfolio) for 10 minutes (apps_script.js appendTxnAction).
+window.submitTx = function() {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   const tickerEl = document.getElementById('txTicker');
   const ticker = tickerEl.value === '__custom__'
     ? document.getElementById('txTickerCustom').value.trim().toUpperCase()
@@ -4135,29 +4169,46 @@ window.submitTx = async function() {
   if (!ticker) { statusEl.innerHTML = '<span style="color:var(--loss)">Enter a ticker.</span>'; return; }
   if (!shares || !price) { statusEl.innerHTML = '<span style="color:var(--loss)">Enter shares and price.</span>'; return; }
   const tv = shares * price;
-  document.getElementById('txSubmit').disabled = true;
-  statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  try {
-    const portfolio = document.getElementById('txPortfolio')?.value || DEFAULT_PORT;
-    const params = new URLSearchParams({
-      date: document.getElementById('txDate').value,
-      time: document.getElementById('txTime').value,
-      type: txType, ticker, shares, price,
-      tradeValue: tv.toFixed(4),
-      commissionFree: noCommission,
-      portfolio,
-      note: document.getElementById('txNote')?.value.trim() || '',
-    });
-    await recordFetch(params);
-    const post = await postTransactionUpdates(ticker, shares, price, txType, portfolio);
-    applyLocalTxWrite(params, post);
-    statusEl.innerHTML = '<span style="color:var(--gain)">✓ Saved to Google Sheet</span>';
-    applyPortfolioView();
-    setTimeout(closeTx, 300); // just long enough to read the "✓ Saved" tick
-  } catch(e) {
-    statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
-    document.getElementById('txSubmit').disabled = false;
-  }
+  const portfolio = document.getElementById('txPortfolio')?.value || DEFAULT_PORT;
+  const params = new URLSearchParams({
+    date: document.getElementById('txDate').value,
+    time: document.getElementById('txTime').value,
+    type: txType, ticker, shares, price,
+    tradeValue: tv.toFixed(4),
+    commissionFree: noCommission,
+    portfolio,
+    note: document.getElementById('txNote')?.value.trim() || '',
+  });
+  const post = postTransactionUpdates(ticker, shares, price, txType, portfolio);
+  applyLocalTxWrite(params, post);
+  closeTx();
+  applyPortfolioView();
+
+  runBgSave({
+    // Keyed on the trade's own content (mirrors appendTxnAction's dedupe key) rather than just
+    // symbol+portfolio, so two genuinely different trades for the same symbol queued in quick
+    // succession never collide under runBgSave's same-kind guard — only a true duplicate submit
+    // (identical params) would ever produce the same kind twice.
+    kind: `tx:${portfolio}:${ticker}:${params.get('date')}:${params.get('time')}:${txType}:${shares}:${price}`,
+    // One job now covers all three writes the trade needs: the append, plus the holding
+    // (updateSymbol/removeSymbol) and cash (updateCash) writes postTransactionUpdates() computed
+    // but deliberately didn't send. All three target different sheets/rows with no read-after-write
+    // dependency between them (checked apps_script.js: appendTxnAction only touches `transactions`,
+    // updateSymbol/removeSymbolAction only touch `Claude`/`Plan`/`Calendar`, updateCashAction only
+    // touches `Portfolios`), so they fire concurrently rather than one-after-another.
+    // strict:true (recordFetch's 3rd arg) lets a genuine network-level failure (offline/DNS/refused
+    // — see recordFetch's comment) reject instead of being swallowed, so this send() can report it
+    // to runBgSave. An HTTP-level or server-side refusal is still invisible (opaque no-cors
+    // response) — this only catches "the request never left the browser".
+    send: async () => {
+      try {
+        await Promise.all([recordFetch(params, false, true), ...post.writes.map(w => recordFetch(w, false, true))]);
+        return { ok: true };
+      } catch (e) { return { ok: false, bad: e }; }
+    },
+    revert: null,
+    toastMsg: `Couldn't confirm ${ticker}'s trade fully synced — check Transactions, Positions and cash.`,
+  });
 };
 
 // ── Transactions panel ────────────────────────────────────────────────────────
@@ -7052,42 +7103,55 @@ window.openTradeModal = function(sym, port) {
   setTimeout(() => { buildTradeTvChart(sym); recomputeTradeFrom('qty'); }, 0);
 };
 
-window.submitTradeModal = async function() {
+// Optimistic like submitTx (see its comment) — mutates, re-renders and closes IMMEDIATELY, then
+// the append runs in the background via runBgSave. Not async, and must never become so.
+window.submitTradeModal = function() {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   const sym    = tradeModalSym;
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const s = document.getElementById('txStatus');
   if (!shares || !price) { if (s) s.innerHTML = `<span style="color:var(--loss)">${t('enter_shares_price_error')}</span>`; return; }
-  const submitBtn = document.getElementById('txSubmit');
-  if (submitBtn) submitBtn.disabled = true;
-  if (s) s.innerHTML = `<span style="color:var(--muted)">${t('saving_msg')}</span>`;
-  try {
-    const portfolio = document.getElementById('txPortfolio')?.value || tradeModalPort || DEFAULT_PORT;
-    const model  = modelForPort(portfolio);
-    const curQty = findPosIn(model, sym)?.qty || 0;
-    // Sell qty >= holdings → sell-all (postTransactionUpdates deletes the row instead of
-    // leaving a near-zero dust quantity), matching the "All" button's own behavior.
-    if (txType === 'Sell' && shares >= curQty - 1e-6) txSellAll = true;
-    const now  = new Date();
-    const date = document.getElementById('txDate')?.value || now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-    const time = document.getElementById('txTime')?.value || now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
-    const params = new URLSearchParams({
-      date, time, type: txType, ticker: sym,
-      shares, price, tradeValue: (shares*price).toFixed(4),
-      commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
-      portfolio,
-      note: document.getElementById('txNote')?.value.trim() || '',
-    });
-    await recordFetch(params);
-    const post = await postTransactionUpdates(sym, shares, price, txType, portfolio);
-    applyLocalTxWrite(params, post);
-    if (s) s.innerHTML = `<span style="color:var(--gain)">${t('saved_msg')}</span>`;
-    applyPortfolioView();
-    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); }, 300);
-  } catch(e) {
-    if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
-    if (submitBtn) submitBtn.disabled = false;
-  }
+  const portfolio = document.getElementById('txPortfolio')?.value || tradeModalPort || DEFAULT_PORT;
+  const model  = modelForPort(portfolio);
+  const curQty = findPosIn(model, sym)?.qty || 0;
+  // Sell qty >= holdings → sell-all (postTransactionUpdates deletes the row instead of
+  // leaving a near-zero dust quantity), matching the "All" button's own behavior.
+  if (txType === 'Sell' && shares >= curQty - 1e-6) txSellAll = true;
+  const now  = new Date();
+  const date = document.getElementById('txDate')?.value || now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const time = document.getElementById('txTime')?.value || now.toLocaleTimeString('en-GB',  { timeZone: 'Asia/Bangkok', hour12: false });
+  const params = new URLSearchParams({
+    date, time, type: txType, ticker: sym,
+    shares, price, tradeValue: (shares*price).toFixed(4),
+    commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
+    portfolio,
+    note: document.getElementById('txNote')?.value.trim() || '',
+  });
+  const post = postTransactionUpdates(sym, shares, price, txType, portfolio);
+  applyLocalTxWrite(params, post);
+  document.getElementById('actionModal')?.classList.remove('open');
+  applyPortfolioView();
+
+  runBgSave({
+    // Keyed on the trade's own content — see submitTx's comment on why (not just symbol+portfolio).
+    kind: `tx:${portfolio}:${sym}:${date}:${time}:${txType}:${shares}:${price}`,
+    // One job covers all three writes (append + holding + cash) — see submitTx's comment for why
+    // these are safe to fire concurrently.
+    // strict:true (recordFetch's 3rd arg) lets a genuine network-level failure (offline/DNS/refused
+    // — see recordFetch's comment) reject instead of being swallowed, so this send() can report it
+    // to runBgSave. An HTTP-level or server-side refusal is still invisible (opaque no-cors
+    // response) — this only catches "the request never left the browser".
+    send: async () => {
+      try {
+        await Promise.all([recordFetch(params, false, true), ...post.writes.map(w => recordFetch(w, false, true))]);
+        return { ok: true };
+      } catch (e) { return { ok: false, bad: e }; }
+    },
+    // Never revert a trade — see submitTx's comment; all three writes are idempotent on retry either way.
+    revert: null,
+    toastMsg: `Couldn't confirm ${sym}'s trade fully synced — check Transactions, Positions and cash.`,
+  });
 };
 
 // actionChartsHtml/renderActionCharts/updateActionCategoryChange/updateActionChartsPreview
@@ -7984,34 +8048,48 @@ window.removeOrphanPlan = function(sym) {
 };
 
 // Transaction submit from within action modal
-window.submitTxInAction = async function(sym) {
+// Optimistic like submitTx (see its comment) — mutates, re-renders and closes IMMEDIATELY, then
+// the append runs in the background via runBgSave. Not async, and must never become so.
+window.submitTxInAction = function(sym) {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   const shares = parseFloat(document.getElementById('txShares')?.value) || 0;
   const price  = parseFloat(document.getElementById('txPrice')?.value)  || 0;
   const s = document.getElementById('txStatus');
   if (!shares || !price) { if(s) s.innerHTML='<span style="color:var(--loss)">Enter shares and price.</span>'; return; }
-  document.getElementById('txSubmit').disabled = true;
-  if (s) s.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
-  try {
-    const portfolio = document.getElementById('txPortfolio')?.value || actionModalPort || DEFAULT_PORT;
-    const params = new URLSearchParams({
-      date: document.getElementById('txDate').value,
-      time: document.getElementById('txTime').value,
-      type: txType, ticker: sym,
-      shares, price, tradeValue: (shares*price).toFixed(4),
-      commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
-      portfolio,
-      note: document.getElementById('txNote')?.value.trim() || '',
-    });
-    await recordFetch(params);
-    const post = await postTransactionUpdates(sym, shares, price, txType, portfolio);
-    applyLocalTxWrite(params, post);
-    if (s) s.innerHTML = '<span style="color:var(--gain)">✓ Saved</span>';
-    applyPortfolioView();
-    setTimeout(() => { document.getElementById('actionModal')?.classList.remove('open'); }, 300);
-  } catch(e) {
-    if (s) s.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
-    document.getElementById('txSubmit').disabled = false;
-  }
+  const portfolio = document.getElementById('txPortfolio')?.value || actionModalPort || DEFAULT_PORT;
+  const params = new URLSearchParams({
+    date: document.getElementById('txDate').value,
+    time: document.getElementById('txTime').value,
+    type: txType, ticker: sym,
+    shares, price, tradeValue: (shares*price).toFixed(4),
+    commissionFree: document.getElementById('txNoCommission')?.checked ? 'TRUE' : 'FALSE',
+    portfolio,
+    note: document.getElementById('txNote')?.value.trim() || '',
+  });
+  const post = postTransactionUpdates(sym, shares, price, txType, portfolio);
+  applyLocalTxWrite(params, post);
+  document.getElementById('actionModal')?.classList.remove('open');
+  applyPortfolioView();
+
+  runBgSave({
+    // Keyed on the trade's own content — see submitTx's comment on why (not just symbol+portfolio).
+    kind: `tx:${portfolio}:${sym}:${params.get('date')}:${params.get('time')}:${txType}:${shares}:${price}`,
+    // One job covers all three writes (append + holding + cash) — see submitTx's comment for why
+    // these are safe to fire concurrently.
+    // strict:true (recordFetch's 3rd arg) lets a genuine network-level failure (offline/DNS/refused
+    // — see recordFetch's comment) reject instead of being swallowed, so this send() can report it
+    // to runBgSave. An HTTP-level or server-side refusal is still invisible (opaque no-cors
+    // response) — this only catches "the request never left the browser".
+    send: async () => {
+      try {
+        await Promise.all([recordFetch(params, false, true), ...post.writes.map(w => recordFetch(w, false, true))]);
+        return { ok: true };
+      } catch (e) { return { ok: false, bad: e }; }
+    },
+    // Never revert a trade — see submitTx's comment; all three writes are idempotent on retry either way.
+    revert: null,
+    toastMsg: `Couldn't confirm ${sym}'s trade fully synced — check Transactions, Positions and cash.`,
+  });
 };
 
 window.submitMoveShares = async function(sym) {
@@ -11774,7 +11852,14 @@ window.removeFromWatchlist = function(sym) {
   });
 };
 
-window.submitAddSymbol = async function() {
+// Optimistic like submitSymbolEdit: pushes the row and re-renders (and closes the modal)
+// IMMEDIATELY, then the addSymbol round trip runs in the background via runBgSave. Not async, and
+// must never become so. Unlike a plain absolute-value write, addSymbol's response genuinely
+// matters (duplicate refusal + server-resolved metadata) — that's fine, the double round trip
+// recordFetch(params,true) costs (see CLAUDE.md/recordFetch) just happens inside send(), off the
+// UI thread's critical path, instead of before the modal could close.
+window.submitAddSymbol = function() {
+  if (isReadOnly()) { _showReadOnlyMsg(); return; }
   const ticker = document.getElementById('addSymTicker')?.value.trim().toUpperCase();
   const statusEl = document.getElementById('addSymStatus');
   if (!ticker) { statusEl.innerHTML = '<span style="color:var(--loss)">Enter a symbol.</span>'; return; }
@@ -11783,84 +11868,125 @@ window.submitAddSymbol = async function() {
   const target   = document.getElementById('addSymTarget')?.value.trim();
   const cat      = document.getElementById('addSymCat')?.value;
   const portfolio = document.getElementById('addSymPortfolio')?.value || DEFAULT_PORT;
-  const btn = document.getElementById('addSymSubmit');
-  // addSymbol used to be the slowest write in the app (server made 6-9 sequential outbound fetches
-  // for Yahoo metadata + GICS + Returns + Calendar, ~5-15s) — a later pass cut Returns/Calendar
-  // from the critical path and cached the crumb/GICS lookups (apps_script.js addSymbolAction), down
-  // to ~1-4 fetches / ~1-2s. Still guard the button: a double-click could still fire two calls.
-  if (btn) btn.disabled = true;
-  statusEl.innerHTML = '<span style="color:var(--muted)">Saving…</span>';
   const params = new URLSearchParams({ action:'addSymbol', symbol:ticker, portfolio });
   if (qty)    params.set('qty',    qty);
   if (avg)    params.set('avgPrice', avg);
   if (target) params.set('target', (parseFloat(target)/100).toFixed(6));
   if (cat)    params.set('category', cat);
-  let res;
-  try {
-    // needsResponse: addSymbolAction refuses a duplicate (symbol, portfolio) with
-    // { ok:false, error:'Already exists: ...' } (apps_script.js addSymbolAction) — a
-    // fire-and-forget no-cors write would hide that refusal, so the modal would report success
-    // while nothing was written.
-    res = await recordFetch(params, true);
-  } catch(e) {
-    statusEl.innerHTML = `<span style="color:var(--loss)">Error: ${e.message}</span>`;
-    if (btn) btn.disabled = false;
-    return;
-  }
-  const err = txWriteError(res);
-  if (err) {
-    statusEl.innerHTML = `<span style="color:var(--loss)">${err}</span>`;
-    if (btn) btn.disabled = false;
-    return;
-  }
-  document.getElementById('addSymbolModal')?.classList.remove('open');
-  // addSymbolAction no longer resolves Returns/Calendar synchronously (that used to add a Yahoo
-  // chart?range=5y fetch, a crumb + v7/quote fetch, and two more openById calls to the path the
-  // user is waiting on — see apps_script.js addSymbolAction / CLAUDE.md). Fire both backfill pings
-  // fire-and-forget right away instead: their per-symbol cooldown keys (lastAttempt:RET:/CAL:<sym>)
-  // are empty for this brand-new symbol, so this ping is the one that actually does the fetch,
-  // landing the data within one execution rather than waiting for the next 60s/5min auto-refresh.
-  recordFetch({ action: 'backfillReturns' });
-  recordFetch({ action: 'backfillCalendar' });
-  // Optimistic row so the symbol appears immediately. Name/Sector/Industry come back directly in
-  // the addSymbol response now (server-resolved Yahoo metadata + GICS overlay) — read defensively
-  // (`res?.name ?? null`) so a user who edited apps_script.js but forgot to redeploy still works;
-  // an old deployment's response simply lacks these fields, same as parseRows would produce for a
-  // blank cell (index.html parseRows, ~9085). Qty/avgPrice stay null (not 0) when left blank —
-  // matching parseRows' numCell/watchlist convention exactly, since a 0 would misread as a held
-  // position with zero shares instead of a watchlist entry.
-  const hasMeta      = !!(res && 'name' in res);
-  const optName      = res?.name     || null;
-  const optSector    = res?.sector   || null;
-  const optIndustry  = res?.industry || null;
+
+  // Optimistic row so the symbol appears immediately, with no metadata yet (that only exists once
+  // the server responds — see send() below, which patches name/sector/industry onto this same
+  // object in place). Qty/avgPrice stay null (not 0) when left blank — matching parseRows'
+  // numCell/watchlist convention, since a 0 would misread as a held position with zero shares
+  // instead of a watchlist entry.
   const optQty = qty ? Number(qty) : null;
   const optAvg = avg ? Number(avg) : null;
-  // price must NOT stay null when qty+avg are both entered: buildModel's `held` test
-  // (index.html ~9285) requires qty>0 && avgPrice>0 && price!=null to count as a position, and its
-  // watchlist fallback requires price==null && !(qty>0) && !(avgPrice>0) to count as a watchlist
-  // row — a qty+avg row with price left null satisfies NEITHER branch and silently vanishes from
-  // the UI until a later re-read lands. Seed it with the entered avg cost (0% unrealized until the
-  // next quote tick brings the real price), mirroring applyLocalTxWrite's identical seeding of
-  // `price` for a brand-new (portfolio,symbol) row (index.html ~3882-3887). A blank/watchlist-only
-  // add correctly leaves price null — that's the combination the watchlist branch already handles.
+  // price must NOT stay null when qty+avg are both entered: buildModel's `held` test requires
+  // qty>0 && avgPrice>0 && price!=null to count as a position, and its watchlist fallback requires
+  // price==null && !(qty>0) && !(avgPrice>0) to count as a watchlist row — a qty+avg row with price
+  // left null satisfies NEITHER branch and silently vanishes from the UI until a later re-read
+  // lands. Seed it with the entered avg cost (0% unrealized until the next quote tick brings the
+  // real price), mirroring applyLocalTxWrite's identical seeding of `price` for a brand-new
+  // (portfolio,symbol) row. A blank/watchlist-only add correctly leaves price null.
   const optPrice = (optQty != null && optAvg != null) ? optAvg : null;
-  _allRows.push({
-    portfolio, symbol: ticker, name: optName, sector: optSector, industry: optIndustry,
+  const newRow = {
+    portfolio, symbol: ticker, name: null, sector: null, industry: null,
     category: cat || null, custom: null, myGroup: null,
     qty: optQty, avgPrice: optAvg,
     target: target ? parseFloat(target) / 100 : null,
     price: optPrice, marketCap: null, cash: null, cashRes: null, fcd: null, usd: null,
-  });
+  };
+  _allRows.push(newRow);
+  document.getElementById('addSymbolModal')?.classList.remove('open');
   applyPortfolioView();
-  // The response already carried the resolved metadata (redeployed script) — nothing left for a
-  // full re-read to fill in, so skip it entirely. Only an old deployment (response missing those
-  // fields) falls back to the deferred re-read this pass replaced as the normal path.
-  if (!hasMeta) {
-    fetchSheet(true).then(table => {
-      _allRows = parseRows(table);
+
+  // Set only when the server gave an explicit, unambiguous refusal (duplicate symbol) — read by
+  // revert()/status() below so a merely-undetectable network failure never erases the optimistic
+  // row (indistinguishable from a write that actually landed) while a real refusal still does.
+  let addSymExplicitRefusal = false;
+  runBgSave({
+    kind: `addSymbol:${portfolio}:${ticker}`,
+    send: async () => {
+      // needsResponse: addSymbolAction refuses a duplicate (symbol, portfolio) with
+      // { ok:false, error:'Already exists: ...' } (apps_script.js addSymbolAction) — that's a real,
+      // unambiguous refusal (not the usual "can't tell if it landed" ambiguity), worth surfacing
+      // and reverting for. A null response (the no-cors fallback) means "cannot tell", not
+      // "failed" — treated as success below, same as every other optimistic write in this file.
+      // strict:true on the underlying no-cors fetch additionally detects a genuine network-level
+      // failure (offline/DNS/connection refused) — that's caught separately below and must NOT set
+      // addSymExplicitRefusal, since it's just as ambiguous as the null-response case.
+      let res;
+      try {
+        res = await recordFetch(params, true, true);
+      } catch (e) {
+        return { ok: false, bad: e };
+      }
+      const err = txWriteError(res);
+      if (err) { addSymExplicitRefusal = true; return { ok: false, err }; }
+
+      // addSymbolAction no longer resolves Returns/Calendar synchronously — fire both backfill
+      // pings fire-and-forget right away instead: their per-symbol cooldown keys
+      // (lastAttempt:RET:/CAL:<sym>) are empty for this brand-new symbol, so this ping is the one
+      // that actually does the fetch, landing the data within one execution rather than waiting
+      // for the next 60s/5min auto-refresh.
+      recordFetch({ action: 'backfillReturns' });
+      recordFetch({ action: 'backfillCalendar' });
+
+      // Name/Sector/Industry come back directly in the addSymbol response (server-resolved Yahoo
+      // metadata + GICS overlay) — read defensively (`res?.name ?? null`) so a user who edited
+      // apps_script.js but forgot to redeploy still works; an old deployment's response simply
+      // lacks these fields, same as parseRows would produce for a blank cell.
+      const hasMeta = !!(res && 'name' in res);
+      if (hasMeta) {
+        newRow.name     = res?.name     ?? null;
+        newRow.sector   = res?.sector   ?? null;
+        newRow.industry = res?.industry ?? null;
+        applyPortfolioView();
+      } else {
+        // No metadata in this response — old deployment, or the ambiguous null fallback. Fall back
+        // to a full re-read to fill it in, same as the pre-optimistic code always did.
+        try {
+          const table = await fetchSheet(true);
+          _allRows = parseRows(table);
+          applyPortfolioView();
+        } catch (e) { console.error('post-add-symbol refresh:', e); }
+      }
+      return { ok: true };
+    },
+    stillMine: () => _allRows.includes(newRow),
+    // No-ops on a network failure (addSymExplicitRefusal false) — runBgSave still calls this (it
+    // has no other way to know why send() failed), so the guard lives here rather than by passing
+    // `revert: null`, which would also suppress it for the real duplicate-refusal case.
+    revert: () => {
+      if (!addSymExplicitRefusal) return;
+      const idx = _allRows.indexOf(newRow);
+      if (idx >= 0) _allRows.splice(idx, 1);
       applyPortfolioView();
-    }).catch(e => console.error('post-add-symbol refresh:', e));
-  }
+    },
+    // Ignores the `reverted` runBgSave passes (true merely means revert() was invoked, not that it
+    // actually removed anything) and reads addSymExplicitRefusal directly instead, so the message
+    // matches what really happened. Wording is kept identical to toastMsg() below (same two
+    // branches) so the in-modal message and the toast — whichever one actually fires — never
+    // disagree about what happened to the row.
+    status: () => {
+      const el = document.getElementById('addSymStatus');
+      const open = document.getElementById('addSymbolModal')?.classList.contains('open');
+      if (!el || !open) return false;
+      el.innerHTML = addSymExplicitRefusal
+        ? `<span style="color:var(--loss)">${ticker} already exists — removed.</span>`
+        : `<span style="color:var(--loss)">Couldn't confirm ${ticker} was added — check your connection.</span>`;
+      return true;
+    },
+    // Function, not a string — the row's fate (removed vs. still showing) differs between the two
+    // failure branches send() can take, so the toast must match whichever one actually happened
+    // (evaluated in runBgSave after send() resolves — see its comment). Wording mirrors status()
+    // above exactly (in practice the modal is always closed by this point — it's closed
+    // synchronously on submit — so this toast is the branch that actually fires; status() is dead
+    // in the common case, but kept in sync in case that ever changes).
+    toastMsg: () => addSymExplicitRefusal
+      ? `${ticker} already exists — removed.`
+      : `Couldn't confirm ${ticker} was added — check your connection.`,
+  });
 };
 
 // ── Render: filter rows (category/sector/industry/custom/myGroup) ────────────
