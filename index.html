@@ -18,7 +18,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400&display=swap">
 <style>
 
 :root {
@@ -1218,6 +1218,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 /* ── Symbol window ── */
 .tx-modal.sym-modal { max-width: 1180px; width: calc(100vw - 40px); max-height: calc(100vh - 60px); display: flex; flex-direction: column; overflow: hidden; padding: 0; }
 #symbolModalBody { display: flex; flex-direction: column; gap: var(--sp-5); overflow-y: auto; flex: 1; min-height: 0; padding: var(--sp-4); }
+/* Now holds bare cards alongside the money grid (the section headings are gone), so it owns the
+   spacing between them — .sym-grid used to carry its own margin-top for that. */
+#symModalBelow { display: flex; flex-direction: column; gap: var(--sp-3); }
 #symModalBelow:empty { display: none; }
 
 /* Research picture — images/<TICKER>.png dropped into the repo by hand. The card ships hidden and
@@ -1279,9 +1282,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-tile-bar { position: relative; margin-top: var(--sp-2); }
 
 /* ── Below-the-fold: "the money" + "the story" sections (pass 2a) ── */
-.sym-sect-h { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--ink); display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
-.sym-sect-h span { font-family: var(--font-ui); font-size: 12px; font-weight: 500; color: var(--muted); }
-.sym-grid { display: grid; grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); gap: var(--sp-3); align-items: start; margin-top: var(--sp-3); }
+.sym-grid { display: grid; grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); gap: var(--sp-3); align-items: start; }
 .sym-col { display: flex; flex-direction: column; gap: var(--sp-3); }
 
 /* P/L waterfall */
@@ -1329,7 +1330,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .sym-tx-table tbody tr[data-mk-date]:hover td { background: var(--hover); }
 
 /* thesis (pass 3b: click-to-edit) */
-.sym-thesis-q { font-family: var(--font-display); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--ink); margin: 0; }
+/* pre-wrap so the blank lines and line breaks you typed survive — HTML would otherwise collapse a
+   multi-paragraph thesis into one run-on block. break-word keeps a long URL from forcing a scrollbar.
+   Font stack is per-character: Latin resolves in Newsreader and stops there, while Thai — which
+   Newsreader has no glyphs for at all — falls through to Noto Sans Thai Looped. Without naming it
+   the OS silently substituted its own (Leelawadee UI on Windows, Thonburi on iOS), so the same note
+   looked different on every device. NOT italic: Thai has no true italic face, so the browser fakes
+   one by slanting the glyphs, which reads as broken. The stack is written out rather than built on
+   var(--font-display) because the Thai family has to sit ahead of the generic keyword — after
+   `serif` it would never be reached, since the system default already covers Thai. */
+.sym-thesis-q { font-family: 'Newsreader', 'Noto Sans Thai Looped', Georgia, serif; font-size: 15px; line-height: 1.5; color: var(--ink); margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
 .sym-thesis-q.sym-thesis-edit-trigger { cursor: pointer; border-radius: var(--radius-sm); padding: 4px 6px; margin: -4px -6px; transition: background .15s var(--ease-out-quint); }
 .sym-thesis-q.sym-thesis-edit-trigger:hover { background: var(--track); }
 .sym-thesis-empty { font-size: 12px; color: var(--muted); margin: 0; }
@@ -1340,7 +1350,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   transition: border-color .15s, background .15s;
 }
 .sym-thesis-add:hover { background: var(--track); border-color: var(--terracotta); }
-.sym-thesis-textarea { display: block; width: 100%; resize: vertical; min-height: 72px; font-family: var(--font-ui); box-sizing: border-box; }
+/* Same per-character stack as the quote above, so what you type matches what you get. */
+.sym-thesis-textarea { display: block; width: 100%; resize: vertical; min-height: 72px; font-family: 'DM Sans', 'Noto Sans Thai Looped', system-ui, sans-serif; box-sizing: border-box; }
 .sym-thesis-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .sym-thesis-btn {
   font-size: 11px; font-weight: 700; border-radius: var(--radius-pill); padding: 6px 14px;
@@ -5590,18 +5601,15 @@ function renderSymbolModal() {
   const moneyLeft  = [wfHtml, recordHtml].filter(Boolean).join('');
   const moneyRight = [donutsHtml, trueExpHtml, calHtml].filter(Boolean).join('');
   const moneySectionHtml = (moneyLeft || moneyRight) ? `
-    <div class="sym-sect-h">The money <span>— where the return came from</span></div>
     <div class="sym-grid">
       <div class="sym-col">${moneyLeft}</div>
       <div class="sym-col">${moneyRight}</div>
     </div>` : '';
 
-  const storySectionHtml = (txHtml || thesisHtml) ? `
-    <div class="sym-sect-h" style="margin-top:var(--sp-2)">The story <span>— your reasoning, beside what you actually did</span></div>
-    <div class="sym-grid">
-      <div class="sym-col">${txHtml}</div>
-      <div class="sym-col">${thesisHtml}</div>
-    </div>` : '';
+  // Thesis runs the full width — it's prose, and a 38%-wide column squeezed it into a narrow
+  // ribbon beside the table. The trade history is no longer here at all: it renders dead last,
+  // after the research picture, at the very bottom of the window.
+  const storySectionHtml = thesisHtml;
 
   const belowHtml = [moneySectionHtml, storySectionHtml].filter(Boolean).join('');
 
@@ -5659,6 +5667,8 @@ function renderSymbolModal() {
     <div id="symModalBelow">${belowHtml}</div>
 
     ${symImageCardHtml(sym)}
+
+    ${txHtml}
   `;
 
   setTimeout(async () => {
