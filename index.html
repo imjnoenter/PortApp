@@ -65,6 +65,11 @@
   --btn-fg: #faf3e0;
   --spark-ok: #6b8e5a;
   --logo-bg: #f5ebd2;
+  /* Chip backings for logos whose own artwork forces the choice — see logoMeasureInk. These two
+     are NOT overridden per theme on purpose: they mean "always dark" and "always light", because
+     a white mark needs a dark chip whatever the rest of the page is doing. */
+  --logo-bg-dark: #2a211a;
+  --logo-bg-light: #faf6ec;
 
   --z-sticky: 100;
   --z-dropdown: 200;
@@ -806,6 +811,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line);
 }
+.logo-wrap.on-dark  { background: var(--logo-bg-dark); }
+.logo-wrap.on-light { background: var(--logo-bg-light); }
 .logo-img { width: 32px; height: 32px; object-fit: contain; padding: 3px; display: block; }
 .logo-fb  { width: 32px; height: 32px; border-radius: 10px; display: none; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--btn-fg); flex-shrink: 0; }
 .asset-sym  { font-weight: 600; font-size: 13px; letter-spacing: -.1px; }
@@ -1073,6 +1080,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 }
 
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+
+/* Held for the frame the share picture is taken in. The renderer lays the clone out at the node's
+   current size, so a table scrolled sideways would be cut off at the visible edge — this lets it
+   size to its content instead. It does briefly change the live layout; the button's busy state is
+   what explains the flicker. */
+.capturing .table-scroll { overflow: visible !important; width: max-content !important; min-width: 100%; }
 
 /* ── Monthly Returns Heatmap ── */
 .mret-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11px; }
@@ -4588,6 +4601,93 @@ window.toggleExportMenu = function(e) {
     items.appendChild(b);
   }
   menu.classList.add('open');
+};
+
+// ── Share the Positions panel as a picture ──────────────────────────────────────────────────
+// Rasterises the live card rather than redrawing it, so the picture is whatever is on screen:
+// portfolio, sub-tab, filters, sort, theme and language all come along, and there is no second
+// layout to keep in step.
+//
+// modern-screenshot clones the node into an SVG <foreignObject> and rasterises that. Two
+// consequences shape what follows:
+//   · Images it cannot reach same-origin or with CORS silently do not draw — hence FMP leading
+//     LOGO_SOURCES. Google's font files DO send the header, so the library inlines the webfonts
+//     itself and no woff2 has to be baked into this file.
+//   · The clone is laid out at the node's current size, so a sideways-scrolled table would be cut
+//     off at the visible edge. `.capturing` lifts that clamp for the shot.
+const SHOT_LIB_URL = 'https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.6/dist/index.js';
+let _shotLib = null;
+function loadShotLib() {
+  // Fetched on first share, not at boot — most sessions never take a picture.
+  if (_shotLib) return _shotLib;
+  _shotLib = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = SHOT_LIB_URL;
+    s.onload  = () => window.modernScreenshot
+      ? resolve(window.modernScreenshot)
+      : reject(new Error('screenshot library loaded but registered nothing'));
+    s.onerror = () => reject(new Error('could not load the screenshot library'));
+    document.head.appendChild(s);
+  }).catch(err => { _shotLib = null; throw err; });   // let a failed load be retried
+  return _shotLib;
+}
+
+// Hand the file to the OS share sheet where there is one, otherwise save it. The share-sheet
+// branch is load-bearing: iOS Safari ignores <a download>, so without it this does nothing on the
+// device most likely to be sharing.
+async function deliverShot(blob, filename) {
+  const file = new File([blob], filename, { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }   // user cancelled, not a failure
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+window.sharePositionsImage = async function() {
+  const card = document.getElementById('positionsCard');
+  const btn  = document.getElementById('sharePosBtn');
+  if (!card || card.dataset.shooting) return;
+  card.dataset.shooting = '1';
+  const restore = btn ? btn.innerHTML : null;
+  let failed = false;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const lib = await loadShotLib();
+    card.classList.add('capturing');
+    // Two frames: one for the unclamped layout to settle, one to be sure it painted before the
+    // clone reads geometry off it.
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const blob = await lib.domToBlob(card, {
+      scale: 2,                                     // sharp when viewed full-size in a chat
+      backgroundColor: css('--bg'),                 // fills outside the card's rounded corners
+      // The share control has no business being in its own picture. Nothing else is hidden —
+      // the point of this mode is the panel exactly as it appears.
+      filter: n => n.nodeType !== 1 || !n.hasAttribute('data-no-shot'),
+    });
+    const port = activePortfolio === 'ALL' ? 'all'
+      : String(activePortfolio).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    await deliverShot(blob, `positions-${port}-${new Date().toISOString().slice(0, 10)}.png`);
+  } catch (err) {
+    failed = true;
+    console.error('[share] positions image failed', err);
+    if (btn) { btn.textContent = '!'; btn.title = 'Could not make the picture — see the console'; }
+  } finally {
+    card.classList.remove('capturing');
+    delete card.dataset.shooting;
+    if (btn) {
+      btn.disabled = false;
+      if (failed) setTimeout(() => { btn.innerHTML = restore; btn.title = 'Save this view as a picture'; }, 2500);
+      else btn.innerHTML = restore;
+    }
+  }
 };
 
 // One file out. Split out of exportTxCsv only because a chunked export calls it N times.
@@ -11124,21 +11224,85 @@ function toAddCell(p, investable) {
 // FPS and any dotted ticker like BRK.B; stockanalysis covers those but misses QQQ — so a miss
 // falls through to the next before giving up on the coloured initials. Both 404 properly on an
 // unknown symbol (rather than serving a placeholder), which is what makes onerror chaining work.
+// FMP leads, and not for artwork — parqet's logos are nicer. It leads because it is the only one
+// of the three that sends Access-Control-Allow-Origin, and an image without that header taints the
+// canvas the share-picture export draws into, making toBlob() throw. Verified over all 73 symbols
+// on the sheet: FMP 73/73, parqet 71/73, stockanalysis fills the rest. The other two stay on as
+// display-only fallbacks — a symbol served by them looks right on screen but drops out of a picture.
 const LOGO_SOURCES = [
+  s => `https://financialmodelingprep.com/image-stock/${encodeURIComponent(s)}.png`,
   s => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(s)}`,
   s => `https://logos.stockanalysis.com/${encodeURIComponent(s.toLowerCase())}.svg`,
 ];
+const LOGO_CORS_SOURCES = 1;   // how many leading entries above are CORS-enabled
+
 function logoFallback(img, symbol) {
   const step = (+img.dataset.logoStep || 0) + 1;
   img.dataset.logoStep = step;
-  if (step < LOGO_SOURCES.length) { img.src = LOGO_SOURCES[step](symbol); return; }
+  if (step < LOGO_SOURCES.length) {
+    // crossOrigin must come OFF before stepping to a host that sends no ACAO: an <img> carrying it
+    // against such a host fails to load outright, so leaving it on would turn a working fallback
+    // into a broken image. The attribute is only read when a load starts, hence src after it.
+    if (step >= LOGO_CORS_SOURCES) img.removeAttribute('crossorigin');
+    img.src = LOGO_SOURCES[step](symbol);
+    return;
+  }
   img.style.display = 'none';
   img.nextElementSibling.style.display = 'flex';
 }
+// ── Logo contrast ───────────────────────────────────────────────────────────────────────────
+// The chip paints var(--logo-bg), which is LIGHT in the light themes and DARK in the dark ones.
+// Logo artwork doesn't follow: FMP serves a number of marks white-on-transparent (ON, UBER, QQQ,
+// MRVL, AXON and 6 more of the 73 on this sheet), which disappear on a light chip — and the
+// mirror image happens in dark mode, where a black wordmark disappears on a dark chip. So the
+// backing is chosen from the artwork's own luminance rather than from the theme.
+//
+// Measurable only because the leading source is CORS-enabled: reading pixels back out of a canvas
+// is exactly what tainting forbids, so a logo that fell through to parqet/stockanalysis throws on
+// getImageData and is left at the theme default.
+const LOGO_INK_KEY = 'logoInk.v1';
+const LOGO_INK_LIGHT = 200;   // above this the mark is pale and needs a dark chip
+const LOGO_INK_DARK  = 70;    // below this it is near-black and needs a light chip
+let _logoInk = null;
+function logoInkMap() {
+  if (_logoInk) return _logoInk;
+  try { _logoInk = JSON.parse(localStorage.getItem(LOGO_INK_KEY)) || {}; } catch (_) { _logoInk = {}; }
+  return _logoInk;
+}
+function logoInkClass(sym) {
+  const L = logoInkMap()[sym];
+  if (L == null) return '';
+  return L > LOGO_INK_LIGHT ? ' on-dark' : L < LOGO_INK_DARK ? ' on-light' : '';
+}
+// Runs once per symbol ever — the verdict is cached, so repeat renders apply the class up front
+// and never flash. Deliberately silent on failure: a chip at the theme default is a fine outcome.
+window.logoMeasureInk = function(img, symbol) {
+  const map = logoInkMap();
+  if (map[symbol] != null) return;
+  let L;
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(img, 0, 0, 16, 16);
+    const d = g.getImageData(0, 0, 16, 16).data;
+    let sum = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] > 128) { sum += (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000; n++; }
+    }
+    if (!n) return;                       // fully transparent — nothing to judge
+    L = Math.round(sum / n);
+  } catch (_) { return; }                 // tainted (non-CORS fallback source) — leave as-is
+  map[symbol] = L;
+  try { localStorage.setItem(LOGO_INK_KEY, JSON.stringify(map)); } catch (_) {}
+  const cls = L > LOGO_INK_LIGHT ? 'on-dark' : L < LOGO_INK_DARK ? 'on-light' : null;
+  if (cls) img.closest('.logo-wrap')?.classList.add(cls);
+};
+
 function logoCell(symbol, color) {
-  return `<div class="logo-wrap">
-    <img class="logo-img" loading="lazy" src="${LOGO_SOURCES[0](symbol)}"
-         alt="${symbol}" onerror="logoFallback(this,'${symbol}')">
+  return `<div class="logo-wrap${logoInkClass(symbol)}">
+    <img class="logo-img" loading="lazy" crossorigin="anonymous" src="${LOGO_SOURCES[0](symbol)}"
+         alt="${symbol}" onload="logoMeasureInk(this,'${symbol}')" onerror="logoFallback(this,'${symbol}')">
     <div class="logo-fb" style="background:${color}">${symbol.slice(0,2)}</div>
   </div>`;
 }
@@ -15936,7 +16100,7 @@ function buildShell() {
 
         <section class="page" data-page="holdings">
           <!-- Positions -->
-          <div class="card">
+          <div class="card" id="positionsCard">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;gap:10px">
               <div>
                 <div class="card-title" id="posTitle" style="margin-bottom:2px">${t('positions_title')}</div>
@@ -15948,7 +16112,14 @@ function buildShell() {
                   oninput="searchTerm=this.value;renderTable(currentModel)"
                   style="padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--track);color:var(--ink);font-size:12px;outline:none;width:140px;transition:border-color .15s"
                   onfocus="this.style.borderColor='var(--teal)'" onblur="this.style.borderColor='var(--line)'">
-                <button class="add-tx-btn" onclick="openAddSymbol()"><span class="atx-plus">+</span><span class="atx-label">Symbol</span></button>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <button class="add-tx-btn" id="sharePosBtn" data-no-shot onclick="sharePositionsImage()"
+                    title="Save this view as a picture" aria-label="Save this view as a picture"
+                    style="background:var(--track);color:var(--ink);padding:5px 10px;justify-content:center">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button class="add-tx-btn" onclick="openAddSymbol()"><span class="atx-plus">+</span><span class="atx-label">Symbol</span></button>
+                </div>
               </div>
             </div>
             <div id="posSubTabs" class="pos-sub-tabs">
