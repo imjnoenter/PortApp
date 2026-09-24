@@ -13253,18 +13253,49 @@ function priceSpark(sym, width, height) {
   </svg>`;
 }
 
-function buildHpBaseData() {
+// Net dividends banked per symbol, over the transactions in view. Each ex-date pays on the shares
+// held that day, so a position since sold still carries the income it produced — which is what makes
+// this add up against totalCost (every buy ever made), not just what is held now. Withholding comes
+// off here, so the figure is what actually landed in the account: the same net basis the Dividends
+// tab, computeDividends and computeForwardIncome all use.
+function hpDividendMap() {
+  const out = {};
+  if (!txCache?.length) return out;
+  const divData = historyCache?.dividends || {};
+  for (const [ticker, events] of Object.entries(divData)) {
+    let net = 0;
+    for (const [dateStr, amount] of Object.entries(events)) {
+      const held = sharesHeldAt(txCache, ticker, dateStr);
+      if (held > 0) net += held * amount * (1 - withholdingRate(ticker));
+    }
+    if (net > 0) out[ticker] = net;
+  }
+  return out;
+}
+
+// Total gain is price AND income: unrealized + realized + dividends. A high-yield holding flat on
+// price has still paid its way, and before this it read as a zero here while the Dividends tab next
+// to it showed the money. The tooltip keeps all three components visible so the sum is checkable.
+function buildHpBaseData(divMap) {
   const map = {};
+  const dividends = divMap || hpDividendMap();
+  const blank = { unrealizedPnl: 0, realizedPnl: 0, dividends: 0, currentValue: 0, totalCost: 0, _costBasisFallback: 0 };
   if (currentModel?.positions) {
     for (const p of currentModel.positions) {
-      map[p.symbol] = { name: p.name || p.symbol, unrealizedPnl: p.pnl || 0, realizedPnl: 0, currentValue: p.currentValue || 0, totalCost: 0, _costBasisFallback: p.costBasis || 0 };
+      map[p.symbol] = { ...blank, name: p.name || p.symbol, unrealizedPnl: p.pnl || 0, currentValue: p.currentValue || 0, _costBasisFallback: p.costBasis || 0 };
     }
   }
   if (pnlData?.length) {
     for (const t of pnlData) {
-      if (!map[t.ticker]) map[t.ticker] = { name: t.ticker, unrealizedPnl: 0, realizedPnl: 0, currentValue: 0, totalCost: 0, _costBasisFallback: 0 };
+      if (!map[t.ticker]) map[t.ticker] = { ...blank, name: t.ticker };
       map[t.ticker].realizedPnl += t.pnl;
     }
+  }
+  for (const [ticker, net] of Object.entries(dividends)) {
+    // A symbol can be gone from both lists above — sold out with its sells outside this view's
+    // ledger — and still have paid. Its income belongs to the view all the same.
+    if (!map[ticker]) map[ticker] = { ...blank, name: ticker };
+    map[ticker].dividends = net;
   }
   if (txCache?.length) {
     for (const tx of txCache) {
@@ -13280,30 +13311,21 @@ function buildHpBaseData() {
   }
   return Object.entries(map)
     .map(([symbol, d]) => {
-      const totalPnl = d.unrealizedPnl + d.realizedPnl;
+      const totalPnl = d.unrealizedPnl + d.realizedPnl + d.dividends;
       const pnlPct   = d.totalCost > 0 ? totalPnl / d.totalCost * 100 : 0;
-      return { symbol, name: d.name, totalPnl, pnlPct, unrealizedPnl: d.unrealizedPnl, realizedPnl: d.realizedPnl, currentValue: d.currentValue, totalCost: d.totalCost };
+      return { symbol, name: d.name, totalPnl, pnlPct, unrealizedPnl: d.unrealizedPnl, realizedPnl: d.realizedPnl, dividends: d.dividends, currentValue: d.currentValue, totalCost: d.totalCost };
     })
     .filter(i => i.totalCost > 0 || i.totalPnl !== 0)
     .sort((a, b) => b.pnlPct - a.pnlPct);
 }
 
-function buildHpDivData() {
-  if (!txCache?.length) return [];
-  const divData = historyCache?.dividends || {};
-  const items = [];
-  for (const [ticker, events] of Object.entries(divData)) {
-    let net = 0;
-    for (const [dateStr, amount] of Object.entries(events)) {
-      const held = sharesHeldAt(txCache, ticker, dateStr);
-      if (held > 0) net += held * amount * (1 - withholdingRate(ticker));
-    }
-    if (net > 0) {
+function buildHpDivData(divMap) {
+  return Object.entries(divMap || hpDividendMap())
+    .map(([ticker, net]) => {
       const pos = currentModel?.positions.find(p => p.symbol === ticker);
-      items.push({ symbol: ticker, name: pos?.name || ticker, dividendNet: net, currentValue: pos?.currentValue || 0 });
-    }
-  }
-  return items.sort((a, b) => b.dividendNet - a.dividendNet);
+      return { symbol: ticker, name: pos?.name || ticker, dividendNet: net, currentValue: pos?.currentValue || 0 };
+    })
+    .sort((a, b) => b.dividendNet - a.dividendNet);
 }
 
 function hpRow(item, barW, barColor, rightLabel, sym) {
@@ -13328,8 +13350,11 @@ function renderHoldingsPerformance() {
   const el = document.getElementById('holdingsPerf');
   if (!el) return;
 
-  _hpData    = buildHpBaseData();
-  _hpDivData = buildHpDivData();
+  // Walked once and handed to both builders: the dividend map costs a sharesHeldAt() per ex-date per
+  // symbol, and this panel re-renders on every quote tick.
+  const divMap = hpDividendMap();
+  _hpData    = buildHpBaseData(divMap);
+  _hpDivData = buildHpDivData(divMap);
 
   // ── Dividends tab ──────────────────────────────────────────────────────────
   if (_hpTab === 'dividends') {
@@ -13410,6 +13435,8 @@ window.showHpTip = function(e, sym) {
       <span style="color:${urc};text-align:right">${item.unrealizedPnl>=0?'+':''}${fmtCurr(item.unrealizedPnl)}</span>
       <span style="color:rgba(250,243,224,.6)">Realized</span>
       <span style="color:${rec};text-align:right">${item.realizedPnl>=0?'+':''}${fmtCurr(item.realizedPnl)}</span>
+      ${item.dividends > 0 ? `<span style="color:rgba(250,243,224,.6)">Dividends</span>
+      <span style="color:var(--gain);text-align:right">+${fmtCurr(item.dividends)}</span>` : ''}
       <span style="color:rgba(250,243,224,.6)">Total value</span>
       <span style="font-weight:600;text-align:right">${item.currentValue > 0 ? fmtCurr(item.currentValue) : '—'}</span>`;
   }
