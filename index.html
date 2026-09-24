@@ -4996,10 +4996,13 @@ function buildStockShareCard(sym) {
   const dayLabel = `<span style="position:absolute;right:0;bottom:100%;margin-bottom:5px;font-family:${SC_FONT};font-size:16px;font-weight:500;color:var(--muted)">(day change)</span>`;
   const totCol = g.total >= 0 ? 'var(--gain)' : 'var(--loss)';
   const totPct = g.costAll > 0 ? `${g.total >= 0 ? '+' : '−'}${Math.abs(g.total / g.costAll * 100).toFixed(1)}%` : '';
-  // Overall P&L, hung under the current value so the stat row tells the whole story: cost in, value
-  // now, what that came to. Deliberately the same g.total/totPct the กำไรรวม row below reports —
-  // one figure quoted twice, never two that could disagree.
-  const totValTxt = `${sgn(g.total)}${totPct ? ` (${totPct})` : ''}`;
+  // Unrealized gain, hung under the current value because that is the pair it closes: cost basis plus
+  // this equals the value above it, which a reader can check on the card. Realized P&L and dividends
+  // are deliberately left out — they belong to shares no longer held, and the กำไรรวม row below is
+  // where all three are added up.
+  const unrealPct = g.unreal && pos.costBasis > 0 ? g.unreal / pos.costBasis * 100 : (pos.pnlPct ?? 0);
+  const unrealTxt = `${sgn(g.unreal)} (${g.unreal >= 0 ? '+' : '−'}${Math.abs(unrealPct).toFixed(1)}%)`;
+  const unrealCol = g.unreal >= 0 ? 'var(--gain)' : 'var(--loss)';
   const wPort = inPort?.weightPct, wAll = inAll?.weightPct;
 
   // Waterfall bars share one scale, so the three magnitudes stay comparable.
@@ -5012,7 +5015,7 @@ function buildStockShareCard(sym) {
       <span style="text-align:right;font-family:var(--font-mono);font-size:22px;color:${col}">${sgn(val)}</span>
     </div>`;
 
-  // `sub` hangs a second, smaller line under the figure — the total return under the current value.
+  // `sub` hangs a second, smaller line under the figure — the unrealized gain under the current value.
   // The card is a fixed 1350px; the height it costs comes out of the footer's margin-top:auto slack.
   const stat = (l, v, sub, subCol) => `<div><div style="font-size:19px;color:var(--muted)">${l}</div>
       <div style="margin-top:6px;font-family:var(--font-mono);font-size:29px;font-weight:600">${v}</div>
@@ -5068,7 +5071,7 @@ function buildStockShareCard(sym) {
       ${stat('จำนวนหุ้นที่ถือ', pos.qty % 1 === 0 ? pos.qty : pos.qty.toFixed(2))}
       ${stat('ต้นทุนเฉลี่ย', fmtUSD(pos.avgPrice))}
       ${stat('ราคาทุนรวม', fmtUSD(pos.costBasis))}
-      ${stat('มูลค่าปัจจุบัน', fmtUSD(pos.currentValue), totValTxt, totCol)}
+      ${stat('มูลค่าปัจจุบัน', fmtUSD(pos.currentValue), unrealTxt, unrealCol)}
     </div>
 
     <div style="margin-top:26px;display:flex;align-items:baseline;gap:14px">
