@@ -1081,11 +1081,45 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
 
-/* Held for the frame the share picture is taken in. The renderer lays the clone out at the node's
-   current size, so a table scrolled sideways would be cut off at the visible edge — this lets it
-   size to its content instead. It does briefly change the live layout; the button's busy state is
-   what explains the flicker. */
-.capturing .table-scroll { overflow: visible !important; width: max-content !important; min-width: 100%; }
+/* Off-screen stage a share picture is composed on. The renderer lays a node out at the size it has
+   on screen, so capturing the live card cut the table off at the viewport edge — badly on a phone,
+   where the card is ~360px wide and most columns are past it. A clone parked here is laid out at a
+   desktop width instead, and sized to its own content (width:max-content over a min-width floor), so
+   a table wider than the floor still grows rather than clipping. Nothing on screen moves.
+   Off-screen, not display:none — the renderer reads computed geometry, which a hidden subtree
+   has none of. */
+.shot-stage {
+  position: fixed; top: 0; left: -99999px; z-index: -1;
+  pointer-events: none;
+  width: max-content;
+  background: var(--bg);
+}
+.shot-stage .table-scroll { overflow: visible !important; width: max-content !important; min-width: 100%; }
+/* Only the table gets a say in how wide the stage becomes. `width:0` keeps the header, the filter
+   pills and the weight bar out of the max-content calculation, and `min-width:100%` then fills
+   whatever width the table settled on — without it, a pill row that wraps on screen would lay itself
+   out on one line and stretch the picture to fit. */
+.shot-stage > .card > *:not(.table-scroll) { width: 0; min-width: 100%; }
+/* The frozen symbol column sticks to the nearest scrollport, which off-screen is the window rather
+   than the (no longer scrolling) table — it would be dragged out of its row. Nothing scrolls in a
+   picture, so the column is simply static there. */
+.shot-stage .pos-table th:first-child,
+.shot-stage .pos-table td:first-child { position: static; }
+
+/* Media queries read the viewport, not the element, so the ≤700px rules below still apply to a clone
+   sitting on a 1120px-wide stage — they would shrink the type and clamp the symbol column to 85px in
+   a picture with room for neither. Restore the desktop values for the shot; keep these in step with
+   their counterparts in the ≤700px block. */
+.shot-stage .card { padding: var(--sp-4); }
+.shot-stage .card-title { font-size: 15px; margin-bottom: 14px; }
+.shot-stage .pos-table { font-size: 13px; }
+.shot-stage .pos-table th { padding: 9px 8px; }
+.shot-stage .pos-table td { padding: 10px 8px; }
+.shot-stage .pos-table th:first-child,
+.shot-stage .pos-table td:first-child { width: auto; min-width: 0; max-width: 150px; }
+.shot-stage .asset-cell { gap: 9px; }
+.shot-stage .logo-wrap, .shot-stage .logo-img, .shot-stage .logo-fb { width: 32px; height: 32px; }
+.shot-stage .asset-name { max-width: 190px; }
 
 /* ── Monthly Returns Heatmap ── */
 .mret-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11px; }
@@ -4613,8 +4647,10 @@ window.toggleExportMenu = function(e) {
 //   · Images it cannot reach same-origin or with CORS silently do not draw — hence FMP leading
 //     LOGO_SOURCES. Google's font files DO send the header, so the library inlines the webfonts
 //     itself and no woff2 has to be baked into this file.
-//   · The clone is laid out at the node's current size, so a sideways-scrolled table would be cut
-//     off at the visible edge. `.capturing` lifts that clamp for the shot.
+//   · The clone is laid out at the node's current size. Capturing the card in place therefore made
+//     the picture depend on the window: on a phone it came out as the sliver of table that happened
+//     to fit. So the card is never captured in place — a copy of it goes on a fixed-width off-screen
+//     stage (`.shot-stage`) and that is what gets rasterised. See captureCardAtWidth.
 const SHOT_LIB_URL = 'https://cdn.jsdelivr.net/npm/modern-screenshot@4.6.6/dist/index.js';
 let _shotLib = null;
 function loadShotLib() {
@@ -4651,6 +4687,74 @@ async function deliverShot(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+// The width every panel picture is composed at, whatever the device. Wide enough for the full
+// Positions table on a desktop; a table wider than this pushes the stage wider still rather than
+// being cut (see .shot-stage's width:max-content).
+const SHOT_STAGE_W = 1120;
+// A canvas that exceeds what the browser will back throws on toBlob — and mobile Safari gives up far
+// sooner than a desktop does (it caps total pixels, not just each side). A long portfolio at scale 2
+// is exactly the shape that trips it, which is the other half of why sharing "just failed" on an
+// iPhone, so the scale is fitted to the picture instead of fixed at 2.
+const SHOT_MAX_PX = 12e6, SHOT_MAX_DIM = 4000;
+function shotScaleFor(w, h) {
+  const byArea = Math.sqrt(SHOT_MAX_PX / Math.max(1, w * h));
+  const byDim  = Math.min(SHOT_MAX_DIM / Math.max(1, w), SHOT_MAX_DIM / Math.max(1, h));
+  return Math.max(1, Math.min(2, byArea, byDim));
+}
+
+// Rasterise a card at a fixed width, independent of the window it was clicked in.
+//
+// A copy is captured rather than the card itself so the live page never reflows: no flicker, and a
+// render that lands mid-capture (auto-refresh does not pause for this) touches the original only.
+// That is also why the copy's ids are stripped — two nodes with the same id in one document, and
+// getElementById could hand a renderer the copy.
+async function captureCardAtWidth(card, minWidth) {
+  const lib = await loadShotLib();
+  const stage = document.createElement('div');
+  stage.className = 'shot-stage';
+  stage.style.minWidth = minWidth + 'px';
+  const clone = card.cloneNode(true);
+
+  // cloneNode copies the value *attribute*, not what was typed, so the search box would come out
+  // blank while the table below it is visibly filtered. Done before anything is removed, so the two
+  // lists still line up.
+  const srcFields = card.querySelectorAll('input, textarea, select');
+  clone.querySelectorAll('input, textarea, select').forEach((el, i) => {
+    const src = srcFields[i];
+    if (!src) return;
+    if (src.type === 'checkbox' || src.type === 'radio') el.checked = src.checked;
+    else if (el.tagName === 'SELECT') el.selectedIndex = src.selectedIndex;
+    else { el.setAttribute('value', src.value); el.value = src.value; }
+  });
+
+  clone.removeAttribute('id');
+  clone.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
+  // The share control has no business being in its own picture. Nothing else is dropped — the point
+  // of this mode is the panel exactly as it appears.
+  clone.querySelectorAll('[data-no-shot]').forEach(n => n.remove());
+
+  stage.appendChild(clone);
+  document.body.appendChild(stage);
+  try {
+    // Two frames: one for the off-screen layout to settle, one to be sure it painted before the
+    // renderer reads geometry off it.
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // The logos are already in cache, but a freshly cloned <img> still has to decode; a miss would
+    // silently leave a hole in the picture.
+    const pending = [...clone.querySelectorAll('img')].filter(i => !i.complete);
+    if (pending.length) await Promise.race([
+      Promise.all(pending.map(i => new Promise(r => { i.onload = i.onerror = r; }))),
+      new Promise(r => setTimeout(r, 2500)),
+    ]);
+    return await lib.domToBlob(clone, {
+      scale: shotScaleFor(clone.offsetWidth, clone.offsetHeight),
+      backgroundColor: css('--bg'),                 // fills outside the card's rounded corners
+    });
+  } finally {
+    stage.remove();
+  }
+}
+
 window.sharePositionsImage = async function() {
   const card = document.getElementById('positionsCard');
   const btn  = document.getElementById('sharePosBtn');
@@ -4660,18 +4764,7 @@ window.sharePositionsImage = async function() {
   let failed = false;
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const lib = await loadShotLib();
-    card.classList.add('capturing');
-    // Two frames: one for the unclamped layout to settle, one to be sure it painted before the
-    // clone reads geometry off it.
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const blob = await lib.domToBlob(card, {
-      scale: 2,                                     // sharp when viewed full-size in a chat
-      backgroundColor: css('--bg'),                 // fills outside the card's rounded corners
-      // The share control has no business being in its own picture. Nothing else is hidden —
-      // the point of this mode is the panel exactly as it appears.
-      filter: n => n.nodeType !== 1 || !n.hasAttribute('data-no-shot'),
-    });
+    const blob = await captureCardAtWidth(card, SHOT_STAGE_W);
     const port = activePortfolio === 'ALL' ? 'all'
       : String(activePortfolio).toLowerCase().replace(/[^a-z0-9]+/g, '-');
     await deliverShot(blob, `positions-${port}-${new Date().toISOString().slice(0, 10)}.png`);
@@ -4680,7 +4773,6 @@ window.sharePositionsImage = async function() {
     console.error('[share] positions image failed', err);
     if (btn) { btn.textContent = '!'; btn.title = 'Could not make the picture — see the console'; }
   } finally {
-    card.classList.remove('capturing');
     delete card.dataset.shooting;
     if (btn) {
       btn.disabled = false;
