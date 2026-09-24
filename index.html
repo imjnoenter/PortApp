@@ -4989,6 +4989,16 @@ function buildStockShareCard(sym) {
   const dayPct = pos.dayChangePct;
   const dayCol = dayPct == null ? 'var(--muted)' : (dayPct >= 0 ? 'var(--gain)' : 'var(--loss)');
   const dayTxt = dayPct == null ? '' : `${dayPct >= 0 ? '+' : '−'}${Math.abs(dayPct).toFixed(2)}%`;
+  // Names the percentage beside the price without moving either figure: it is positioned out of flow
+  // above it, inside an inline-block wrapper whose own baseline is still the percentage's (line-height
+  // is 1), so the header row's baseline alignment and width are exactly what they were. Concatenated
+  // with no whitespace between for the same reason — a space before it would nudge the number left.
+  const dayLabel = `<span style="position:absolute;right:0;bottom:100%;margin-bottom:5px;font-family:${SC_FONT};font-size:16px;font-weight:500;color:var(--muted)">(day change)</span>`;
+  // What today did to the holding, not to one share: the figure hangs off the current value, so it
+  // is the same money in the same unit. The percentage is identical either way.
+  const dayVal = pos.dayChange == null ? null : pos.dayChange * (pos.qty || 0);
+  const dayValTxt = dayVal == null ? '' :
+    `${sgn(dayVal)} (${dayVal >= 0 ? '+' : '−'}${Math.abs(dayPct ?? 0).toFixed(1)}%)`;
   const totCol = g.total >= 0 ? 'var(--gain)' : 'var(--loss)';
   const totPct = g.costAll > 0 ? `${g.total >= 0 ? '+' : '−'}${Math.abs(g.total / g.costAll * 100).toFixed(1)}%` : '';
   const wPort = inPort?.weightPct, wAll = inAll?.weightPct;
@@ -5003,8 +5013,11 @@ function buildStockShareCard(sym) {
       <span style="text-align:right;font-family:var(--font-mono);font-size:22px;color:${col}">${sgn(val)}</span>
     </div>`;
 
-  const stat = (l, v) => `<div><div style="font-size:19px;color:var(--muted)">${l}</div>
-      <div style="margin-top:6px;font-family:var(--font-mono);font-size:29px;font-weight:600">${v}</div></div>`;
+  // `sub` hangs a second, smaller line under the figure. Only the current value uses one; the card is
+  // a fixed 1350px, and the height it costs comes out of the footer's margin-top:auto slack.
+  const stat = (l, v, sub, subCol) => `<div><div style="font-size:19px;color:var(--muted)">${l}</div>
+      <div style="margin-top:6px;font-family:var(--font-mono);font-size:29px;font-weight:600">${v}</div>
+      ${sub ? `<div style="margin-top:5px;font-family:var(--font-mono);font-size:21px;font-weight:600;color:${subCol}">${sub}</div>` : ''}</div>`;
 
   const weight = (l, v, col) => `<div>
       <div style="font-size:19px;color:var(--muted)">${l}</div>
@@ -5038,7 +5051,7 @@ function buildStockShareCard(sym) {
       <div style="text-align:right;flex:none">
         <div style="display:flex;align-items:baseline;justify-content:flex-end;gap:14px">
           <span style="font-family:var(--font-mono);font-size:46px;font-weight:700;letter-spacing:-.02em;line-height:1">${fmtUSD(pos.price)}</span>
-          ${dayTxt ? `<span style="font-family:var(--font-mono);font-size:27px;font-weight:700;color:${dayCol};line-height:1">${dayTxt}</span>` : ''}
+          ${dayTxt ? `<span style="position:relative;display:inline-block;font-family:var(--font-mono);font-size:27px;font-weight:700;color:${dayCol};line-height:1">${dayTxt}${dayLabel}</span>` : ''}
         </div>
         <div style="margin-top:11px;font-size:20px;color:var(--muted)">ราคาล่าสุด · ${_scThaiDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }))}</div>
       </div>
@@ -5056,7 +5069,7 @@ function buildStockShareCard(sym) {
       ${stat('จำนวนหุ้นที่ถือ', pos.qty % 1 === 0 ? pos.qty : pos.qty.toFixed(2))}
       ${stat('ต้นทุนเฉลี่ย', fmtUSD(pos.avgPrice))}
       ${stat('ราคาทุนรวม', fmtUSD(pos.costBasis))}
-      ${stat('มูลค่าปัจจุบัน', fmtUSD(pos.currentValue))}
+      ${stat('มูลค่าปัจจุบัน', fmtUSD(pos.currentValue), dayValTxt, dayCol)}
     </div>
 
     <div style="margin-top:26px;display:flex;align-items:baseline;gap:14px">
