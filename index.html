@@ -18,7 +18,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <style>
 
 :root {
@@ -4699,6 +4699,9 @@ window.sharePositionsImage = async function() {
 // and the interface's own language setting defaults to EN, so t() would quietly produce English
 // pictures. Swap these for t() calls if the picture should follow the interface instead.
 const SC_W = 1080, SC_H = 1350, SC_CW = 952, SC_CH = 300;
+// Looped Thai letterforms — the traditional shapes, easier to read as body text than Kanit's
+// loopless geometry. Declared once because the SVG marker labels need the same face by name.
+const SC_FONT = "'Noto Sans Thai Looped', system-ui, sans-serif";
 
 // Nearest index at or before a date, over the sorted series buildTvSeriesData returns.
 function _scIndexAt(series, dateStr) {
@@ -4742,10 +4745,12 @@ function _scChartSvg(series, trades, avgCost, hi52, lo52) {
     const end = x > SC_CW * 0.72;
     // Fractional shares keep up to 2dp but never a trailing zero — "60.50 หุ้น" reads wrong.
     const shTxt = String(+((+tr.shares || 0).toFixed(2)));
+    // Share count only. Buy vs sell is already carried by the triangle's direction and colour,
+    // and spelled out once in the legend, so repeating it on every marker was noise.
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5.5" fill="${C.bg}" stroke="${col}" stroke-width="3"/>`
          + `<path d="${tri}" fill="${col}"/>`
          + `<text x="${(x + (end ? -14 : 14)).toFixed(1)}" y="${(y + dy).toFixed(1)}" text-anchor="${end ? 'end' : 'start'}"`
-         + ` font-family="Kanit" font-size="19" font-weight="500" fill="${col}">${buy ? 'ซื้อ' : 'ขาย'} ${shTxt} หุ้น</text>`;
+         + ` font-family="${SC_FONT}" font-size="17" font-weight="500" fill="${col}">${shTxt} หุ้น</text>`;
   }).join('');
 
   const hair = (v, below) => v == null || !isFinite(v) ? '' :
@@ -4799,6 +4804,10 @@ function _scGather(sym) {
     .filter(t => t.ticker === sym && (t.type === 'Buy' || t.type === 'Sell') && t.price > 0)
     .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
 
+  // Scoped to the symbol's own portfolio, so "Portfolio" here means the same portfolio the weight
+  // row names — rather than whichever view happens to be active.
+  const donuts = _scDonutGroups(sym, modelForPort(port));
+
   // Chart window: far enough back to contain every marker, but at least ~14 months so a
   // recently-opened position doesn't render as a two-week scribble.
   let series = [];
@@ -4811,7 +4820,7 @@ function _scGather(sym) {
     if (series.length < 2) series = all;
   }
   return { pos, port, inPort, inAll, unreal, realized, divs, total, costAll,
-           firstDate, tranches, filled, trades, series };
+           firstDate, tranches, filled, trades, series, donuts };
 }
 
 function _scMonthsSince(dateStr) {
@@ -4822,6 +4831,55 @@ function _scMonthsSince(dateStr) {
   if (m < 0) m = 0;
   const y = Math.floor(m / 12), mo = m % 12;
   return y ? `${y} ปี${mo ? ` ${mo} เดือน` : ''}` : `${mo} เดือน`;
+}
+
+// One donut ring, drawn as arcs. Not Chart.js: a <canvas> has to be fully painted before the
+// renderer serialises it, which is timing the capture does not need to depend on.
+function _scArc(cx, cy, R, r, a0, a1) {
+  const large = (a1 - a0) > Math.PI ? 1 : 0;
+  const p = (rad, ang) => `${(cx + rad * Math.cos(ang)).toFixed(2)} ${(cy + rad * Math.sin(ang)).toFixed(2)}`;
+  return `M${p(R, a0)} A${R} ${R} 0 ${large} 1 ${p(R, a1)} L${p(r, a1)} A${r} ${r} 0 ${large} 0 ${p(r, a0)} Z`;
+}
+
+function _scDonutSvg(g, sym, size) {
+  const R = size / 2, r = R * 0.62, mid = R;
+  const items = [...g.items].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
+  let ang = -Math.PI / 2;
+  const seg = items.map(p => {
+    let frac = (p.currentValue || 0) / g.total;
+    if (!(frac > 0)) return '';
+    frac = Math.min(frac, 0.9999);            // a full turn would collapse the arc onto itself
+    const a1 = ang + frac * Math.PI * 2;
+    const mine = p.symbol === sym;
+    // The symbol's own slice sits proud of the ring and keeps full saturation; everything else
+    // recedes. Same emphasis the app's donut uses, expressed with radius instead of Chart.js offset.
+    const d = _scArc(mid, mid, mine ? R : R - 5, r, ang, a1);
+    ang = a1;
+    return `<path d="${d}" fill="${colorFor(p.symbol)}"${mine ? '' : ' fill-opacity=".34"'}/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="display:block">${seg}</svg>`;
+}
+
+// "Where SYM sits" — its share of its own portfolio, its sector and its category, with rank.
+// Mirrors renderSymbolModal's donutGroupDefs: a grouping with under 2 members says nothing.
+function _scDonutGroups(sym, model) {
+  const pos = findPosIn(model, sym);
+  if (!pos) return [];
+  const all = model.positions || [];
+  // Labels stay English by request, and are the tag VALUES rather than the column names — the
+  // same three rings the symbol window shows, so the picture and the app can't disagree.
+  const defs = [{ label: 'Portfolio', items: all }];
+  if (pos.custom)  defs.push({ label: pos.custom,  items: all.filter(p => p.custom === pos.custom) });
+  if (pos.myGroup) defs.push({ label: pos.myGroup, items: all.filter(p => p.myGroup === pos.myGroup) });
+  return defs.map(g => {
+    if (g.items.length < 2) return null;
+    const total = g.items.reduce((s, p) => s + (p.currentValue || 0), 0);
+    const mine = g.items.find(p => p.symbol === sym);
+    if (!mine || total <= 0) return null;
+    const rank = [...g.items].sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0))
+      .findIndex(p => p.symbol === sym) + 1;
+    return { ...g, total, rank, pct: (mine.currentValue || 0) / total * 100 };
+  }).filter(Boolean);
 }
 
 const _SC_TH_MONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -4853,7 +4911,7 @@ function buildStockShareCard(sym) {
       <span style="text-align:right;font-family:var(--font-mono);font-size:22px;color:${col}">${sgn(val)}</span>
     </div>`;
 
-  const stat = (l, v) => `<div><div style="font-size:19px;color:var(--muted)">${l}</div>
+  const stat = (l, v) => `<div><div style="font-size:19px;color:var(--muted);white-space:nowrap">${l}</div>
       <div style="margin-top:6px;font-family:var(--font-mono);font-size:29px;font-weight:600">${v}</div></div>`;
 
   const weight = (l, v, col) => `<div>
@@ -4867,7 +4925,7 @@ function buildStockShareCard(sym) {
   const el = document.createElement('div');
   el.id = 'stockShareCard';
   el.style.cssText = `width:${SC_W}px;height:${SC_H}px;display:flex;flex-direction:column;`
-    + `padding:60px 64px 52px;background:var(--bg);color:var(--ink);font-family:'Kanit',system-ui,sans-serif`;
+    + `padding:60px 64px 52px;background:var(--bg);color:var(--ink);font-family:${SC_FONT}`;
   el.innerHTML = `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
       <div style="display:flex;align-items:center;gap:20px">
@@ -4894,7 +4952,6 @@ function buildStockShareCard(sym) {
       <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:13px solid var(--gain)"></i>ซื้อ</span>
       <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:13px solid var(--loss)"></i>ขาย</span>
       <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:22px;height:0;border-top:2px dashed var(--muted)"></i>ต้นทุนเฉลี่ย</span>
-      <span style="margin-left:auto;color:var(--muted);font-size:18px">ราคาย้อนหลัง (USD)</span>
     </div>
 
     <div style="margin-top:30px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;padding:26px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
@@ -4905,7 +4962,7 @@ function buildStockShareCard(sym) {
     </div>
 
     <div style="margin-top:26px;display:flex;align-items:baseline;gap:14px">
-      <span style="font-size:21px;color:var(--muted)">กำไรรวม</span>
+      <span style="font-size:21px;color:var(--muted);white-space:nowrap">กำไรรวม</span>
       <span style="font-family:var(--font-mono);font-size:34px;font-weight:700;color:${totCol}">${sgn(g.total)}</span>
       ${totPct ? `<span style="font-family:var(--font-mono);font-size:23px;color:${totCol}">${totPct}</span>` : ''}
       <span style="margin-left:auto;font-size:19px;color:var(--muted)">${g.firstDate ? `ถือมา ${_scMonthsSince(g.firstDate)} · ซื้อครั้งแรก ${_scThaiDate(g.firstDate)}` : ''}</span>
@@ -4921,6 +4978,20 @@ function buildStockShareCard(sym) {
       ${weight(`สัดส่วนในพอร์ต ${escHtml(port)}`, wPort, 'var(--terracotta)')}
       ${weight('สัดส่วนในทุกพอร์ต', wAll, 'var(--peri)')}
     </div>
+
+    ${g.donuts.length ? `<div style="margin-top:26px;padding-top:24px;border-top:1px solid var(--line);
+         display:grid;grid-template-columns:repeat(${g.donuts.length},1fr);gap:22px;justify-items:center">
+      ${g.donuts.map(d => `<div style="text-align:center">
+        <div style="position:relative;width:168px;height:168px">
+          ${_scDonutSvg(d, sym, 168)}
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px">
+            <div style="font-family:var(--font-mono);font-size:30px;font-weight:700;letter-spacing:-.02em">${d.pct.toFixed(1)}%</div>
+            <div style="font-family:var(--font-mono);font-size:16px;color:var(--muted)">#${d.rank} of ${d.items.length}</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;font-size:16px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)">${escHtml(d.label)}</div>
+      </div>`).join('')}
+    </div>` : ''}
 
     <div style="margin-top:auto;padding-top:20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:19px;color:var(--muted)">${g.tranches.length ? `แผนเข้าซื้อ ${g.filled} จาก ${g.tranches.length} ไม้` : ''}</div>
@@ -5904,14 +5975,16 @@ function renderSymbolModal() {
   // _symRenderPlanFragments can swap it in place after a port switch or a save. ──
   const thesisHtml = _symThesisCardHtml(sym, plan);
 
-  // ── "Where SYM sits" donuts: this symbol's share of Portfolio / its own Sector / its own
-  // Category. A grouping with <2 members is omitted (a 100%-filled ring says nothing); if every
-  // grouping is omitted the whole card is. Actual Chart.js instances are built in the trailing
-  // setTimeout below, once the canvases from this HTML are in the DOM — see pass-2b report for
-  // the symbolDetailCharts push-not-assign contract. ──
+  // ── "Where SYM sits" donuts: this symbol's share of Portfolio / its own Custom tag / its own
+  // My Group tag. A grouping with <2 members is omitted (a 100%-filled ring says nothing); if every
+  // grouping is omitted the whole card is. Labels are the tag VALUES, not the column names, and are
+  // user-authored strings from the sheet — hence escHtml below, and no t(): there is nothing to
+  // translate. Actual Chart.js instances are built in the trailing setTimeout below, once the
+  // canvases from this HTML are in the DOM — see pass-2b report for the symbolDetailCharts
+  // push-not-assign contract. ──
   const donutGroupDefs = [{ key: 'symDonutPortfolio', label: 'Portfolio', items: currentModel.positions || [] }];
-  if (pos.sector)   donutGroupDefs.push({ key: 'symDonutSector',   label: t(pos.sector),   items: (currentModel.positions || []).filter(p => p.sector === pos.sector) });
-  if (pos.category) donutGroupDefs.push({ key: 'symDonutCategory', label: t(pos.category), items: (currentModel.positions || []).filter(p => p.category === pos.category) });
+  if (pos.custom)  donutGroupDefs.push({ key: 'symDonutCustom',  label: pos.custom,  items: (currentModel.positions || []).filter(p => p.custom === pos.custom) });
+  if (pos.myGroup) donutGroupDefs.push({ key: 'symDonutMyGroup', label: pos.myGroup, items: (currentModel.positions || []).filter(p => p.myGroup === pos.myGroup) });
   const symDonutGroups = donutGroupDefs.map(g => {
     if (g.items.length < 2) return null;
     const total = g.items.reduce((s, p) => s + (p.currentValue || 0), 0);
