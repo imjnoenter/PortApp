@@ -18,7 +18,7 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=DM+Sans:wght@400;500;600;700&Intel+One+Mono:ital,wght@0,300..700;1,300..700&family=Kanit:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <style>
 
 :root {
@@ -4690,6 +4690,281 @@ window.sharePositionsImage = async function() {
   }
 };
 
+// ── Share one stock as a designed picture ───────────────────────────────────────────────────
+// Unlike sharePositionsImage, which rasterises what is on screen, this composes a purpose-built
+// 1080×1350 card from live data, captures it offscreen and throws it away. It exists because a
+// screenshot of the symbol window is app UI, whereas this is something you would actually send.
+//
+// Labels are hard-coded Thai rather than routed through t(): the card is meant for Thai readers,
+// and the interface's own language setting defaults to EN, so t() would quietly produce English
+// pictures. Swap these for t() calls if the picture should follow the interface instead.
+const SC_W = 1080, SC_H = 1350, SC_CW = 952, SC_CH = 300;
+
+// Nearest index at or before a date, over the sorted series buildTvSeriesData returns.
+function _scIndexAt(series, dateStr) {
+  let lo = 0, hi = series.length - 1, best = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (series[m].time <= dateStr) { best = m; lo = m + 1; } else hi = m - 1;
+  }
+  return best;
+}
+
+// Area chart + trade markers. Colours are resolved through css() rather than left as var(),
+// because SVG presentation attributes don't accept custom properties.
+function _scChartSvg(series, trades, avgCost, hi52, lo52) {
+  if (!series || series.length < 2) return '';
+  const C = { line: css('--terracotta'), gain: css('--gain'), loss: css('--loss'),
+              muted: css('--muted'), hair: css('--line'), bg: css('--bg') };
+  const vals = series.map(d => d.value);
+  let min = Math.min(...vals), max = Math.max(...vals);
+  for (const v of [avgCost, hi52, lo52]) if (v != null && isFinite(v)) { min = Math.min(min, v); max = Math.max(max, v); }
+  const span = (max - min) || 1;
+  min -= span * 0.10; max += span * 0.10;            // headroom so labels and markers clear the edges
+  const PT = 10, PB = 22;
+  const X = i => i / (series.length - 1) * SC_CW;
+  const Y = v => PT + (max - v) / (max - min) * (SC_CH - PT - PB);
+
+  const pts = series.map((d, i) => `${X(i).toFixed(1)} ${Y(d.value).toFixed(1)}`);
+  const line = 'M' + pts.join(' L');
+  const area = `${line} L${SC_CW} ${SC_CH} L0 ${SC_CH} Z`;
+
+  const marks = trades.map(tr => {
+    const i = _scIndexAt(series, tr.dateStr);
+    if (i < 0) return '';                             // trade predates the history we hold
+    const buy = tr.type === 'Buy', col = buy ? C.gain : C.loss;
+    const x = X(i), y = Y(tr.price);
+    const tri = buy ? `M${x - 9} ${y + 15} L${x + 9} ${y + 15} L${x} ${y + 1} Z`
+                    : `M${x - 9} ${y - 15} L${x + 9} ${y - 15} L${x} ${y - 1} Z`;
+    // Labels always hang below the marker: above one that sits near the 52-week high the text
+    // would run off the top of the plot.
+    const dy = buy ? 34 : 22;
+    const end = x > SC_CW * 0.72;
+    // Fractional shares keep up to 2dp but never a trailing zero — "60.50 หุ้น" reads wrong.
+    const shTxt = String(+((+tr.shares || 0).toFixed(2)));
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5.5" fill="${C.bg}" stroke="${col}" stroke-width="3"/>`
+         + `<path d="${tri}" fill="${col}"/>`
+         + `<text x="${(x + (end ? -14 : 14)).toFixed(1)}" y="${(y + dy).toFixed(1)}" text-anchor="${end ? 'end' : 'start'}"`
+         + ` font-family="Kanit" font-size="19" font-weight="500" fill="${col}">${buy ? 'ซื้อ' : 'ขาย'} ${shTxt} หุ้น</text>`;
+  }).join('');
+
+  const hair = (v, below) => v == null || !isFinite(v) ? '' :
+    `<line x1="0" y1="${Y(v).toFixed(1)}" x2="${SC_CW}" y2="${Y(v).toFixed(1)}" stroke="${C.hair}" stroke-width="1"/>`
+    + `<text x="2" y="${(Y(v) + (below ? 19 : -7)).toFixed(1)}" font-family="${css('--font-mono')}" font-size="15" fill="${C.muted}" opacity=".75">${fmtUSD(v)}</text>`;
+
+  const avg = avgCost == null ? '' :
+    `<line x1="0" y1="${Y(avgCost).toFixed(1)}" x2="${SC_CW}" y2="${Y(avgCost).toFixed(1)}" stroke="${C.muted}" stroke-width="1.5" stroke-dasharray="7 6"/>`
+    + `<text x="${SC_CW - 4}" y="${(Y(avgCost) - 9).toFixed(1)}" text-anchor="end" font-family="${css('--font-mono')}" font-size="17" fill="${C.muted}">ต้นทุนเฉลี่ย ${fmtUSD(avgCost)}</text>`;
+
+  const last = series[series.length - 1];
+  return `<svg viewBox="0 0 ${SC_CW} ${SC_CH}" width="100%" height="${SC_CH}" preserveAspectRatio="none" style="display:block;overflow:visible">
+    <defs><linearGradient id="scGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${C.line}" stop-opacity=".30"/><stop offset="100%" stop-color="${C.line}" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${hair(hi52, false)}${hair(lo52, true)}
+    <path d="${area}" fill="url(#scGrad)"/>
+    <path d="${line}" fill="none" stroke="${C.line}" stroke-width="2.6" stroke-linejoin="round"/>
+    ${avg}
+    <circle cx="${SC_CW}" cy="${Y(last.value).toFixed(1)}" r="6" fill="${C.line}" stroke="${C.bg}" stroke-width="3"/>
+    ${marks}
+  </svg>`;
+}
+
+// Everything the card needs, gathered from the same sources the symbol window already uses.
+function _scGather(sym) {
+  const pos = findPos(sym);
+  if (!pos || !(pos.qty > 0)) return null;                 // watchlist rows have nothing to show
+  const port = defaultPortFor(sym);
+
+  const inPort = findPosIn(modelForPort(port), sym);
+  const inAll  = findPosIn(modelForPort('ALL'), sym);
+
+  const realizedRows = (pnlData || []).filter(tr => tr.ticker === sym);
+  const realized = realizedRows.reduce((s, tr) => s + tr.pnl, 0);
+  const realCost = realizedRows.reduce((s, tr) => s + tr.cost, 0);
+  const divs = (txCache ? computeDividends(txCache).byTicker : {})[sym] ?? 0;
+  const unreal = pos.pnl ?? 0;
+  const total = unreal + realized + divs;
+  const costAll = (pos.costBasis || 0) + realCost;
+
+  // Oldest still-held FIFO lot — the app has no "first bought" field, and this is the honest
+  // answer anyway: the date the shares you still own started being owned.
+  const fb = fifoBasis(port, sym, pos.qty);
+  const firstDate = fb?.lots?.length ? fb.lots[0][2] : null;
+
+  const tranches = (getPlan(sym, port)?.tranches || []).filter(t => t.price > 0);
+  const filled = pos.price != null ? tranches.filter(t => t.price >= pos.price).length : 0;
+
+  const trades = (_allTxCache || [])
+    .filter(t => t.ticker === sym && (t.type === 'Buy' || t.type === 'Sell') && t.price > 0)
+    .sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+
+  // Chart window: far enough back to contain every marker, but at least ~14 months so a
+  // recently-opened position doesn't render as a two-week scribble.
+  let series = [];
+  const pm = historyCache?.prices?.[sym];
+  if (pm) {
+    const all = buildTvSeriesData(sym, pm);
+    const cut = new Date(Date.now() - 430 * 864e5).toISOString().slice(0, 10);
+    const from = trades.length ? (trades[0].dateStr < cut ? trades[0].dateStr : cut) : cut;
+    series = all.filter(d => d.time >= from);
+    if (series.length < 2) series = all;
+  }
+  return { pos, port, inPort, inAll, unreal, realized, divs, total, costAll,
+           firstDate, tranches, filled, trades, series };
+}
+
+function _scMonthsSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T00:00:00'), n = new Date();
+  let m = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth());
+  if (n.getDate() < d.getDate()) m--;
+  if (m < 0) m = 0;
+  const y = Math.floor(m / 12), mo = m % 12;
+  return y ? `${y} ปี${mo ? ` ${mo} เดือน` : ''}` : `${mo} เดือน`;
+}
+
+const _SC_TH_MONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function _scThaiDate(dateStr) {
+  if (!dateStr) return '—';
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${d} ${_SC_TH_MONTH[m - 1]} ${y}`;
+}
+
+function buildStockShareCard(sym) {
+  const g = _scGather(sym);
+  if (!g) return null;
+  const { pos, port, inPort, inAll } = g;
+  const sgn = n => (n >= 0 ? '+' : '−') + fmtUSD(Math.abs(n));
+  const dayPct = pos.dayChangePct;
+  const dayCol = dayPct == null ? 'var(--muted)' : (dayPct >= 0 ? 'var(--gain)' : 'var(--loss)');
+  const dayTxt = dayPct == null ? '' : `${dayPct >= 0 ? '+' : '−'}${Math.abs(dayPct).toFixed(2)}%`;
+  const totCol = g.total >= 0 ? 'var(--gain)' : 'var(--loss)';
+  const totPct = g.costAll > 0 ? `${g.total >= 0 ? '+' : '−'}${Math.abs(g.total / g.costAll * 100).toFixed(1)}%` : '';
+  const wPort = inPort?.weightPct, wAll = inAll?.weightPct;
+
+  // Waterfall bars share one scale, so the three magnitudes stay comparable.
+  const mag = Math.max(Math.abs(g.unreal), Math.abs(g.realized), Math.abs(g.divs), 1);
+  const bar = (label, val, col) => `
+    <div style="display:grid;grid-template-columns:190px 1fr 170px;align-items:center;gap:18px">
+      <span style="font-size:21px;color:var(--ink-soft)">${label}</span>
+      <span style="position:relative;display:block;height:13px;border-radius:3px;background:var(--track);overflow:hidden">
+        <i style="position:absolute;left:0;top:0;bottom:0;width:${(Math.abs(val) / mag * 100).toFixed(1)}%;border-radius:3px;background:${col}"></i></span>
+      <span style="text-align:right;font-family:var(--font-mono);font-size:22px;color:${col}">${sgn(val)}</span>
+    </div>`;
+
+  const stat = (l, v) => `<div><div style="font-size:19px;color:var(--muted)">${l}</div>
+      <div style="margin-top:6px;font-family:var(--font-mono);font-size:29px;font-weight:600">${v}</div></div>`;
+
+  const weight = (l, v, col) => `<div>
+      <div style="font-size:19px;color:var(--muted)">${l}</div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:13px">
+        <span style="position:relative;display:block;flex:1;height:10px;border-radius:999px;background:var(--track)">
+          <i style="position:absolute;left:0;top:0;bottom:0;width:${Math.max(0, Math.min(100, v ?? 0)).toFixed(1)}%;border-radius:999px;background:${col}"></i></span>
+        <span style="font-family:var(--font-mono);font-size:25px;font-weight:600">${v == null ? '—' : v.toFixed(1) + '%'}</span>
+      </div></div>`;
+
+  const el = document.createElement('div');
+  el.id = 'stockShareCard';
+  el.style.cssText = `width:${SC_W}px;height:${SC_H}px;display:flex;flex-direction:column;`
+    + `padding:60px 64px 52px;background:var(--bg);color:var(--ink);font-family:'Kanit',system-ui,sans-serif`;
+  el.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px">
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="width:84px;height:84px;flex:none;border-radius:21px;border:1px solid var(--line);background:var(--logo-bg);padding:13px">
+          <img crossorigin="anonymous" src="${LOGO_SOURCES[0](sym)}" alt="${escHtml(sym)}" style="width:100%;height:100%;object-fit:contain;display:block">
+        </div>
+        <div>
+          <div style="font-size:50px;font-weight:600;line-height:1;letter-spacing:-.01em">${escHtml(sym)}</div>
+          <div style="margin-top:9px;font-size:22px;color:var(--muted)">${escHtml(pos.name || '')}${pos.name ? ' · ' : ''}พอร์ต ${escHtml(port)}</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex:none">
+        <div style="display:flex;align-items:baseline;justify-content:flex-end;gap:14px">
+          <span style="font-family:var(--font-mono);font-size:46px;font-weight:700;letter-spacing:-.02em;line-height:1">${fmtUSD(pos.price)}</span>
+          ${dayTxt ? `<span style="font-family:var(--font-mono);font-size:27px;font-weight:700;color:${dayCol};line-height:1">${dayTxt}</span>` : ''}
+        </div>
+        <div style="margin-top:11px;font-size:20px;color:var(--muted)">ราคาล่าสุด · ${_scThaiDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }))}</div>
+      </div>
+    </div>
+
+    <div style="margin-top:30px">${_scChartSvg(g.series, g.trades, pos.avgPrice, pos.week52High, pos.week52Low)}</div>
+
+    <div style="margin-top:16px;display:flex;gap:26px;align-items:center;font-size:19px;color:var(--ink-soft)">
+      <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:13px solid var(--gain)"></i>ซื้อ</span>
+      <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:13px solid var(--loss)"></i>ขาย</span>
+      <span style="display:inline-flex;align-items:center;gap:9px"><i style="display:block;width:22px;height:0;border-top:2px dashed var(--muted)"></i>ต้นทุนเฉลี่ย</span>
+      <span style="margin-left:auto;color:var(--muted);font-size:18px">ราคาย้อนหลัง (USD)</span>
+    </div>
+
+    <div style="margin-top:30px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;padding:26px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+      ${stat('จำนวนหุ้นที่ถือ', pos.qty % 1 === 0 ? pos.qty : pos.qty.toFixed(2))}
+      ${stat('ต้นทุนเฉลี่ย', fmtUSD(pos.avgPrice))}
+      ${stat('ราคาทุนรวม', fmtUSD(pos.costBasis))}
+      ${stat('มูลค่าปัจจุบัน', fmtUSD(pos.currentValue))}
+    </div>
+
+    <div style="margin-top:26px;display:flex;align-items:baseline;gap:14px">
+      <span style="font-size:21px;color:var(--muted)">กำไรรวม</span>
+      <span style="font-family:var(--font-mono);font-size:34px;font-weight:700;color:${totCol}">${sgn(g.total)}</span>
+      ${totPct ? `<span style="font-family:var(--font-mono);font-size:23px;color:${totCol}">${totPct}</span>` : ''}
+      <span style="margin-left:auto;font-size:19px;color:var(--muted)">${g.firstDate ? `ถือมา ${_scMonthsSince(g.firstDate)} · ซื้อครั้งแรก ${_scThaiDate(g.firstDate)}` : ''}</span>
+    </div>
+
+    <div style="margin-top:20px;display:flex;flex-direction:column;gap:12px">
+      ${bar('กำไรที่ยังไม่ขาย', g.unreal, g.unreal >= 0 ? 'var(--gain)' : 'var(--loss)')}
+      ${bar('กำไรที่ขายแล้ว', g.realized, g.realized >= 0 ? 'var(--gain)' : 'var(--loss)')}
+      ${bar('เงินปันผล', g.divs, 'var(--honey)')}
+    </div>
+
+    <div style="margin-top:26px;display:grid;grid-template-columns:1fr 1fr;gap:26px">
+      ${weight(`สัดส่วนในพอร์ต ${escHtml(port)}`, wPort, 'var(--terracotta)')}
+      ${weight('สัดส่วนในทุกพอร์ต', wAll, 'var(--peri)')}
+    </div>
+
+    <div style="margin-top:auto;padding-top:20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:19px;color:var(--muted)">${g.tranches.length ? `แผนเข้าซื้อ ${g.filled} จาก ${g.tranches.length} ไม้` : ''}</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:19px;font-weight:500;color:var(--ink-soft)">
+        <i style="display:block;width:12px;height:12px;border-radius:3px;background:var(--terracotta)"></i>PortApp</div>
+    </div>`;
+  return el;
+}
+
+window.shareStockImage = async function(sym) {
+  const s = sym || _symPageSym;
+  const btn = document.getElementById('shareSymBtn');
+  if (!s || window._scBusy) return;
+  window._scBusy = true;
+  const restore = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  let host = null;
+  try {
+    const lib = await loadShotLib();
+    const card = buildStockShareCard(s);
+    if (!card) throw new Error('no position to draw for ' + s);
+    // Rendered offscreen rather than hidden: the renderer reads computed geometry, which a
+    // display:none subtree does not have.
+    host = document.createElement('div');
+    host.style.cssText = `position:fixed;left:-99999px;top:0;width:${SC_W}px;height:${SC_H}px;pointer-events:none;z-index:-1`;
+    host.appendChild(card);
+    document.body.appendChild(host);
+    // Let the logo load (and the layout settle) before the clone is taken.
+    const img = card.querySelector('img');
+    if (img && !img.complete) await new Promise(r => { img.onload = img.onerror = r; setTimeout(r, 2500); });
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const blob = await lib.domToBlob(card, { scale: 2, backgroundColor: css('--bg') });
+    await deliverShot(blob, `${s.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.png`);
+  } catch (err) {
+    console.error('[share] stock card failed', err);
+    if (btn) { btn.textContent = '!'; setTimeout(() => { btn.innerHTML = restore; }, 2500); }
+    return;
+  } finally {
+    host?.remove();
+    window._scBusy = false;
+    if (btn) { btn.disabled = false; if (btn.textContent !== '!') btn.innerHTML = restore; }
+  }
+};
+
 // One file out. Split out of exportTxCsv only because a chunked export calls it N times.
 function _downloadCsv(filename, csv) {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -5737,6 +6012,10 @@ function renderSymbolModal() {
           ${isWatchlistOnly
             ? (isReadOnly() ? '' : `<button class="sym-editplan" onclick="_symOpenAction('${sym}', '${_symPlanPort}')">+ Add position →</button>`)
             : `<button class="sym-editplan" onclick="_symOpenAction('${sym}', '${_symPlanPort}')">Edit plan →</button>`}
+          ${isWatchlistOnly ? '' : `<button class="tx-close" id="shareSymBtn" onclick="shareStockImage('${sym}')"
+            title="Save this stock as a picture" aria-label="Save this stock as a picture">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>`}
           <button class="tx-close" onclick="closeSymbolModal()" aria-label="Close">×</button>
         </div>
       </div>
