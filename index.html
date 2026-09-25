@@ -2240,6 +2240,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   border-radius: 6px; transition: background .12s; cursor: default;
 }
 .hp-row:hover, .hp-row:active { background: var(--hover); }
+.hp-row.clickable { cursor: pointer; }
 .hp-sym { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .hp-sym .logo-wrap { width: 22px; height: 22px; flex-shrink: 0; }
 .hp-sym .logo-img  { width: 22px; height: 22px; }
@@ -13892,7 +13893,12 @@ function buildHpDivData(divMap) {
 }
 
 function hpRow(item, barW, barColor, rightLabel, sym) {
-  return `<div class="hp-row"
+  // Opens the same symbol window a Positions row does. A row can outlive the holding — a sold-out
+  // symbol still earns a row off the dividend map — and openSymbolModal no-ops without a position,
+  // so rows findPos can't resolve stay unclickable rather than offering a dead target.
+  const clickable = !!findPos(sym);
+  return `<div class="hp-row${clickable ? ' clickable' : ''}"
+    ${clickable ? `onclick="hideHpTip();openSymbolModal('${sym}')"` : ''}
     onmouseenter="showHpTip(event,'${sym}')"
     onmousemove="moveHpTip(event)"
     onmouseleave="hideHpTip()"
