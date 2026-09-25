@@ -5554,7 +5554,9 @@ function buildDailyCard(g) {
       <div>
         <div style="font-size:19px;color:var(--muted)">กำไรรวมตั้งแต่เริ่ม</div>
         <div style="${mono};margin-top:8px;font-size:30px;font-weight:600;letter-spacing:-.018em;color:${g.bahtRet >= 0 ? 'var(--gain)' : 'var(--loss)'}">
-          ${g.bahtRet >= 0 ? '+' : '−'}${fmtBaht(Math.abs(g.bahtRet))} <span style="font-size:.74em;font-weight:500">${g.bahtPct >= 0 ? '+' : '−'}${Math.abs(g.bahtPct).toFixed(1)}%</span>
+          <!-- 2dp, not 1: this pair is the Total Return card's baht line and has to read as the same
+               number it does there, where renderStatCards' p() prints 2dp. -->
+          ${g.bahtRet >= 0 ? '+' : '−'}${fmtBaht(Math.abs(g.bahtRet))} <span style="font-size:.74em;font-weight:500">${g.bahtPct >= 0 ? '+' : '−'}${Math.abs(g.bahtPct).toFixed(2)}%</span>
         </div>
         <div style="margin-top:4px;font-size:16px;color:var(--muted)">${g.bahtNote}</div>
       </div>
