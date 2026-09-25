@@ -94,7 +94,9 @@
 
   --font-display: 'Newsreader', Georgia, serif;
   --font-ui: 'DM Sans', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* InterNum leads: it only claims digits and their punctuation (see its @font-face), so letters
+     inside a mono-set string still come out as JetBrains Mono. */
+  --font-mono: 'InterNum', 'JetBrains Mono', ui-monospace, monospace;
 }
 /* ── Cool tone (light) — misty seafoam, eucalyptus, dusty teal ── */
 [data-tone="cool"] {
@@ -215,10 +217,32 @@
   --logo-bg: #36281c;
 }
 
+/* Inter, scoped to the glyphs a number is made of. A font stack resolves per codepoint, so leading
+   the mono stack with this family renders digits in Inter and falls through to JetBrains Mono for
+   every letter — which is how "Inter for the numbers only" is expressed in CSS, rather than by
+   tagging every figure in the markup. The range covers the marks that belong to a figure ($ % + − .
+   and the thousands comma) as well as 0-9: Inter digits next to JetBrains Mono's heavier $ would
+   read as two fonts fighting, which is the problem this is meant to solve. ฿ is deliberately absent
+   — it isn't in Inter's latin subset, so it keeps whatever it renders in today.
+   Declared here against gstatic rather than added to the <link>, because Google's own @font-face
+   blocks ship their own unicode-ranges and can't be narrowed from outside. */
+@font-face {
+  font-family: 'InterNum';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2) format('woff2');
+  unicode-range: U+0024, U+0025, U+002B-002E, U+0030-0039, U+2212;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { overflow-x: hidden; }
 body {
   font: 14px/1.55 var(--font-ui);
+  /* After the `font` shorthand, which resets it. Inter's figures are proportional by default while
+     JetBrains Mono's were fixed-advance, so without this every column that relied on the monospace
+     advance to line up would start to wander. */
+  font-variant-numeric: tabular-nums;
   background: var(--bg);
   background-image: var(--bg-grain);
   color: var(--ink);
@@ -1120,6 +1144,57 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .shot-stage .asset-cell { gap: 9px; }
 .shot-stage .logo-wrap, .shot-stage .logo-img, .shot-stage .logo-fb { width: 32px; height: 32px; }
 .shot-stage .asset-name { max-width: 190px; }
+
+/* ── Share preview ──
+   Sits at --z-modal so it can open over the symbol window the stock card is shared from. The
+   picture is sized to fit the viewport, never cropped: the point of the preview is seeing what
+   will actually be sent. */
+.shot-modal { background: var(--card); color: var(--ink); border-radius: var(--radius); border: 1px solid var(--card-edge); box-shadow: var(--shadow-lg); width: 100%; max-width: 560px; padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+/* Its own rule because the shared one keys off .tx-modal, whose padding and max-width this needs
+   to differ from — the picture wants more width and less inset than a form does. */
+.tx-overlay.open > .shot-modal { animation: modalIn .25s var(--ease-out-quint); }
+.shot-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.shot-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; letter-spacing: -.3px; }
+.shot-frame { background: var(--track); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--sp-3); display: grid; place-items: center; min-height: 120px; }
+.shot-frame img { display: block; max-width: 100%; max-height: 58vh; width: auto; height: auto; border-radius: 6px; box-shadow: var(--shadow); }
+.shot-note { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); word-break: break-all; }
+.shot-actions { display: flex; gap: var(--sp-2); }
+.shot-btn { flex: 1; padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--track); color: var(--ink); font-family: var(--font-ui); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .12s, border-color .12s; }
+.shot-btn:hover:not(:disabled) { background: var(--hover); }
+.shot-btn:disabled { opacity: .5; cursor: default; }
+.shot-btn.primary { background: var(--terracotta); border-color: var(--terracotta); color: var(--btn-fg); }
+.shot-btn.primary:hover:not(:disabled) { background: color-mix(in oklab, var(--terracotta) 88%, var(--ink)); }
+@media (max-width: 700px) { .shot-frame img { max-height: 46vh; } }
+
+/* ── Daily Returns bars ──
+   Zero-baseline: gains rise from the centre line, losses hang below it, both scaled to the
+   window's own largest move. Colour carries the sign, so the chart stays readable at the small
+   height a dashboard card can spare. Today is held at full strength; the rest sit back until
+   hovered, which is also what surfaces their tooltip. */
+.dbar-row { display: flex; align-items: stretch; gap: 3px; height: 150px; position: relative; }
+.dbar-col { position: relative; flex: 1; min-width: 0; cursor: default; }
+.dbar-col i { position: absolute; left: 0; right: 0; background: var(--gain); border-radius: 3px 3px 1px 1px; opacity: .5; transition: opacity .12s; }
+.dbar-col.dn i { background: var(--loss); border-radius: 1px 1px 3px 3px; }
+.dbar-col.today i { opacity: 1; }
+.dbar-col:hover i { opacity: 1; }
+.dbar-zero { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); pointer-events: none; }
+/* Value printed just past the end of its own bar. Magnitude only — direction is already carried
+   twice over, by which side of the zero line the bar sits on and by its colour, so a sign here
+   would be a third copy. Today keeps its % so the unit is stated once on the chart. */
+.dbar-val {
+  position: absolute; left: -2px; right: -2px; text-align: center;
+  font-family: var(--font-mono); font-variant-numeric: lining-nums tabular-nums;
+  font-size: 9px; font-weight: 600; line-height: 1; color: var(--muted);
+  pointer-events: none; white-space: nowrap;
+}
+.dbar-col.today .dbar-val { font-size: 10px; color: var(--ink); }
+.dbar-col:hover .dbar-val { color: var(--ink); }
+.dbar-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+.dbar-foot b { font-family: var(--font-mono); font-variant-numeric: lining-nums tabular-nums; font-weight: 600; }
+#dbarTip { padding: 9px 13px; box-shadow: 0 4px 16px rgba(0,0,0,.4); min-width: 120px; }
+/* Under ~900px the columns are too narrow to print a number in — the tooltip carries it there. */
+@media (max-width: 900px) { .dbar-val { display: none; } }
+@media (max-width: 700px) { .dbar-row { height: 104px; gap: 2px; } }
 
 /* ── Monthly Returns Heatmap ── */
 .mret-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11px; }
@@ -3027,6 +3102,15 @@ const I18N = {
     timpact_vs50: "vs 50-day avg", timpact_vs200: "vs 200-day avg",
     drift_badge: "Drift", drift_vs_target: "vs target",
     drift_band_label: "Drift alert", drift_off: "Off",
+    shot_preview_title: "Preview",
+    shot_share: "Share",
+    shot_download: "Download",
+    daily_returns_title: "Daily Returns",
+    dbar_days_label: "trading days",
+    dbar_up_label: "up",
+    dbar_dn_label: "down",
+    dbar_today_label: "today",
+    dbar_change_label: "Change",
     monthly_returns_title: "Monthly Returns",
     mret_avg_label: "Avg", year_label: "Year",
     no_realized_pnl: "No realized P&L in this period.",
@@ -3312,6 +3396,15 @@ const I18N = {
     drift_badge: "เบี่ยงเบน", drift_vs_target: "เทียบเป้าหมาย",
     drift_band_label: "แจ้งเตือนการเบี่ยงเบน", drift_off: "ปิด",
     corr_omitted_suffix: "หุ้นสัดส่วนย่อยที่ไม่ได้แสดง",
+    shot_preview_title: "ตัวอย่างรูป",
+    shot_share: "แชร์",
+    shot_download: "ดาวน์โหลด",
+    daily_returns_title: "ผลตอบแทนรายวัน",
+    dbar_days_label: "วันทำการ",
+    dbar_up_label: "วันขึ้น",
+    dbar_dn_label: "วันลง",
+    dbar_today_label: "วันนี้",
+    dbar_change_label: "เปลี่ยนแปลง",
     monthly_returns_title: "ผลตอบแทนรายเดือน",
     mret_avg_label: "เฉลี่ย", year_label: "ปี",
     no_realized_pnl: "ไม่มีกำไร/ขาดทุนที่รับรู้แล้วในช่วงเวลานี้",
@@ -3830,13 +3923,10 @@ window.selectTxCash = function(src) {
 function axUpdateTradeDetailsSub() {
   const el = document.getElementById('axTradeDetailsSub');
   if (!el) return;
-  const dateVal = document.getElementById('txDate')?.value;
-  const timeVal = document.getElementById('txTime')?.value;
-  const src     = document.getElementById('txCashSource')?.value || 'USD';
-  if (!dateVal || !timeVal) return;
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const [, mo, d] = dateVal.split('-');
-  el.textContent = `${d} ${MONTHS[+mo - 1]} ${timeVal.slice(0, 5)} · ${src}`;
+  // Date and time moved out to the always-visible core, above price and qty, so the fold's label
+  // names only what is still hidden behind it — repeating a field the user can already see is
+  // what makes a summary line stop being read.
+  el.textContent = document.getElementById('txCashSource')?.value || 'USD';
 }
 
 // Live "what this edit will move" line in the edit modal. The share delta is exact; the cash
@@ -4674,15 +4764,18 @@ function loadShotLib() {
   return _shotLib;
 }
 
-// Hand the file to the OS share sheet where there is one, otherwise save it. The share-sheet
-// branch is load-bearing: iOS Safari ignores <a download>, so without it this does nothing on the
-// device most likely to be sharing.
-async function deliverShot(blob, filename) {
+// Hand the file to the OS share sheet. Load-bearing on iOS: Safari ignores <a download>, so this
+// is the only route that does anything on the device most likely to be sharing. Returns false when
+// there is no share sheet to hand it to, so the caller can fall back.
+async function shareShot(blob, filename) {
   const file = new File([blob], filename, { type: 'image/png' });
-  if (navigator.canShare?.({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; }
-    catch (e) { if (e && e.name === 'AbortError') return; }   // user cancelled, not a failure
-  }
+  if (!navigator.canShare?.({ files: [file] })) return false;
+  try { await navigator.share({ files: [file] }); }
+  catch (e) { if (!e || e.name !== 'AbortError') throw e; }   // cancelling is not a failure
+  return true;
+}
+
+function downloadShot(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -4692,6 +4785,65 @@ async function deliverShot(blob, filename) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
+
+// ── Preview before it leaves ─────────────────────────────────────────────────────────────────
+// Every share path ends here rather than firing the file straight at the OS: the pictures are
+// composed, not screenshotted, so the first time anyone sees one is after it has already been
+// sent. This is that look. Share and Download are both offered — on iOS only Share does anything,
+// on most desktops only Download does, so whichever is unavailable is hidden rather than left to
+// fail silently.
+let _shotPending = null;   // { blob, filename, url }
+
+function showShotPreview(blob, filename) {
+  const ov  = document.getElementById('shotPreview');
+  const img = document.getElementById('shotPreviewImg');
+  if (!ov || !img) { downloadShot(blob, filename); return; }   // shell not built — don't lose the picture
+  if (_shotPending?.url) URL.revokeObjectURL(_shotPending.url);
+  const url = URL.createObjectURL(blob);
+  _shotPending = { blob, filename, url };
+  img.src = url;
+  img.alt = filename;
+
+  const canShare = !!navigator.canShare?.({ files: [new File([blob], filename, { type: 'image/png' })] });
+  const sBtn = document.getElementById('shotPreviewShare');
+  const dBtn = document.getElementById('shotPreviewDownload');
+  if (sBtn) sBtn.hidden = !canShare;
+  if (dBtn) dBtn.hidden = false;
+  const note = document.getElementById('shotPreviewNote');
+  if (note) note.textContent = filename;
+  ov.classList.add('open');
+}
+
+window.closeShotPreview = function() {
+  const ov = document.getElementById('shotPreview');
+  if (ov) ov.classList.remove('open');
+  // Drop the decoded bitmap rather than hold megabytes for a panel nobody is looking at.
+  document.getElementById('shotPreviewImg')?.removeAttribute('src');
+  if (_shotPending?.url) URL.revokeObjectURL(_shotPending.url);
+  _shotPending = null;
+};
+
+window.shotPreviewShare = async function() {
+  if (!_shotPending) return;
+  const { blob, filename } = _shotPending;
+  const btn = document.getElementById('shotPreviewShare');
+  const label = btn ? btn.textContent : null;
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    const ok = await shareShot(blob, filename);
+    if (!ok) downloadShot(blob, filename);   // no share sheet after all — save it instead
+    closeShotPreview();
+  } catch (err) {
+    console.error('[share] handing off failed', err);
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+};
+
+window.shotPreviewDownload = function() {
+  if (!_shotPending) return;
+  downloadShot(_shotPending.blob, _shotPending.filename);
+  closeShotPreview();
+};
 
 // The width every panel picture is composed at, whatever the device. Wide enough for the full
 // Positions table on a desktop; a table wider than this pushes the stage wider still rather than
@@ -4773,7 +4925,7 @@ window.sharePositionsImage = async function() {
     const blob = await captureCardAtWidth(card, SHOT_STAGE_W);
     const port = activePortfolio === 'ALL' ? 'all'
       : String(activePortfolio).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    await deliverShot(blob, `positions-${port}-${new Date().toISOString().slice(0, 10)}.png`);
+    showShotPreview(blob, `positions-${port}-${new Date().toISOString().slice(0, 10)}.png`);
   } catch (err) {
     failed = true;
     console.error('[share] positions image failed', err);
@@ -5143,7 +5295,7 @@ window.shareStockImage = async function(sym) {
     if (img && !img.complete) await new Promise(r => { img.onload = img.onerror = r; setTimeout(r, 2500); });
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const blob = await lib.domToBlob(card, { scale: 2, backgroundColor: css('--bg') });
-    await deliverShot(blob, `${s.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.png`);
+    showShotPreview(blob, `${s.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.png`);
   } catch (err) {
     console.error('[share] stock card failed', err);
     if (btn) { btn.textContent = '!'; setTimeout(() => { btn.innerHTML = restore; }, 2500); }
@@ -5163,8 +5315,37 @@ window.shareStockImage = async function(sym) {
 //
 // Every figure here is one the dashboard already renders. Where a number exists on screen, this
 // takes the same source rather than deriving its own, so the card and the app can never disagree.
+// ── The daily-return series both the share card and the dashboard panel draw ─────────────────
+// computeReturnSeries walks closing prices, so its last entry is the last close — which after
+// 16:00 ET may already be today. That entry is dropped and today's LIVE move appended in its
+// place, so the final bar always equals the Day Return stat card rather than a stale close.
+//
+// The history half is memoised on the same pair riskAdjusted() keys on (tx count + SPY day count):
+// the panel re-renders on every quote tick, but only the last bar moves, and a full holdings walk
+// per tick would be absurd for one changing number.
+let _drbMemo = { key: null, hist: [] };
+function dailyReturnBars(n, dayPct) {
+  const txs = _allTxCache?.length ? _allTxCache : txCache;
+  const key = `${txs?.length || 0}:${Object.keys(historyCache?.prices?.SPY || {}).length}`;
+  if (_drbMemo.key !== key) {
+    const ser = computeReturnSeries(txs);
+    let hist = [];
+    if (ser) {
+      const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      hist = ser.rp.map((r, i) => ({ r: r * 100, d: ser.dts?.[i] || null }));
+      while (hist.length && hist[hist.length - 1].d >= etToday) hist.pop();
+    }
+    _drbMemo = { key, hist };
+  }
+  const bars = _drbMemo.hist.slice(-(n - 1)).map(x => ({ ...x, today: false }));
+  if (dayPct != null) {
+    bars.push({ r: dayPct, d: new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }), today: true });
+  }
+  return bars;
+}
+
 const DC_W = 1080, DC_H = 1350;
-const DC_DAYS = 20;                      // trading days in the chart window
+const DC_DAYS = 20;                      // trading days in the share card's chart window
 // The button lives inside sc-portVal's innerHTML, which renderStatCards rewrites on every quote
 // tick — so the icon is kept here rather than in the shell, and the busy state re-queries the
 // element instead of holding a reference a re-render would detach.
@@ -5196,18 +5377,7 @@ function _dcGather() {
   const gainers = quoted.filter(p => p.dayChangePct > 0).sort((a, b) => b.dayChangePct - a.dayChangePct).slice(0, 3);
   const losers  = quoted.filter(p => p.dayChangePct < 0).sort((a, b) => a.dayChangePct - b.dayChangePct).slice(0, 3);
 
-  // The twenty-day window. computeReturnSeries walks closes, so its last entry is the last close
-  // — which after 16:00 ET may already be today. Drop it in that case and append today's live
-  // move, so the final bar is always the same number as the hero.
-  const ser = computeReturnSeries(_allTxCache?.length ? _allTxCache : txCache);
-  let bars = [];
-  if (ser) {
-    const etToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-    const hist = ser.rp.map((r, i) => ({ r: r * 100, d: ser.dts?.[i] }));
-    while (hist.length && hist[hist.length - 1].d >= etToday) hist.pop();
-    bars = hist.slice(-(DC_DAYS - 1)).map(x => x.r);
-  }
-  if (dayPct != null) bars.push(dayPct);
+  const bars = dailyReturnBars(DC_DAYS, dayPct);
 
   // Total return in baht: value now against the baht actually paid in, which is what the Total
   // Return card shows. _contribCache is read directly rather than through netContributedForView
@@ -5274,9 +5444,9 @@ function _dcChart(bars) {
   if (!bars.length) return '';
   const H = 96;                                    // half-height, so the plot is 2H tall
   const CAP = H - 18;                              // tallest bar, leaving room for today's label
-  const maxAbs = Math.max(...bars.map(Math.abs), 0.35);
-  const cols = bars.map((v, i) => {
-    const today = i === bars.length - 1;
+  const maxAbs = Math.max(...bars.map(b => Math.abs(b.r)), 0.35);
+  const cols = bars.map(b => {
+    const v = b.r, today = b.today;
     const h = Math.max(3, Math.round(Math.abs(v) / maxAbs * CAP));
     const up = v >= 0;
     const col = up ? 'var(--gain)' : 'var(--loss)';
@@ -5303,12 +5473,12 @@ function buildDailyCard(g) {
   const up = g.dayChange >= 0;
   const dayCol = up ? 'var(--gain)' : 'var(--loss)';
   const mono = 'font-family:var(--font-mono);font-variant-numeric:tabular-nums';
-  const maxAbs = g.bars.length ? Math.max(...g.bars.map(Math.abs)) : 0;
-  const upDays = g.bars.filter(v => v > 0).length, dnDays = g.bars.filter(v => v < 0).length;
+  const maxAbs = g.bars.length ? Math.max(...g.bars.map(b => Math.abs(b.r))) : 0;
+  const upDays = g.bars.filter(b => b.r > 0).length, dnDays = g.bars.filter(b => b.r < 0).length;
   // Only a claim worth making when today actually rose — on an all-red stretch the largest value
   // in the window is merely the least bad day, which is not "ขึ้นแรงที่สุด".
-  const last = g.bars.length ? g.bars[g.bars.length - 1] : 0;
-  const best = last > 0 && last >= Math.max(...g.bars);
+  const last = g.bars.length ? g.bars[g.bars.length - 1].r : 0;
+  const best = last > 0 && last >= Math.max(...g.bars.map(b => b.r));
 
   const el = document.createElement('div');
   el.id = 'dailyShareCard';
@@ -5426,7 +5596,7 @@ window.shareDailyImage = async function() {
     ]);
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const blob = await lib.domToBlob(card, { scale: 2, backgroundColor: css('--bg') });
-    await deliverShot(blob, `daily-${new Date().toISOString().slice(0, 10)}.png`);
+    showShotPreview(blob, `daily-${new Date().toISOString().slice(0, 10)}.png`);
   } catch (err) {
     console.error('[share] daily card failed', err);
     const b = btn();
@@ -8607,14 +8777,23 @@ function renderActionTabContent() {
     const now = new Date();
     const nowDateStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
     const nowTime     = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
-    // "17 Sep 14:32" — day/short-month + HH:MM, same Asia/Bangkok clock as txDate/txTime above.
-    const nowSubLabel = now.toLocaleDateString('en-GB', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' }) + ' ' + nowTime.slice(0, 5);
     el.innerHTML = `
       <div class="tx-type-toggle" style="margin-bottom:14px">
         <button id="txBuyBtn"  class="tx-type-btn active-buy" onclick="onTradeTypeChange('Buy')">${t('buy_now_label')}</button>
         <button id="txSellBtn" class="tx-type-btn" onclick="onTradeTypeChange('Sell')">${t('sell_now_label')}</button>
       </div>
       <input type="hidden" id="txTicker" value="${sym}">
+      <!-- When the trade happened sits above what it was, because it is the field most often wrong
+           on a trade being recorded after the fact — and it is frozen at modal-open, which is what
+           appendTxnAction's dedupe keys on. -->
+      <div class="tx-row2">
+        <div class="tx-field"><label class="tx-label">${t('Date')}</label>
+          <input class="tx-input" id="txDate" type="date" value="${nowDateStr}" onchange="axUpdateTradeDetailsSub()">
+        </div>
+        <div class="tx-field"><label class="tx-label">${t('time_label')}</label>
+          <input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}" onchange="axUpdateTradeDetailsSub()">
+        </div>
+      </div>
       <div class="tx-row2">
         <div class="tx-field"><label class="tx-label">${t('price_label')}</label>
           <input class="tx-input" id="txPrice" type="number" step="any" min="0" value="${price}" oninput="onTradePrice()">
@@ -8638,11 +8817,7 @@ function renderActionTabContent() {
         <div id="txImpactPanel"></div>
       </details>
       <details class="ax-details" id="axTradeDetails"${_axTradeDetailsOpen ? ' open' : ''}>
-        <summary>${t('ax_details')} <span class="ax-details-sub" id="axTradeDetailsSub">${nowSubLabel} · USD</span></summary>
-        <div class="tx-row2">
-          <div class="tx-field"><label class="tx-label">${t('Date')}</label><input class="tx-input" id="txDate" type="date" value="${nowDateStr}" onchange="axUpdateTradeDetailsSub()"></div>
-          <div class="tx-field"><label class="tx-label">${t('time_label')}</label><input class="tx-input" id="txTime" type="time" step="1" value="${nowTime}" onchange="axUpdateTradeDetailsSub()"></div>
-        </div>
+        <summary>${t('ax_details')} <span class="ax-details-sub" id="axTradeDetailsSub">USD</span></summary>
         <div class="tx-field" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--track);border-radius:8px">
           <input type="checkbox" id="txNoCommission" style="width:16px;height:16px;cursor:pointer;accent-color:var(--terracotta)" onchange="onTradeCommToggle()">
           <div>
@@ -11496,6 +11671,7 @@ async function fetchEtfData(symbols) {
   renderTopHoldings(currentModel);
   renderTrueExposure(currentModel);
   renderCorrelationMatrix(currentModel);
+  renderDailyReturns(currentModel);
   renderMonthlyReturns(currentModel);
   renderSectorDonut(currentModel);
   renderIndustryDonut(currentModel);
@@ -11712,6 +11888,81 @@ const MONTH_FULL = ['January','February','March','April','May','June','July','Au
 
 // Monthly Returns Heatmap — year×month grid of computeMonthlyReturns() output. Month cells are
 // color-filled (saturating at ±20%); the Year column + Avg row are colored text only.
+// Daily Returns — the last 30 trading days, zero-baseline, sitting above the Monthly heatmap it
+// zooms into. Shares dailyReturnBars with the share card, so the two can never tell different
+// stories about the same day; only the window length differs.
+const DAILY_BARS_N = 30;
+let _dbarData = [];   // what the hovered column looks its date and value up in
+
+// Cursor-following tip, via the shared ensureTip/positionTip the weight bar and holdings
+// performance panels already use — a native title can't state the date and the value as two
+// labelled lines, which is the whole point of hovering a bar.
+window.showDbarTip = function(e, i) {
+  const b = _dbarData[i];
+  if (!b) return;
+  const tip = ensureTip('dbarTip');
+  const col = b.r >= 0 ? 'var(--gain)' : 'var(--loss)';
+  const sign = b.r >= 0 ? '+' : '−';
+  tip.innerHTML = `
+    <div style="font-weight:700;font-size:12px;margin-bottom:6px;color:var(--tooltip-fg)">${b.d ? fmtDate(b.d) : '—'}${b.today ? ` · ${t('dbar_today_label')}` : ''}</div>
+    <div style="display:grid;grid-template-columns:auto auto;gap:3px 16px">
+      <span style="color:rgba(250,243,224,.6)">${t('dbar_change_label')}</span>
+      <span style="font-family:var(--font-mono);font-variant-numeric:lining-nums tabular-nums;font-weight:700;text-align:right;color:${col}">${sign}${Math.abs(b.r).toFixed(2)}%</span>
+    </div>`;
+  tip.style.opacity = '1';
+  moveDbarTip(e);
+};
+window.moveDbarTip = function(e) {
+  const tip = document.getElementById('dbarTip');
+  if (tip) positionTip(tip, e, 14, 12);
+};
+window.hideDbarTip = function() {
+  const tip = document.getElementById('dbarTip');
+  if (tip) tip.style.opacity = '0';
+};
+
+function renderDailyReturns(model) {
+  const card = document.getElementById('dailyBarsCard');
+  const body = document.getElementById('dailyBarsBody');
+  if (!card || !body) return;
+
+  // Today's live move — the Day Return stat card's own walk, so the last bar agrees with it.
+  const pos = model?.positions || [];
+  let dayChange = 0, hasDay = false;
+  for (const p of pos) if (p.dayChange != null) { dayChange += p.dayChange * p.qty; hasDay = true; }
+  const base = pos.filter(p => p.dayChange != null).reduce((s, p) => s + p.currentValue, 0);
+  const dayPct = (hasDay && base) ? dayChange / base * 100 : null;
+
+  const bars = dailyReturnBars(DAILY_BARS_N, dayPct);
+  // A handful of bars is noise, not a chart — the card hides itself rather than showing a stub.
+  if (bars.length < 5) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  // Half the row, less the strip each label needs beyond the end of its bar.
+  const HALF = 75, CAP = HALF - 20;
+  const maxAbs = Math.max(...bars.map(b => Math.abs(b.r)), 0.25);
+  _dbarData = bars;
+  const cols = bars.map((b, i) => {
+    const up = b.r >= 0;
+    const h = Math.max(2, Math.round(Math.abs(b.r) / maxAbs * CAP));
+    const mag = Math.abs(b.r).toFixed(1);
+    const label = `<span class="dbar-val" style="${up ? `bottom:calc(50% + ${h + 4}px)` : `top:calc(50% + ${h + 4}px)`}">${mag}${b.today ? '%' : ''}</span>`;
+    return `<div class="dbar-col${up ? '' : ' dn'}${b.today ? ' today' : ''}"
+      onmouseenter="showDbarTip(event,${i})" onmousemove="moveDbarTip(event)" onmouseleave="hideDbarTip()">
+      <i style="${up ? 'bottom:50%' : 'top:50%'};height:${h}px"></i>${label}</div>`;
+  }).join('');
+
+  const upDays = bars.filter(b => b.r > 0).length, dnDays = bars.filter(b => b.r < 0).length;
+  body.innerHTML = `<div class="dbar-row">${cols}<div class="dbar-zero"></div></div>
+    <div class="dbar-foot">
+      <span><b style="color:var(--gain)">${upDays}</b> ${t('dbar_up_label')} · <b style="color:var(--loss)">${dnDays}</b> ${t('dbar_dn_label')}</span>
+      <span>±${maxAbs.toFixed(2)}%</span>
+    </div>`;
+
+  const meta = document.getElementById('dailyBarsMeta');
+  if (meta) meta.textContent = `${bars.length} ${t('dbar_days_label')}`;
+}
+
 function renderMonthlyReturns(model) {
   const card = document.getElementById('monthlyReturnsCard');
   const body = document.getElementById('monthlyReturnsBody');
@@ -16039,6 +16290,7 @@ async function loadBenchmark(retry = 0) {
         renderRiskPanel(currentModel);
         renderStressTest(currentModel);
         renderCorrelationMatrix(currentModel);
+        renderDailyReturns(currentModel);
         renderMonthlyReturns(currentModel);
       }
       loadNetWorthChart();
@@ -16872,6 +17124,14 @@ function buildShell() {
               </div>
             </div>
           </div>` : ''}
+          <!-- Daily Returns bars — the last 30 trading days, above the monthly view it zooms into -->
+          <div class="card" id="dailyBarsCard" style="display:none">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px">
+              <div class="card-title" style="margin-bottom:0">${t('daily_returns_title')}</div>
+              <div id="dailyBarsMeta" class="card-header-extra" style="font-size:11px;color:var(--muted)"></div>
+            </div>
+            <div id="dailyBarsBody"></div>
+          </div>
           <!-- Monthly Returns Heatmap -->
           <div class="card" id="monthlyReturnsCard" style="display:none">
             <div class="card-title">${t('monthly_returns_title')}</div>
@@ -17142,7 +17402,20 @@ function buildShell() {
   <div id="tradeModal" class="tx-overlay"></div>
   <div id="addSymbolModal" class="tx-overlay"></div>
   <div id="symbolModal" class="tx-overlay"></div>
-  <div id="symImgModal" class="tx-overlay symimg-overlay"><img id="symImgModalImg" alt=""></div>`;
+  <div id="symImgModal" class="tx-overlay symimg-overlay"><img id="symImgModalImg" alt=""></div>
+  <div id="shotPreview" class="tx-overlay" style="z-index:var(--z-modal)">
+    <div class="shot-modal">
+      <div class="shot-head">
+        <div class="shot-title">${t('shot_preview_title')}</div>
+      </div>
+      <div class="shot-frame"><img id="shotPreviewImg" alt=""></div>
+      <div class="shot-note" id="shotPreviewNote"></div>
+      <div class="shot-actions">
+        <button class="shot-btn primary" id="shotPreviewShare" onclick="shotPreviewShare()" hidden>${t('shot_share')}</button>
+        <button class="shot-btn" id="shotPreviewDownload" onclick="shotPreviewDownload()">${t('shot_download')}</button>
+      </div>
+    </div>
+  </div>`;
   // Re-apply theme & tone icons after shell rebuild
   applyTheme(document.documentElement.getAttribute('data-theme') === 'dark');
   applyTone(document.documentElement.getAttribute('data-tone') === 'cool');
@@ -18918,6 +19191,7 @@ function renderModelViews(model) {
   renderTopHoldings(model);
   renderTrueExposure(model);
   renderCorrelationMatrix(model);
+  renderDailyReturns(model);
   renderMonthlyReturns(model);
   renderWatchlist(model);
   renderPlansPanel();
@@ -19036,7 +19310,7 @@ async function init() {
         if (!currentModel) return;
         // Attach to the live view (currentModel may have changed via a portfolio toggle during load).
         const m = currentModel;
-        attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderStressTest(m); renderPnLBySector(m);
+        attachQuotes(m, quotes); renderStatCards(m, lastTxData); renderTable(m); renderIndexReturns(quotes); renderPlanWatch(); renderRiskPanel(m); renderStressTest(m); renderPnLBySector(m); renderDailyReturns(m);
         if (isOvernight()) refreshFutures();
         fetchEtfData(_quoteSyms);
         fetchStockReturns();
@@ -19070,6 +19344,7 @@ async function init() {
       gfc.textContent = '×';
       gfc.addEventListener('click', () => {
         const modals = [
+          { id: 'shotPreview',       close: () => closeShotPreview() },
           { id: 'allocMgmtModal',    close: () => closeAllocMgmt() },
           { id: 'actionModal',       close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
           { id: 'tradeModal',        close: () => closeTradeModal() },
@@ -19126,6 +19401,9 @@ async function init() {
       // Click anywhere — backdrop or the picture itself — to leave the fullscreen view.
       const _siv = document.getElementById('symImgModal');
       if (_siv) _siv.addEventListener('click', () => closeSymImgModal());
+      // Backdrop only — clicking the picture or the buttons must not dismiss it.
+      const _spv = document.getElementById('shotPreview');
+      if (_spv) _spv.addEventListener('click', e => { if (e.target === _spv) closeShotPreview(); });
     }
 
     document.getElementById('lastUpdated').textContent =
@@ -19193,6 +19471,7 @@ async function init() {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   const modals = [
+    { id: 'shotPreview',      close: () => closeShotPreview() },
     { id: 'allocMgmtModal',   close: () => closeAllocMgmt() },
     { id: 'actionModal',      close: () => { destroyActionCharts(); document.getElementById('actionModal').classList.remove('open'); } },
     { id: 'tradeModal',       close: () => closeTradeModal() },
