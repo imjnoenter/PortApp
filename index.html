@@ -853,6 +853,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 .cell-up   { color: var(--gain); }
 .cell-dn   { color: var(--loss); }
 .cell-mut  { color: var(--muted); }
+.cell-warn { color: var(--honey); }
 
 /* Allocation sparkline */
 .alloc-spark { min-width: 130px; }
@@ -895,6 +896,44 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 .pos-sub-tab:not(.active):hover { color: var(--ink); }
+
+/* ── Custom sub-tab: draggable headers + Columns menu ── */
+/* pan-y: a sideways drag on a header moves the column instead of scrolling the table; the rows
+   below still scroll it, and a vertical swipe still scrolls the page. */
+.pos-table th.cc-th { cursor: grab; touch-action: pan-y; }
+.pos-table th.cc-src { opacity: .35; }
+body.cc-dragging, body.cc-dragging * { cursor: grabbing !important; user-select: none; }
+.cc-ghost {
+  position: fixed; z-index: var(--z-tooltip); pointer-events: none;
+  transform: translate(-50%, -140%); padding: 4px 10px; border-radius: var(--radius-pill);
+  background: var(--ink); color: var(--card); box-shadow: var(--shadow-lg);
+  font-family: var(--font-ui); font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .2px; white-space: nowrap;
+}
+.cc-mark { position: fixed; z-index: var(--z-tooltip); pointer-events: none; width: 2px; border-radius: 1px; background: var(--terracotta); }
+.pos-tabs-row { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 8px; flex-wrap: wrap; }
+.pos-tabs-row .pos-sub-tabs { margin-bottom: 0; }
+.pos-cols-wrap { position: relative; }
+.pos-cols-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  padding: 4px 10px; border-radius: var(--radius-pill); cursor: pointer;
+  font-family: var(--font-ui); font-size: 11px; font-weight: 700; letter-spacing: .2px;
+  display: inline-flex; align-items: center; gap: 5px; transition: color .15s, border-color .15s;
+}
+.pos-cols-btn:hover { color: var(--ink); border-color: var(--ink); }
+.pos-cols-menu {
+  display: none; position: absolute; left: 0; top: calc(100% + 6px); z-index: var(--z-dropdown);
+  width: 220px; max-width: calc(100vw - var(--sp-6)); background: var(--card);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
+  padding: var(--sp-2); font-size: 12px;
+}
+.pos-cols-menu.open { display: block; animation: dropdownIn .18s var(--ease-out-quint); }
+.pcm-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; padding: 2px 4px; }
+.pcm-reset { border: none; background: none; color: var(--terracotta); font-size: 11px; font-weight: 700; cursor: pointer; padding: 2px 4px; }
+.pcm-hint { color: var(--muted); font-size: 10px; padding: 0 4px var(--sp-2); }
+.pcm-list { max-height: 320px; overflow-y: auto; }
+.pcm-item { display: flex; align-items: center; gap: 7px; padding: 4px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.pcm-item:hover { background: var(--hover); }
 
 /* ── Performance table cells ── */
 .perf-ret { font-family: var(--font-ui); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -3175,7 +3214,9 @@ const I18N = {
     sl_reached_tooltip: "Stop Loss Reached!", actions_tooltip: "Actions",
     manage_label: "Manage",
     language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", price_source_label: "Prices", portfolios_label: "Portfolios",
-    overview_label: "Overview", performance_label: "Performance",
+    overview_label: "Overview", performance_label: "Performance", custom_tab_label: "Custom",
+    cols_btn: "Columns", cols_reset: "Reset", cols_hint: "Drag a column header to move it.",
+    th_total_pl: "Total P/L", th_stop_loss: "Stop Loss", th_next_earnings: "Next Earnings", th_ex_div: "Ex-Div",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "Fund", rebalfund_target_label: "Target",
     rebalfund_cash_label: "Cash to add", rebalfund_cash_warn: "Amount exceeds available cash",
@@ -3478,7 +3519,9 @@ const I18N = {
     // Additional
     manage_label: "จัดการ",
     language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", price_source_label: "แหล่งราคา", portfolios_label: "พอร์ตโฟลิโอ",
-    overview_label: "ภาพรวม", performance_label: "ผลงาน",
+    overview_label: "ภาพรวม", performance_label: "ผลงาน", custom_tab_label: "กำหนดเอง",
+    cols_btn: "คอลัมน์", cols_reset: "รีเซ็ต", cols_hint: "ลากหัวคอลัมน์เพื่อย้ายตำแหน่ง",
+    th_total_pl: "กำไร/ขาดทุนรวม", th_stop_loss: "จุดตัดขาดทุน", th_next_earnings: "ประกาศงบถัดไป", th_ex_div: "วัน XD",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "เติมเงิน", rebalfund_target_label: "เป้าหมาย",
     rebalfund_cash_label: "เงินสดที่เพิ่ม", rebalfund_cash_warn: "จำนวนเงินเกินเงินสดที่มีอยู่",
@@ -11706,7 +11749,7 @@ async function fetchStockReturns() {
       };
     });
   } catch {}
-  if (_posTab === 'performance' && currentModel) renderTable(currentModel);
+  if ((_posTab === 'performance' || _posTab === 'custom') && currentModel) renderTable(currentModel);
 }
 
 let _topHoldingSectors = {};
@@ -12358,12 +12401,19 @@ function renderIndexReturns(quotes) {
 window.setPosTab = function(tab) {
   if (_posTab === tab) return;
   _posTab = tab;
-  document.querySelectorAll('.pos-sub-tab').forEach(b => b.classList.toggle('active', b.textContent.trim().toLowerCase().startsWith(tab.substring(0, 4))));
+  // Matched on data-tab, not the label: the Thai labels share no prefix with the tab ids.
+  document.querySelectorAll('.pos-sub-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('posColsMenu')?.classList.remove('open');
   renderTable(currentModel);
 };
 
 function renderTable(model) {
+  const colsWrap = document.getElementById('posColsWrap');
+  if (colsWrap) colsWrap.style.display = _posTab === 'custom' && !_watchlistMode ? '' : 'none';
   if (_posTab === 'performance') { renderPerformanceTable(model); return; }
+  // Watchlist rows have no qty/cost/plan, so most Custom columns would be blank — the watchlist
+  // keeps the table it has on Overview.
+  if (_posTab === 'custom' && !_watchlistMode) { renderCustomTable(model); return; }
   const titleEl = document.getElementById('posTitle');
   if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
 
@@ -12705,6 +12755,390 @@ function renderPerformanceTable(model) {
   document.getElementById('posTable').innerHTML =
     `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${emptyRow || sorted.map(p => perfRow(p)).join('')}${showWatchlist ? '' : cashRow}</tbody></table>`;
 }
+
+// ── Positions → Custom sub-tab ────────────────────────────────────────────────
+// Every column Overview and Performance have, plus a few only this tab has, in an order and with a
+// visibility the user picks: drag a header to move it, the Columns menu to hide it. Cells read the
+// same fields their home tab does — perfMetrics() for the returns, buildHpBaseData() for the
+// Holdings Performance total — so a figure reads the same here as there. Symbol is pinned first:
+// it is the sticky column, and a row is unreadable without it.
+//
+// Sort keys shared with the other tabs keep their names, so a sort carries across. Keys only this
+// tab can sort by are 'c:'-prefixed: no position has a field by that name, so on Overview and
+// Performance they compare equal and the order is simply left alone.
+const CC_STORE_KEY = 'posCustomCols.v1';
+const ccDc = (main, sub, subCls = 'cell-mut') =>
+  `<div class="cell-main">${main}</div>${sub != null ? `<div class="cell-sub ${subCls}">${sub}</div>` : ''}`;
+const CC_DASH = '<td><span class="perf-muted">—</span></td>';
+function ccMoneyTd(v, sub) {
+  if (v == null) return CC_DASH;
+  const cls = v >= 0 ? 'cell-up' : 'cell-dn';
+  return `<td class="${cls}">${ccDc((v >= 0 ? '+' : '') + fmtCurr(v), sub, cls)}</td>`;
+}
+function ccRetTd(v) {
+  if (v == null) return CC_DASH;
+  const cls = v > 0 ? 'up' : v < 0 ? 'dn' : 'flat';
+  return `<td><span class="perf-ret ${cls}">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span></td>`;
+}
+const ccNumTd = s => s == null ? CC_DASH : `<td><span class="perf-num">${s}</span></td>`;
+const ccTextTd = s => `<td style="text-align:left"><span style="font-size:11px;color:var(--muted)">${s ? escHtml(s) : '—'}</span></td>`;
+function ccDayTd(p, amount) {
+  if (p.dayChange == null) return '<td class="cell-mut">' + ccDc('—', null) + '</td>';
+  const up = p.dayChange >= 0, cls = up ? 'cell-up' : 'cell-dn';
+  const pct = p.dayChangePct == null ? null : `${up ? '+' : ''}${p.dayChangePct.toFixed(2)}%`;
+  return `<td class="${cls}">${ccDc(`${up ? '+' : ''}${fmtCurr(amount)}`, pct, cls)}</td>`;
+}
+// Same pre/post/overnight line Overview prints under the last price.
+function ccPriceSub(p) {
+  const ms = p.marketState;
+  const line = (px, pct) => `${px} (${(pct || 0) >= 0 ? '+' : ''}${(pct || 0).toFixed(2)}%)`;
+  if (ms === 'PRE' && p.preMarketPrice)
+    return [`☀︎ ${line(fmtCurr(p.preMarketPrice), p.preMarketPct)}`, (p.preMarketPct || 0) >= 0 ? 'cell-up' : 'cell-dn'];
+  if ((ms === 'POST' || ms === 'CLOSED') && p.postMarketPrice)
+    return [`☾ ${line(fmtCurr(p.postMarketPrice), p.postMarketPct)}`, (p.postMarketPct || 0) >= 0 ? 'cell-up' : 'cell-dn'];
+  if (ms === 'OVERNIGHT' && p.postMarketPrice)
+    return [`<span title="${t('overnight_price_tip')}">☾ ${line(fmtCurr(p.postMarketPrice), p.postMarketPct)}</span>`, (p.postMarketPct || 0) >= 0 ? 'cell-up' : 'cell-dn'];
+  return [null, 'cell-mut'];
+}
+function ccDateTd(ev, today) {
+  if (!ev) return CC_DASH;
+  const days = Math.round((Date.parse(ev.date) - Date.parse(today)) / 86400000);
+  const fmt = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // A range ("Aug 12–14") only when the sheet has one; the month is repeated only if it changes.
+  const end = ev.dateEnd && ev.dateEnd !== ev.date
+    ? (ev.dateEnd.slice(0, 7) === ev.date.slice(0, 7) ? String(+ev.dateEnd.slice(8)) : fmt(ev.dateEnd)) : null;
+  const main = end ? `${fmt(ev.date)}–${end}` : fmt(ev.date);
+  const sub = days === 0 ? 'today' : `in ${days}d`;
+  return `<td>${ccDc(main, sub, days <= 7 ? 'cell-up' : 'cell-mut')}</td>`;
+}
+const ccMetric = (id, key, label) => ({
+  id, label: () => label, sort: key, val: (p, c) => c.metrics.get(p)[key], cell: (p, c) => ccRetTd(c.metrics.get(p)[key]),
+});
+const CC_CASH_ICON = `<div class="logo-wrap" style="background:var(--muted)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" width="16" height="16"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>`;
+
+// Registry order is the default order. cell(p, c, r): c = per-render context, r = per-row context.
+const CC_COLUMNS = [
+  { id: 'symbol', label: () => t('th_symbol'), sort: 'symbol', align: 'left',
+    cell: p => `<td><div class="asset-cell">${logoCell(p.symbol, colorFor(p.symbol))}
+        <div><div class="asset-sym"><span style="cursor:pointer" onclick="openSymbolModal('${p.symbol}')">${p.symbol}</span>${p.basisFallback ? `<span style="color:var(--muted);font-size:10px" title="Cost basis estimated — transaction history incomplete">≈</span>` : ''}${slWarningBadge(p.symbol,p.price)}${trancheBadge(p.symbol,p.price)}${tpBadge(p.symbol,p.price)}<button class="plan-btn${hasSavedPlan(p.symbol)?' saved':''}" onclick="openActionModal('${p.symbol}')" title="${t('actions_tooltip')}">${ACTION_ICON}</button></div><div class="asset-name">${p.name}</div></div>
+      </div></td>`,
+    cash: () => `<td><div class="asset-cell">${CC_CASH_ICON}<div><div class="asset-sym">Cash</div><div class="asset-name">Raw cash · not invested</div></div></div></td>` },
+  { id: 'price', label: () => t('th_last_price'), sort: 'price',
+    cell: p => { const [sub, cls] = ccPriceSub(p); return `<td>${ccDc(fmtCurr(p.price), sub, cls)}</td>`; } },
+  { id: 'dayChange', label: () => t('th_day_change'), sort: 'dayChangePct', cell: p => ccDayTd(p, p.dayChange) },
+  { id: 'dayReturn', label: () => t('th_day_return'), sort: 'dayChangePct', cell: p => ccDayTd(p, p.dayChange * p.qty) },
+  { id: 'totalRet', label: () => t('total_ret'), sort: 'pnlPct', cell: p => ccMoneyTd(p.pnl, fmtPct(p.pnlPct)) },
+  // Unrealized + realized + net dividends, % over every buy ever made — the Holdings Performance figure.
+  { id: 'totalPl', label: () => t('th_total_pl'), sort: 'c:totalPl', val: (p, c) => c.hp.get(p.symbol)?.totalPnl ?? null,
+    cell: (p, c) => { const h = c.hp.get(p.symbol); return h ? ccMoneyTd(h.totalPnl, fmtPct(h.pnlPct)) : CC_DASH; } },
+  { id: 'realized', label: () => t('realized'), sort: 'c:realized', val: (p, c) => c.hp.get(p.symbol)?.realizedPnl ?? null,
+    cell: (p, c) => ccMoneyTd(c.hp.get(p.symbol)?.realizedPnl || null, null) },
+  { id: 'dividends', label: () => t('dividends'), sort: 'c:dividends', val: (p, c) => c.hp.get(p.symbol)?.dividends ?? null,
+    cell: (p, c) => { const v = c.hp.get(p.symbol)?.dividends; return v ? `<td>${ccDc(fmtCurr(v), null)}</td>` : CC_DASH; } },
+  { id: 'qty', label: () => t('th_quantity'), sort: 'qty', cell: p => `<td>${ccDc(p.qty?.toFixed(4) || '—', null)}</td>` },
+  { id: 'avgCost', label: () => t('th_avg_cost'), sort: 'avgPrice', cell: p => `<td>${ccDc(fmtCurr(p.avgPrice), null)}</td>` },
+  { id: 'totalCost', label: () => t('th_total_cost'), sort: 'costBasis',
+    cell: (p, c) => `<td>${ccDc(fmtCurr(p.costBasis), c.costTotalAll > 0 ? (p.costBasis / c.costTotalAll * 100).toFixed(2) + '% of total' : null)}</td>`,
+    cash: c => `<td>${ccDc(fmtCurr(c.model.rawCash), c.costTotalAll > 0 ? (c.model.rawCash / c.costTotalAll * 100).toFixed(2) + '% of total' : null, 'cell-mut')}</td>` },
+  { id: 'currentValue', label: () => t('th_current_value'), sort: 'currentValue',
+    cell: (p, c, r) => `<td>${ccDc('<strong>' + fmtCurr(p.currentValue) + '</strong>', r.allocPos.target != null ? r.allocPos.investWeightPct.toFixed(1) + '% / ' + (r.allocPos.target * 100).toFixed(1) + '%' : r.allocPos.investWeightPct.toFixed(1) + '%', 'cell-mut')}</td>`,
+    cash: c => `<td>${ccDc(fmtCurr(c.model.rawCash), (c.model.totalCurrent > 0 ? c.model.rawCash / c.model.totalCurrent * 100 : 0).toFixed(1) + '%', 'cell-mut')}</td>` },
+  { id: 'allocation', label: () => t('allocation'), cell: (p, c, r) => `<td>${allocSparkline(r.allocPos, r.allocModel.investable)}</td>`,
+    cash: c => `<td>${ccDc(fmtCurr(c.model.cashResPct * c.model.totalCurrent) + ' reserved', (c.model.cashResPct * 100).toFixed(0) + '% target', 'cell-mut')}</td>` },
+  { id: 'range52', label: () => '52W Range', cell: p => `<td>${weekRange52Bar(p)}</td>` },
+  // SL price, and how far the last price sits above it — the same thresholds as slWarningBadge.
+  { id: 'stopLoss', label: () => t('th_stop_loss'), sort: 'c:slDist',
+    val: p => { const sl = getPlan(p.symbol)?.sl; return sl && p.price ? (p.price - sl) / sl * 100 : null; },
+    cell: p => {
+      const sl = getPlan(p.symbol)?.sl;
+      if (!sl) return CC_DASH;
+      if (!p.price) return `<td>${ccDc(fmtUSD(sl), null)}</td>`;
+      const pct = (p.price - sl) / sl * 100;
+      const cls = pct <= 0 ? 'cell-dn' : pct <= 5 ? 'cell-warn' : 'cell-mut';
+      return `<td>${ccDc(fmtUSD(sl), pct <= 0 ? 'hit' : `+${pct.toFixed(1)}% above`, cls)}</td>`;
+    } },
+  { id: 'nextEarnings', label: () => t('th_next_earnings'), sort: 'c:nextEarnings',
+    val: (p, c) => c.cal.get(p.symbol)?.Earnings?.date ?? null, cell: (p, c) => ccDateTd(c.cal.get(p.symbol)?.Earnings, c.today) },
+  { id: 'exDiv', label: () => t('th_ex_div'), sort: 'c:exDiv',
+    val: (p, c) => c.cal.get(p.symbol)?.ExDiv?.date ?? null, cell: (p, c) => ccDateTd(c.cal.get(p.symbol)?.ExDiv, c.today) },
+  { id: 'marketCap', label: () => 'Market Cap', sort: 'marketCap', cell: p => ccNumTd(p.marketCap != null ? fmtCompact(p.marketCap) : null) },
+  { id: 'volume', label: () => 'Volume', sort: 'volume', cell: p => `<td><span class="perf-muted">${fmtVol(p.volume)}</span></td>` },
+  ccMetric('ytd', 'ytdRet', 'YTD'),
+  ccMetric('ret1M', '1M', '1-Mo'),
+  ccMetric('ret3M', '3M', '3-Mo'),
+  ccMetric('ret1Y', '1Y', '1-Yr'),
+  ccMetric('ret3Y', '3Y', '3-Yr'),
+  ccMetric('ret5Y', '5Y', '5-Yr'),
+  { id: 'expenseRatio', label: () => 'Net ER', sort: 'expenseRatio', val: (p, c) => c.metrics.get(p).expenseRatio,
+    cell: (p, c) => { const v = c.metrics.get(p).expenseRatio; return ccNumTd(v != null ? (v * 100).toFixed(2) + '%' : null); } },
+  { id: 'netAssets', label: () => 'Net Assets', sort: 'netAssets', val: (p, c) => c.metrics.get(p).netAssets,
+    cell: (p, c) => { const v = c.metrics.get(p).netAssets; return ccNumTd(v != null ? fmtCompact(v) : null); } },
+  { id: 'holdingsCount', label: () => 'Holdings', sort: 'holdingsCount', val: (p, c) => c.metrics.get(p).holdingsCount,
+    cell: (p, c) => { const v = c.metrics.get(p).holdingsCount; return ccNumTd(v != null ? Number(v).toLocaleString() : null); } },
+  { id: 'sector', label: () => 'Sector', sort: 'c:sector', align: 'left',
+    val: p => _etfDataCache[p.symbol]?.topSector || p.sector || null, cell: p => ccTextTd(_etfDataCache[p.symbol]?.topSector || p.sector) },
+  { id: 'industry', label: () => 'Industry', sort: 'c:industry', align: 'left', val: p => p.industry || null, cell: p => ccTextTd(p.industry) },
+  { id: 'category', label: () => t('category_label'), sort: 'c:category', align: 'left', val: p => p.category || null, cell: p => ccTextTd(p.category) },
+  { id: 'custom', label: () => t('custom_label'), sort: 'c:custom', align: 'left', val: p => p.custom || null, cell: p => ccTextTd(p.custom) },
+  { id: 'myGroup', label: () => t('mygroup_label'), sort: 'c:myGroup', align: 'left', val: p => p.myGroup || null, cell: p => ccTextTd(p.myGroup) },
+  { id: 'spark1Y', label: () => '1Y', align: 'center', cell: p => `<td>${priceSpark(p.symbol)}</td>` },
+];
+
+// Saved layout: { order: [ids, symbol excluded], hidden: [ids] }. Per browser, like the other
+// table preferences. Unknown ids are dropped; a column added after the layout was saved joins at
+// the end rather than vanishing.
+function ccLoad() {
+  const ids = CC_COLUMNS.slice(1).map(c => c.id), known = new Set(ids);
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(CC_STORE_KEY)); } catch {}
+  const order = [...new Set((Array.isArray(s?.order) ? s.order : []).filter(id => known.has(id)))];
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+  const hidden = new Set((Array.isArray(s?.hidden) ? s.hidden : []).filter(id => known.has(id)));
+  return { order, hidden };
+}
+function ccSave() {
+  try { localStorage.setItem(CC_STORE_KEY, JSON.stringify({ order: _cc.order, hidden: [..._cc.hidden] })); } catch {}
+}
+let _cc = ccLoad();
+
+function renderCustomTable(model) {
+  const host = document.getElementById('posTable');
+  if (!host) return;
+  ccBindDrag(host);
+  // A re-render mid-drag (a quote tick) would swap the headers out from under the pointer. The
+  // drop re-renders anyway, so skipping this one loses nothing.
+  if (_ccDrag?.dragging) return;
+
+  const titleEl = document.getElementById('posTitle');
+  if (titleEl) titleEl.textContent = `${model.positions.length} ${t('positions_title')}`;
+  const drEl = document.getElementById('posDayReturn');
+  if (drEl) {
+    const withData = model.positions.filter(p => p.dayChange != null);
+    if (withData.length) {
+      const totalDR  = withData.reduce((s, p) => s + p.dayChange * p.qty, 0);
+      const totalVal = withData.reduce((s, p) => s + p.currentValue, 0);
+      const pct = totalVal > 0 ? totalDR / totalVal * 100 : 0;
+      const up  = totalDR >= 0;
+      drEl.innerHTML = `${t('th_day_return')}: <span style="color:var(${up ? '--gain' : '--loss'});font-weight:600">${up?'+':''}${fmtCurr(totalDR)} (${up?'+':''}${pct.toFixed(2)}%)</span>`;
+    } else drEl.textContent = '';
+  }
+
+  const q = searchTerm.trim().toUpperCase();
+  let filtered = applyFilters(model.positions);
+  if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
+
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // Soonest event of each type that hasn't passed yet. A date already behind us means the
+  // Calendar sheet hasn't caught up with the next one, so it's left blank rather than shown stale.
+  const cal = new Map();
+  for (const e of _calendarCache || []) {
+    if (e.date < today) continue;
+    const slot = cal.get(e.symbol) || {};
+    if (!slot[e.type] || e.date < slot[e.type].date) slot[e.type] = e;
+    cal.set(e.symbol, slot);
+  }
+  const c = {
+    model, today, cal,
+    metrics: new Map(filtered.map(p => [p, perfMetrics(p)])),
+    hp: new Map(buildHpBaseData().map(h => [h.symbol, h])),
+    // Same denominator as Overview's Total Cost column — see renderTable.
+    costTotalAll: model.positions.reduce((s, p) => s + (p.costBasis || 0), 0) + (model.rawCash || 0),
+  };
+
+  const byId = new Map(CC_COLUMNS.map(col => [col.id, col]));
+  const cols = [CC_COLUMNS[0], ..._cc.order.filter(id => !_cc.hidden.has(id)).map(id => byId.get(id))];
+
+  const sortCol = CC_COLUMNS.find(col => col.sort === sortKey);
+  const sortVal = p => sortCol?.val ? sortCol.val(p, c)
+    : PERF_METRIC_KEYS.has(sortKey) ? perfMetrics(p)[sortKey] : (p[sortKey] ?? null);
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
+    const av = sortVal(a), bv = sortVal(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return typeof av === 'string' ? sortDir * av.localeCompare(bv) : sortDir * (av - bv);
+  });
+  renderWeightBar(sorted);
+
+  const thHTML = cols.map(col => {
+    const arrow = col.sort && sortKey === col.sort ? ' ' + (sortDir > 0 ? '↑' : '↓') : '';
+    return `<th data-col="${col.id}"${col.id === 'symbol' ? '' : ' class="cc-th"'}${col.align ? ` style="text-align:${col.align}"` : ''}${col.sort ? ` onclick="ccSort('${col.sort}')"` : ''}>${col.label()}${arrow}</th>`;
+  }).join('');
+
+  const row = p => {
+    // Target % / allocation bar come from the symbol's own portfolio in ALL — see stockRow.
+    const tc = activePortfolio === 'ALL' ? targetCtxFor(p.symbol) : null;
+    const allocPos = tc?.pos?.investWeightPct != null ? tc.pos : p;
+    const r = { allocPos, allocModel: allocPos === p ? model : tc.model };
+    return `<tr>${cols.map(col => col.cell(p, c, r)).join('')}</tr>`;
+  };
+  const cashRow = `<tr style="background:var(--hover)">${cols.map(col => col.cash ? col.cash(c) : '<td></td>').join('')}</tr>`;
+  const emptyRow = sorted.length === 0 && activeFilters().length > 0 ? emptyFilterRowHtml(cols.length) : '';
+  host.innerHTML = `<table class="pos-table"><thead><tr>${thHTML}</tr></thead><tbody>${emptyRow || sorted.map(row).join('')}${cashRow}</tbody></table>`;
+}
+
+// ── Custom sub-tab: header drag-to-reorder ────────────────────────────────────
+// Pointer events rather than HTML5 drag-and-drop, which never fires for touch. Listeners sit on
+// #posTable itself (it outlives every re-render) and pointer capture is only taken once the drag
+// has actually started: capture retargets the click, so taking it on pointerdown would stop a
+// plain header click from sorting.
+let _ccDrag = null;
+let _ccSuppressClick = false;
+
+window.ccSort = function(key) {
+  if (_ccSuppressClick) return;
+  sortTable(key);
+};
+
+function ccBindDrag(host) {
+  if (host._ccBound) return;
+  host._ccBound = true;
+  host.addEventListener('pointerdown', e => {
+    if (_posTab !== 'custom' || e.button !== 0) return;
+    const th = e.target.closest('th.cc-th');
+    if (!th) return;
+    _ccDrag = { id: th.dataset.col, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, pointerId: e.pointerId, dragging: false, beforeId: undefined };
+  });
+  host.addEventListener('pointermove', e => {
+    const d = _ccDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    d.x = e.clientX; d.y = e.clientY;
+    if (!d.dragging) {
+      const dx = Math.abs(d.x - d.x0), dy = Math.abs(d.y - d.y0);
+      if (dy > 8 && dy > dx) { _ccDrag = null; return; }   // a vertical gesture, not a column move
+      if (dx < 6) return;
+      ccDragStart(host);
+    }
+    e.preventDefault();
+    ccDragUpdate(host);
+  });
+  const end = e => { if (_ccDrag && e.pointerId === _ccDrag.pointerId) ccDragEnd(host, e.type === 'pointerup'); };
+  host.addEventListener('pointerup', end);
+  host.addEventListener('pointercancel', end);
+}
+
+function ccDragStart(host) {
+  const d = _ccDrag;
+  d.dragging = true;
+  try { host.setPointerCapture(d.pointerId); } catch {}
+  const th = host.querySelector(`th[data-col="${d.id}"]`);
+  th?.classList.add('cc-src');
+  d.ghost = document.createElement('div');
+  d.ghost.className = 'cc-ghost';
+  d.ghost.textContent = (th?.textContent || '').replace(/[↑↓]/g, '').trim();
+  d.mark = document.createElement('div');
+  d.mark.className = 'cc-mark';
+  document.body.append(d.ghost, d.mark);
+  document.body.classList.add('cc-dragging');
+  document.getElementById('posColsMenu')?.classList.remove('open');
+  const tick = () => {
+    if (_ccDrag !== d) return;
+    ccAutoScroll(host);
+    d.raf = requestAnimationFrame(tick);
+  };
+  d.raf = requestAnimationFrame(tick);
+}
+
+// Drop slot = before the first movable header whose midpoint is right of the pointer, else the end.
+function ccDragUpdate(host) {
+  const d = _ccDrag;
+  d.ghost.style.left = d.x + 'px';
+  d.ghost.style.top  = d.y + 'px';
+  const ths = [...host.querySelectorAll('th.cc-th')];
+  let beforeId = null, markX = null;
+  for (const th of ths) {
+    const r = th.getBoundingClientRect();
+    if (d.x < r.left + r.width / 2) { beforeId = th.dataset.col; markX = r.left; break; }
+  }
+  if (beforeId == null && ths.length) markX = ths[ths.length - 1].getBoundingClientRect().right;
+  d.beforeId = beforeId;
+  const box = host.getBoundingClientRect();
+  const tbl = host.querySelector('table')?.getBoundingClientRect() || box;
+  const stickyRight = host.querySelector('th[data-col="symbol"]')?.getBoundingClientRect().right ?? box.left;
+  markX = Math.min(Math.max(markX ?? box.left, stickyRight), box.right);
+  const top = Math.max(tbl.top, 0), bottom = Math.min(tbl.bottom, window.innerHeight);
+  d.mark.style.left = (markX - 1) + 'px';
+  d.mark.style.top = top + 'px';
+  d.mark.style.height = Math.max(0, bottom - top) + 'px';
+}
+
+// The table is far wider than the card, so holding the pointer near either edge scrolls it.
+// The left edge is the sticky Symbol column's right side, not the card's.
+function ccAutoScroll(host) {
+  const d = _ccDrag, zone = 48;
+  const box = host.getBoundingClientRect();
+  const left = host.querySelector('th[data-col="symbol"]')?.getBoundingClientRect().right ?? box.left;
+  let dx = 0;
+  if (d.x < left + zone) dx = -Math.min(24, Math.ceil((left + zone - d.x) / 3));
+  else if (d.x > box.right - zone) dx = Math.min(24, Math.ceil((d.x - (box.right - zone)) / 3));
+  if (!dx) return;
+  const before = host.scrollLeft;
+  host.scrollLeft += dx;
+  if (host.scrollLeft !== before) ccDragUpdate(host);
+}
+
+function ccDragEnd(host, commit) {
+  const d = _ccDrag;
+  _ccDrag = null;
+  if (!d.dragging) return;
+  cancelAnimationFrame(d.raf);
+  d.ghost.remove(); d.mark.remove();
+  document.body.classList.remove('cc-dragging');
+  try { host.releasePointerCapture(d.pointerId); } catch {}
+  // The click that follows a drop must not also sort by the column that was dropped.
+  _ccSuppressClick = true;
+  setTimeout(() => { _ccSuppressClick = false; }, 0);
+  if (commit && d.beforeId !== undefined && d.beforeId !== d.id) ccMoveCol(d.id, d.beforeId);
+  if (currentModel) renderTable(currentModel);
+}
+
+// beforeId null = past the last visible column: land right after it, not after trailing hidden ones.
+function ccMoveCol(id, beforeId) {
+  const o = _cc.order.filter(x => x !== id);
+  let i = beforeId ? o.indexOf(beforeId) : -1;
+  if (i < 0) { i = 0; o.forEach((x, k) => { if (!_cc.hidden.has(x)) i = k + 1; }); }
+  o.splice(i, 0, id);
+  _cc.order = o;
+  ccSave();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (_ccDrag?.dragging) { const host = document.getElementById('posTable'); if (host) ccDragEnd(host, false); }
+  document.getElementById('posColsMenu')?.classList.remove('open');
+});
+
+// ── Custom sub-tab: Columns menu (show/hide + reset) ──────────────────────────
+window.toggleColsMenu = function(e) {
+  e.stopPropagation();
+  const m = document.getElementById('posColsMenu');
+  if (m && m.classList.toggle('open')) renderColsMenu();
+};
+function renderColsMenu() {
+  const m = document.getElementById('posColsMenu');
+  if (!m) return;
+  const byId = new Map(CC_COLUMNS.map(col => [col.id, col]));
+  m.innerHTML = `<div class="pcm-head"><span>${t('cols_btn')}</span><button type="button" class="pcm-reset" onclick="resetCustomCols()">${t('cols_reset')}</button></div>
+    <div class="pcm-hint">${t('cols_hint')}</div>
+    <div class="pcm-list">${_cc.order.map(id => `<label class="pcm-item"><input type="checkbox"${_cc.hidden.has(id) ? '' : ' checked'} onchange="setCustomColVisible('${id}', this.checked)">${byId.get(id).label()}</label>`).join('')}</div>`;
+}
+window.setCustomColVisible = function(id, on) {
+  if (on) _cc.hidden.delete(id); else _cc.hidden.add(id);
+  ccSave();
+  if (currentModel) renderTable(currentModel);
+};
+window.resetCustomCols = function() {
+  try { localStorage.removeItem(CC_STORE_KEY); } catch {}
+  _cc = ccLoad();
+  renderColsMenu();
+  if (currentModel) renderTable(currentModel);
+};
+document.addEventListener('click', e => {
+  const m = document.getElementById('posColsMenu');
+  if (m?.classList.contains('open') && !e.target.closest?.('.pos-cols-wrap')) m.classList.remove('open');
+});
 
 window.sortTable = function(key) {
   if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
@@ -15521,6 +15955,7 @@ async function loadCalendar(model) {
   el.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px 0">${t('loading_calendar_msg')}</div>`;
   const events = await readCalendarSheet();
   _calendarCache = events || _calendarCache; // keep the last-good read rather than clobbering it with null on a failed fetch
+  if (_posTab === 'custom' && currentModel) renderTable(currentModel); // its Next Earnings / Ex-Div columns read this
   const held = new Set(_allRows.map(r => r.symbol));
   const filtered = events?.filter(e => held.has(e.symbol));
   if (filtered?.length) renderCalendarFromEvents(filtered);
@@ -16295,6 +16730,7 @@ async function loadBenchmark(retry = 0) {
         const card = document.getElementById('divBreakdownCard');
         if (card && dividends.gross > 0) card.style.display = '';
         renderHoldingsPerformance();
+        if (_posTab === 'custom') renderTable(currentModel); // Dividends + Total P/L columns
         renderRiskPanel(currentModel);
         renderStressTest(currentModel);
         renderCorrelationMatrix(currentModel);
@@ -16593,6 +17029,7 @@ function renderPnLChart(txs) {
   pnlData = computePnLTimeline(txs);
   renderPnLChartFromTrades(pnlData);
   renderHoldingsPerformance();
+  if (_posTab === 'custom' && currentModel) renderTable(currentModel); // Total P/L + Realized columns
 }
 
 function renderPnLChartFromTrades(trades) {
@@ -17182,9 +17619,19 @@ function buildShell() {
                 </div>
               </div>
             </div>
-            <div id="posSubTabs" class="pos-sub-tabs">
-              <button class="pos-sub-tab active" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
-              <button class="pos-sub-tab" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
+            <div class="pos-tabs-row">
+              <div id="posSubTabs" class="pos-sub-tabs">
+                <button class="pos-sub-tab${_posTab === 'overview' ? ' active' : ''}" data-tab="overview" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
+                <button class="pos-sub-tab${_posTab === 'performance' ? ' active' : ''}" data-tab="performance" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
+                <button class="pos-sub-tab${_posTab === 'custom' ? ' active' : ''}" data-tab="custom" onclick="setPosTab('custom')">${t('custom_tab_label')}</button>
+              </div>
+              <div class="pos-cols-wrap" id="posColsWrap" data-no-shot style="display:none">
+                <button type="button" class="pos-cols-btn" onclick="toggleColsMenu(event)" aria-haspopup="true">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
+                  ${t('cols_btn')}
+                </button>
+                <div class="pos-cols-menu" id="posColsMenu" onclick="event.stopPropagation()"></div>
+              </div>
             </div>
             <div id="posFilters" style="margin-bottom:10px"></div>
             <div id="weightBar" style="margin-bottom:12px"></div>
