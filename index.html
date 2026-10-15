@@ -12833,6 +12833,23 @@ function ccDateTd(ev, today) {
   const sub = days === 0 ? 'today' : `in ${days}d`;
   return `<td>${ccDc(main, sub, days <= 7 ? 'cell-up' : 'cell-mut')}</td>`;
 }
+// Entry tranche i of the plan: its price, and how far the last price still sits above it — the
+// same formula and thresholds as trancheBadge (reached at ≤0%, near at ≤3%).
+const ccTrancheDist = (p, i) => {
+  const tr = getPlan(p.symbol)?.tranches?.[i];
+  return tr?.price > 0 && p.price ? (p.price - tr.price) / tr.price * 100 : null;
+};
+const ccTranche = i => ({
+  id: `t${i + 1}`, label: () => `T${i + 1}`, sort: `c:t${i + 1}`, val: p => ccTrancheDist(p, i),
+  cell: p => {
+    const tr = getPlan(p.symbol)?.tranches?.[i];
+    if (!(tr?.price > 0)) return CC_DASH;
+    const pct = ccTrancheDist(p, i);
+    if (pct == null) return `<td>${ccDc(fmtUSD(tr.price), null)}</td>`;
+    const cls = pct <= 0 ? 'cell-up' : pct <= 3 ? 'cell-warn' : 'cell-mut';
+    return `<td>${ccDc(fmtUSD(tr.price), pct <= 0 ? 'reached' : `+${pct.toFixed(1)}% above`, cls)}</td>`;
+  },
+});
 const ccMetric = (id, key, label) => ({
   id, label: () => label, sort: key, val: (p, c) => c.metrics.get(p)[key], cell: (p, c) => ccRetTd(c.metrics.get(p)[key]),
 });
@@ -12879,6 +12896,7 @@ const CC_COLUMNS = [
       const cls = pct <= 0 ? 'cell-dn' : pct <= 5 ? 'cell-warn' : 'cell-mut';
       return `<td>${ccDc(fmtUSD(sl), pct <= 0 ? 'hit' : `+${pct.toFixed(1)}% above`, cls)}</td>`;
     } },
+  ccTranche(0), ccTranche(1), ccTranche(2),
   { id: 'nextEarnings', label: () => t('th_next_earnings'), sort: 'c:nextEarnings',
     val: (p, c) => c.cal.get(p.symbol)?.Earnings?.date ?? null, cell: (p, c) => ccDateTd(c.cal.get(p.symbol)?.Earnings, c.today) },
   { id: 'exDiv', label: () => t('th_ex_div'), sort: 'c:exDiv',
