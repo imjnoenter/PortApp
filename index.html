@@ -912,7 +912,21 @@ body.cc-dragging, body.cc-dragging * { cursor: grabbing !important; user-select:
 }
 .cc-mark { position: fixed; z-index: var(--z-tooltip); pointer-events: none; width: 2px; border-radius: 1px; background: var(--terracotta); }
 .pos-tabs-row { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 8px; flex-wrap: wrap; }
-.pos-tabs-row .pos-sub-tabs { margin-bottom: 0; }
+.pos-tabs-row .pos-sub-tabs { margin-bottom: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.pos-tabs-row .pos-sub-tabs::-webkit-scrollbar { display: none; }
+/* No text-selection callout on long-press — the press renames the tab (ccBindTabs). */
+.pos-sub-tab[data-view] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.pos-sub-tab.pressing { background: var(--card); color: var(--terracotta); }
+.pos-sub-add { padding: 5px 11px; font-size: 13px; line-height: 1; }
+.pos-sub-tab-input {
+  border: 1px solid var(--terracotta); border-radius: var(--radius-pill); outline: none;
+  background: var(--card); color: var(--ink); padding: 4px 12px;
+  font-family: var(--font-ui); font-size: 11px; font-weight: 700; letter-spacing: .2px;
+}
+.pcm-foot { display: flex; justify-content: space-between; gap: var(--sp-2); border-top: 1px solid var(--line-soft); margin-top: var(--sp-2); padding-top: var(--sp-2); }
+.pcm-btn { border: none; background: none; color: var(--ink); font-size: 11px; font-weight: 700; cursor: pointer; padding: 3px 4px; border-radius: 6px; }
+.pcm-btn:hover { background: var(--hover); }
+.pcm-btn.pcm-del { color: var(--loss); }
 .pos-cols-wrap { position: relative; }
 .pos-cols-btn {
   border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -3216,6 +3230,8 @@ const I18N = {
     language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", price_source_label: "Prices", portfolios_label: "Portfolios",
     overview_label: "Overview", performance_label: "Performance", custom_tab_label: "Custom",
     cols_btn: "Columns", cols_reset: "Reset", cols_hint: "Drag a column header to move it.",
+    add_tab_tip: "Add tab", rename_tab: "Rename tab", delete_tab: "Delete tab", delete_tab_confirm: "Tap again to delete",
+    rename_hint: "Double-click (or long-press) to rename",
     th_total_pl: "Total P/L", th_stop_loss: "Stop Loss", th_next_earnings: "Next Earnings", th_ex_div: "Ex-Div",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "Fund", rebalfund_target_label: "Target",
@@ -3521,6 +3537,8 @@ const I18N = {
     language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", price_source_label: "แหล่งราคา", portfolios_label: "พอร์ตโฟลิโอ",
     overview_label: "ภาพรวม", performance_label: "ผลงาน", custom_tab_label: "กำหนดเอง",
     cols_btn: "คอลัมน์", cols_reset: "รีเซ็ต", cols_hint: "ลากหัวคอลัมน์เพื่อย้ายตำแหน่ง",
+    add_tab_tip: "เพิ่มแท็บ", rename_tab: "เปลี่ยนชื่อแท็บ", delete_tab: "ลบแท็บ", delete_tab_confirm: "แตะอีกครั้งเพื่อลบ",
+    rename_hint: "ดับเบิลคลิก (หรือกดค้าง) เพื่อเปลี่ยนชื่อ",
     th_total_pl: "กำไร/ขาดทุนรวม", th_stop_loss: "จุดตัดขาดทุน", th_next_earnings: "ประกาศงบถัดไป", th_ex_div: "วัน XD",
     // Rebalance funding aid (plan tab)
     rebalfund_title: "เติมเงิน", rebalfund_target_label: "เป้าหมาย",
@@ -12398,16 +12416,20 @@ function renderIndexReturns(quotes) {
   el.innerHTML = parts.join('<span style="color:var(--line);margin:0 5px">|</span>');
 }
 
-window.setPosTab = function(tab) {
-  if (_posTab === tab) return;
+// viewId picks which custom tab when tab === 'custom' (default: the one last shown).
+window.setPosTab = function(tab, viewId) {
+  if (tab === 'custom') viewId = _ccViews.some(v => v.id === viewId) ? viewId : ccView().id;
+  if (_posTab === tab && (tab !== 'custom' || viewId === _ccActive)) return;
   _posTab = tab;
-  // Matched on data-tab, not the label: the Thai labels share no prefix with the tab ids.
-  document.querySelectorAll('.pos-sub-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'custom') _ccActive = viewId;
+  // Matched on data-tab/data-view, not the label: the Thai labels share no prefix with the tab ids.
+  ccSyncTabActive();
   document.getElementById('posColsMenu')?.classList.remove('open');
   renderTable(currentModel);
 };
 
 function renderTable(model) {
+  ccBindTabs(document.getElementById('posSubTabs'));
   const colsWrap = document.getElementById('posColsWrap');
   if (colsWrap) colsWrap.style.display = _posTab === 'custom' && !_watchlistMode ? '' : 'none';
   if (_posTab === 'performance') { renderPerformanceTable(model); return; }
@@ -12884,22 +12906,49 @@ const CC_COLUMNS = [
   { id: 'spark1Y', label: () => '1Y', align: 'center', cell: p => `<td>${priceSpark(p.symbol)}</td>` },
 ];
 
-// Saved layout: { order: [ids, symbol excluded], hidden: [ids] }. Per browser, like the other
-// table preferences. Unknown ids are dropped; a column added after the layout was saved joins at
-// the end rather than vanishing.
-function ccLoad() {
+// A layout is { order: [ids, symbol excluded], hidden: [ids] }. Unknown ids are dropped; a column
+// added after the layout was saved joins at the end rather than vanishing. ccLayout(null) is the
+// default: every column, registry order.
+function ccLayout(s) {
   const ids = CC_COLUMNS.slice(1).map(c => c.id), known = new Set(ids);
-  let s = null;
-  try { s = JSON.parse(localStorage.getItem(CC_STORE_KEY)); } catch {}
   const order = [...new Set((Array.isArray(s?.order) ? s.order : []).filter(id => known.has(id)))];
   for (const id of ids) if (!order.includes(id)) order.push(id);
   const hidden = new Set((Array.isArray(s?.hidden) ? s.hidden : []).filter(id => known.has(id)));
   return { order, hidden };
 }
-function ccSave() {
-  try { localStorage.setItem(CC_STORE_KEY, JSON.stringify({ order: _cc.order, hidden: [..._cc.hidden] })); } catch {}
+
+// Custom tabs: { views: [{ id, name, order, hidden }] }, per browser like the other table
+// preferences. A null name means the translated default ("Custom" / "กำหนดเอง"), so the first tab
+// keeps following the language until it's renamed. There is always at least one view. The
+// single-layout v1 key, from before tabs could be added, seeds the first view and is left in place.
+const CC_VIEWS_KEY = 'posCustomViews.v2';
+function ccLoadViews() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(CC_VIEWS_KEY)); } catch {}
+  let raw = Array.isArray(s?.views) ? s.views : [];
+  if (!raw.length) {
+    let v1 = null;
+    try { v1 = JSON.parse(localStorage.getItem(CC_STORE_KEY)); } catch {}
+    raw = [{ id: 'v1', name: null, ...(v1 || {}) }];
+  }
+  const seen = new Set(), views = [];
+  for (const v of raw) {
+    if (!v || typeof v.id !== 'string' || !/^[\w-]+$/.test(v.id) || seen.has(v.id)) continue;
+    seen.add(v.id);
+    const name = typeof v.name === 'string' && v.name.trim() ? v.name.trim().slice(0, 30) : null;
+    views.push({ id: v.id, name, ...ccLayout(v) });
+  }
+  if (!views.length) views.push({ id: 'v1', name: null, ...ccLayout(null) });
+  return views;
 }
-let _cc = ccLoad();
+function ccSave() {
+  const views = _ccViews.map(v => ({ id: v.id, name: v.name, order: v.order, hidden: [...v.hidden] }));
+  try { localStorage.setItem(CC_VIEWS_KEY, JSON.stringify({ views })); } catch {}
+}
+let _ccViews = ccLoadViews();
+let _ccActive = _ccViews[0].id;   // the custom tab shown (or last shown) — not persisted, like _posTab
+const ccView = () => _ccViews.find(v => v.id === _ccActive) || _ccViews[0];
+const ccViewName = v => v.name || t('custom_tab_label');
 
 function renderCustomTable(model) {
   const host = document.getElementById('posTable');
@@ -12947,7 +12996,8 @@ function renderCustomTable(model) {
   };
 
   const byId = new Map(CC_COLUMNS.map(col => [col.id, col]));
-  const cols = [CC_COLUMNS[0], ..._cc.order.filter(id => !_cc.hidden.has(id)).map(id => byId.get(id))];
+  const view = ccView();
+  const cols = [CC_COLUMNS[0], ...view.order.filter(id => !view.hidden.has(id)).map(id => byId.get(id))];
 
   const sortCol = CC_COLUMNS.find(col => col.sort === sortKey);
   const sortVal = p => sortCol?.val ? sortCol.val(p, c)
@@ -13096,11 +13146,12 @@ function ccDragEnd(host, commit) {
 
 // beforeId null = past the last visible column: land right after it, not after trailing hidden ones.
 function ccMoveCol(id, beforeId) {
-  const o = _cc.order.filter(x => x !== id);
+  const view = ccView();
+  const o = view.order.filter(x => x !== id);
   let i = beforeId ? o.indexOf(beforeId) : -1;
-  if (i < 0) { i = 0; o.forEach((x, k) => { if (!_cc.hidden.has(x)) i = k + 1; }); }
+  if (i < 0) { i = 0; o.forEach((x, k) => { if (!view.hidden.has(x)) i = k + 1; }); }
   o.splice(i, 0, id);
-  _cc.order = o;
+  view.order = o;
   ccSave();
 }
 
@@ -13110,7 +13161,7 @@ document.addEventListener('keydown', e => {
   document.getElementById('posColsMenu')?.classList.remove('open');
 });
 
-// ── Custom sub-tab: Columns menu (show/hide + reset) ──────────────────────────
+// ── Custom sub-tab: Columns menu (show/hide + reset, rename/delete tab) ───────
 window.toggleColsMenu = function(e) {
   e.stopPropagation();
   const m = document.getElementById('posColsMenu');
@@ -13119,22 +13170,150 @@ window.toggleColsMenu = function(e) {
 function renderColsMenu() {
   const m = document.getElementById('posColsMenu');
   if (!m) return;
+  const view = ccView();
   const byId = new Map(CC_COLUMNS.map(col => [col.id, col]));
   m.innerHTML = `<div class="pcm-head"><span>${t('cols_btn')}</span><button type="button" class="pcm-reset" onclick="resetCustomCols()">${t('cols_reset')}</button></div>
     <div class="pcm-hint">${t('cols_hint')}</div>
-    <div class="pcm-list">${_cc.order.map(id => `<label class="pcm-item"><input type="checkbox"${_cc.hidden.has(id) ? '' : ' checked'} onchange="setCustomColVisible('${id}', this.checked)">${byId.get(id).label()}</label>`).join('')}</div>`;
+    <div class="pcm-list">${view.order.map(id => `<label class="pcm-item"><input type="checkbox"${view.hidden.has(id) ? '' : ' checked'} onchange="setCustomColVisible('${id}', this.checked)">${byId.get(id).label()}</label>`).join('')}</div>
+    <div class="pcm-foot">
+      <button type="button" class="pcm-btn" onclick="ccRenameFromMenu()">${t('rename_tab')}</button>
+      ${_ccViews.length > 1 ? `<button type="button" class="pcm-btn pcm-del" onclick="ccDeleteView(this)">${t('delete_tab')}</button>` : ''}
+    </div>`;
 }
 window.setCustomColVisible = function(id, on) {
-  if (on) _cc.hidden.delete(id); else _cc.hidden.add(id);
+  const view = ccView();
+  if (on) view.hidden.delete(id); else view.hidden.add(id);
   ccSave();
   if (currentModel) renderTable(currentModel);
 };
+// Resets the columns of the tab being shown only — its name, and every other tab, are left alone.
 window.resetCustomCols = function() {
-  try { localStorage.removeItem(CC_STORE_KEY); } catch {}
-  _cc = ccLoad();
+  Object.assign(ccView(), ccLayout(null));
+  ccSave();
   renderColsMenu();
   if (currentModel) renderTable(currentModel);
 };
+
+// ── Custom sub-tab: add / rename / delete tabs ────────────────────────────────
+// The tab strip is re-rendered only when the set of tabs or a name changes. Switching tabs just
+// moves the active class (ccSyncTabActive), so an in-place rename can't be wiped by a click.
+function posSubTabsHtml() {
+  const on = (tab, view) => _posTab === tab && (tab !== 'custom' || view === _ccActive) ? ' active' : '';
+  return `<button class="pos-sub-tab${on('overview')}" data-tab="overview" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>`
+    + `<button class="pos-sub-tab${on('performance')}" data-tab="performance" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>`
+    + _ccViews.map(v => `<button class="pos-sub-tab${on('custom', v.id)}" data-tab="custom" data-view="${v.id}" onclick="setPosTab('custom','${v.id}')" ondblclick="ccStartRename('${v.id}')" title="${escHtml(t('rename_hint'))}">${escHtml(ccViewName(v))}</button>`).join('')
+    + `<button class="pos-sub-tab pos-sub-add" onclick="ccAddView()" title="${escHtml(t('add_tab_tip'))}" aria-label="${escHtml(t('add_tab_tip'))}">+</button>`;
+}
+function renderPosSubTabs() {
+  const el = document.getElementById('posSubTabs');
+  if (el) el.innerHTML = posSubTabsHtml();
+}
+function ccSyncTabActive() {
+  document.querySelectorAll('#posSubTabs .pos-sub-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === _posTab && (_posTab !== 'custom' || b.dataset.view === _ccActive)));
+}
+
+// New tabs copy the custom tab shown, or last shown — a variation, not a rebuild from scratch.
+window.ccAddView = function() {
+  const src = ccView();
+  const used = new Set(_ccViews.map(ccViewName));
+  let n = _ccViews.length + 1;
+  while (used.has(`${t('custom_tab_label')} ${n}`)) n++;
+  let id;
+  do id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  while (_ccViews.some(x => x.id === id));
+  const v = { id, name: `${t('custom_tab_label')} ${n}`, order: [...src.order], hidden: new Set(src.hidden) };
+  _ccViews.push(v);
+  ccSave();
+  renderPosSubTabs();
+  setPosTab('custom', v.id);
+  ccStartRename(v.id);
+};
+
+// Swaps the tab's button for an input (not an input inside the button, whose clicks would still
+// fire the button). Enter or blur saves, Escape cancels; an empty name keeps the old one.
+window.ccStartRename = function(id) {
+  const v = _ccViews.find(x => x.id === id);
+  const b = document.querySelector(`#posSubTabs .pos-sub-tab[data-view="${id}"]`);
+  if (!v || !b) return;
+  const inp = document.createElement('input');
+  inp.className = 'pos-sub-tab-input';
+  inp.value = ccViewName(v);
+  inp.maxLength = 30;
+  inp.setAttribute('aria-label', t('rename_tab'));
+  inp.style.width = Math.max(80, b.offsetWidth + 16) + 'px';
+  b.replaceWith(inp);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = save => {
+    if (done) return;
+    done = true;
+    const name = inp.value.trim();
+    // Leaving a default-named tab at its default text keeps it null, so it still follows the language.
+    if (save && name && name !== ccViewName(v)) { v.name = name; ccSave(); }
+    renderPosSubTabs();
+  };
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+  });
+  inp.addEventListener('blur', () => finish(true));
+};
+window.ccRenameFromMenu = function() {
+  document.getElementById('posColsMenu')?.classList.remove('open');
+  ccStartRename(_ccActive);
+};
+
+// Two clicks, no confirm() dialog: the first arms the button for 3s, the second deletes.
+window.ccDeleteView = function(btn) {
+  if (_ccViews.length < 2) return;
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = t('delete_tab_confirm');
+    setTimeout(() => { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = t('delete_tab'); } }, 3000);
+    return;
+  }
+  const i = _ccViews.findIndex(v => v.id === _ccActive);
+  _ccViews.splice(i, 1);
+  _ccActive = (_ccViews[i] || _ccViews[i - 1]).id;
+  ccSave();
+  document.getElementById('posColsMenu')?.classList.remove('open');
+  renderPosSubTabs();
+  if (currentModel) renderTable(currentModel);
+};
+
+// Long-press renames on touch, where there is no double-click. Bound once on the strip, which
+// outlives every renderPosSubTabs(). Mouse is left to dblclick. The hold only arms it — the rename
+// starts on lift, because iOS opens the keyboard only for a focus() made inside a user gesture,
+// and a timer callback isn't one.
+function ccBindTabs(el) {
+  if (!el || el._ccBound) return;
+  el._ccBound = true;
+  let timer = null, armed = null, x0 = 0, y0 = 0;
+  const cancel = () => {
+    clearTimeout(timer); timer = null;
+    armed?.classList.remove('pressing'); armed = null;
+  };
+  el.addEventListener('pointerdown', e => {
+    const b = e.target.closest('.pos-sub-tab[data-view]');
+    if (!b || e.pointerType === 'mouse') return;
+    cancel();
+    x0 = e.clientX; y0 = e.clientY;
+    timer = setTimeout(() => { timer = null; armed = b; b.classList.add('pressing'); }, 500);
+  });
+  el.addEventListener('pointermove', e => { if ((timer || armed) && Math.hypot(e.clientX - x0, e.clientY - y0) > 8) cancel(); });
+  el.addEventListener('pointerup', () => {
+    const b = armed;
+    cancel();
+    if (!b) return;
+    setPosTab('custom', b.dataset.view);
+    ccStartRename(b.dataset.view);   // replaces the button, so the click that follows has no tab to land on
+  });
+  el.addEventListener('pointercancel', cancel);
+  // Android opens a context menu on long-press; the rename is what the press is for here.
+  el.addEventListener('contextmenu', e => { if (e.target.closest('.pos-sub-tab[data-view]')) e.preventDefault(); });
+}
 document.addEventListener('click', e => {
   const m = document.getElementById('posColsMenu');
   if (m?.classList.contains('open') && !e.target.closest?.('.pos-cols-wrap')) m.classList.remove('open');
@@ -17620,11 +17799,7 @@ function buildShell() {
               </div>
             </div>
             <div class="pos-tabs-row">
-              <div id="posSubTabs" class="pos-sub-tabs">
-                <button class="pos-sub-tab${_posTab === 'overview' ? ' active' : ''}" data-tab="overview" onclick="setPosTab('overview')">${t('overview_label') || 'Overview'}</button>
-                <button class="pos-sub-tab${_posTab === 'performance' ? ' active' : ''}" data-tab="performance" onclick="setPosTab('performance')">${t('performance_label') || 'Performance'}</button>
-                <button class="pos-sub-tab${_posTab === 'custom' ? ' active' : ''}" data-tab="custom" onclick="setPosTab('custom')">${t('custom_tab_label')}</button>
-              </div>
+              <div id="posSubTabs" class="pos-sub-tabs">${posSubTabsHtml()}</div>
               <div class="pos-cols-wrap" id="posColsWrap" data-no-shot style="display:none">
                 <button type="button" class="pos-cols-btn" onclick="toggleColsMenu(event)" aria-haspopup="true">
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
