@@ -4153,9 +4153,10 @@ function postTransactionUpdates(ticker, shares, price, txTypeVal, portfolio) {
       // Only FIFO moves the average on a sell; without a reconciled ledger, leave it
       newAvg = fifo ? fifo.avg : curAvg;
     }
-    // Sell All: if qty reaches 0, delete from Claude sheet
+    // Sell All: if qty reaches 0, keep the row with Qty/Avg zeroed — buildModel reads a row with
+    // neither as a watchlist entry, so the symbol (tags, target, plan) stays on the watchlist.
     if (txSellAll && txTypeVal === 'Sell' && newQty < 0.0001) {
-      writes.push({ action:'removeSymbol', symbol:ticker, portfolio:port });
+      writes.push({ action:'updateSymbol', symbol:ticker, portfolio:port, qty:'0', avgPrice:'0' });
       sellAll = true;
       txSellAll = false;
     } else {
@@ -4196,10 +4197,10 @@ function applyLocalTxWrite(params, post) {
   const dateStr   = params.get('date');
   const timeStr   = params.get('time');
 
-  // _allRows: update, remove (sell-all) or create the (portfolio, symbol) holding row.
+  // _allRows: update, zero (sell-all → watchlist) or create the (portfolio, symbol) holding row.
   const row = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
   if (post.sellAll) {
-    if (row) _allRows.splice(_allRows.indexOf(row), 1);
+    if (row) { row.qty = 0; row.avgPrice = 0; }
   } else if (row) {
     row.qty = post.newQty;
     row.avgPrice = post.newAvg;
@@ -5693,7 +5694,7 @@ window.exportTxCsv = function(port) {
   let list = merged ? txList : txList.filter(x => (x.portfolio || DEFAULT_PORT) === port);
   const heldOnly = !!document.getElementById('gfHeldOnly')?.checked;
   if (heldOnly) {
-    // A symbol sold out entirely keeps no row in _allRows, so its whole history drops out here.
+    // A symbol sold out entirely has no row with Qty > 0 in _allRows, so its whole history drops out here.
     // Partial sells on a still-open symbol survive: Google needs both legs to reach the right count.
     const held = new Set(_allRows.filter(r => Number(r.qty) > 0 && (merged || r.portfolio === port)).map(r => r.symbol));
     list = list.filter(x => held.has(x.ticker));
@@ -8241,8 +8242,8 @@ window.submitTradeModal = function() {
   const portfolio = document.getElementById('txPortfolio')?.value || tradeModalPort || DEFAULT_PORT;
   const model  = modelForPort(portfolio);
   const curQty = findPosIn(model, sym)?.qty || 0;
-  // Sell qty >= holdings → sell-all (postTransactionUpdates deletes the row instead of
-  // leaving a near-zero dust quantity), matching the "All" button's own behavior.
+  // Sell qty >= holdings → sell-all (postTransactionUpdates zeroes the row into a watchlist entry
+  // instead of leaving a near-zero dust quantity), matching the "All" button's own behavior.
   if (txType === 'Sell' && shares >= curQty - 1e-6) txSellAll = true;
   const now  = new Date();
   const date = document.getElementById('txDate')?.value || now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
