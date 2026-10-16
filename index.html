@@ -12870,7 +12870,7 @@ const CC_COLUMNS = [
   { id: 'totalRet', label: () => t('total_ret'), sort: 'pnlPct', cell: p => ccMoneyTd(p.pnl, fmtPct(p.pnlPct)) },
   // Unrealized + realized + net dividends, % over every buy ever made — the Holdings Performance figure.
   { id: 'totalPl', label: () => t('th_total_pl'), sort: 'c:totalPl', val: (p, c) => c.hp.get(p.symbol)?.totalPnl ?? null,
-    cell: (p, c) => { const h = c.hp.get(p.symbol); return h ? ccMoneyTd(h.totalPnl, fmtPct(h.pnlPct)) : CC_DASH; } },
+    cell: (p, c) => { const h = c.hp.get(p.symbol); return h ? ccMoneyTd(h.totalPnl, null) : CC_DASH; } },
   { id: 'realized', label: () => t('realized'), sort: 'c:realized', val: (p, c) => c.hp.get(p.symbol)?.realizedPnl ?? null,
     cell: (p, c) => ccMoneyTd(c.hp.get(p.symbol)?.realizedPnl || null, null) },
   { id: 'dividends', label: () => t('dividends'), sort: 'c:dividends', val: (p, c) => c.hp.get(p.symbol)?.dividends ?? null,
