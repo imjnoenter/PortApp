@@ -1431,6 +1431,9 @@ body.cc-dragging, body.cc-dragging * { cursor: grabbing !important; user-select:
 .sym-price-row { display: flex; align-items: baseline; gap: 10px; margin-top: var(--sp-2); flex-wrap: wrap; }
 .sym-px { font-family: var(--font-mono); font-size: 26px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
 .sym-px-chg { font-family: var(--font-mono); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ext-px { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border-radius: var(--radius-pill); background: var(--track); font-family: var(--font-mono); font-size: 13px; font-weight: 700; font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.ext-px-l { font-family: var(--font-ui); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.ext-px-v { color: var(--ink); }
 .sym-hero-tr { text-align: right; }
 .sym-hero-tr .l { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .sym-hero-tr .v { font-family: var(--font-mono); font-size: 21px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
@@ -2102,6 +2105,8 @@ body.cc-dragging, body.cc-dragging * { cursor: grabbing !important; user-select:
 .ax-half-btn { flex: 1; padding: 5px var(--sp-1); border: none; background: transparent; border-radius: var(--radius-sm); font-family: var(--font-ui); font-size: 10px; font-weight: 600; color: var(--muted); cursor: pointer; transition: background .15s var(--ease-out-quint), color .15s var(--ease-out-quint); letter-spacing: .3px; text-transform: uppercase; }
 .ax-half-btn.active { background: var(--card); color: var(--ink); }
 .ax-half-btn:hover:not(.active) { color: var(--ink); }
+.ax-plan-sec-title { font-family: var(--font-ui); font-size: 11px; font-weight: 700; color: var(--ink); text-transform: uppercase; letter-spacing: .5px; margin-bottom: var(--sp-2); }
+#axPlanExits { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--line); }
 /* Shared panel footer — Plan's Note+Save/Clear and Manage's Save, pinned to the bottom of
    #actionTabContent (the scroll container) so it stays visible regardless of scroll position
    (Plan: from both Entries/Exits halves; Manage: below the folded groups). Negative side margins
@@ -6714,6 +6719,7 @@ function renderSymbolModal() {
           <div class="sym-price-row">
             <div class="sym-px">${fmtCurr(price)}</div>
             ${dayChgHtml}
+            ${extPriceChipHtml(pos, fmtCurr)}
           </div>
         </div>
         <div class="sym-hero-tr">
@@ -8345,11 +8351,9 @@ window.openActionModal = function(sym, port) {
                  sl:cached.sl??null, note:cached.note??'',
                  pendingTarget:null, pendingCategory:null};
   }
-  // The modal always opens on Plan; a triggered (HIT, not near) alert decides which half it lands
-  // on and which row gets the one-shot scroll+highlight (see axAlertFocus / applyAxFocusRow).
-  const _axFocus = axAlertFocus(sym, actionModalPort);
-  _axPlanHalf = _axFocus?.half || 'entries';
-  _axPendingFocus = _axFocus;
+  // The modal always opens on Plan; a triggered (HIT, not near) alert decides which row gets the
+  // one-shot scroll+highlight (see axAlertFocus / applyAxFocusRow).
+  _axPendingFocus = axAlertFocus(sym, actionModalPort);
   const overlay = document.getElementById('actionModal');
   if (!overlay) return;
   // Sector · Industry · Category · Custom · My Group — quiet labels under the company name.
@@ -8426,9 +8430,10 @@ function renderActionContext() {
   const chgHtml = (chg != null && chgPct != null)
     ? `<span style="font-size:13px;font-weight:600;color:${chgUp?'var(--gain)':'var(--loss)'}">${chgUp?'+':''}${fmtUSD(chg)} (${chgUp?'+':''}${chgPct.toFixed(2)}%)</span>`
     : '';
-  const priceHtml = `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:var(--sp-3)">
+  const priceHtml = `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:var(--sp-3)">
     <span style="font-size:26px;font-weight:700;font-family:var(--font-mono)">${pos.price!=null?fmtUSD(pos.price):'—'}</span>
     ${chgHtml}
+    ${extPriceChipHtml(pos, fmtUSD)}
   </div>`;
 
   const facts = [];
@@ -8479,7 +8484,7 @@ function renderActionContext() {
   }
 
   // Open by default every time the modal opens (no remembered collapsed state — renderActionContext
-  // always renders it fresh with `open`, unlike _axPlanHalf/_axTradeDetailsOpen which persist).
+  // always renders it fresh with `open`, unlike _axTradeDetailsOpen which persists).
   const histHtml = `<details class="ax-hist" open><summary>${t('tx_panel_title')}</summary>${symTxHistoryHtml(sym, actionModalPort)}</details>`;
 
   el.innerHTML = priceHtml + factsHtml + chartHtml + weightHtml + histHtml;
@@ -8670,24 +8675,6 @@ window.pickTag = function(id, val) {
   document.getElementById(id + 'Pick')?.classList.remove('open');
 };
 
-// Entries/Exits sub-toggle for the action modal's Plan panel. Both halves stay in the DOM at all
-// times (renderPlanBar/updateNewAvgs/renderTrimSection/updateTrimCalcs/renderRebalFundPanel and
-// the chart-line updaters all query ids that can live in either half) — switching only flips the
-// `hidden` attribute on the two wrapper elements, no re-render.
-window.axSetPlanHalf = function(half) {
-  if (half !== 'entries' && half !== 'exits') return;
-  _axPlanHalf = half;
-  const entriesEl = document.getElementById('axPlanEntries');
-  const exitsEl   = document.getElementById('axPlanExits');
-  if (entriesEl) entriesEl.hidden = half !== 'entries';
-  if (exitsEl)   exitsEl.hidden   = half !== 'exits';
-  document.querySelectorAll('.ax-half-btn').forEach(b => {
-    const active = b.dataset.half === half;
-    b.classList.toggle('active', active);
-    b.setAttribute('aria-pressed', active ? 'true' : 'false');
-  });
-};
-
 // One-shot: highlights + scrolls to the row an alert-triggered open landed on (see
 // axAlertFocus), then clears _axPendingFocus so a later re-render of the plan branch (save,
 // clear, switching segments away and back) never repeats it. No-op when nothing is pending.
@@ -8759,13 +8746,10 @@ function renderActionTabContent() {
     }).join('');
     const pendingTgtPct = planState.pendingTarget != null ? (planState.pendingTarget * 100).toFixed(2)
                         : pos.target != null               ? (pos.target * 100).toFixed(2) : '';
-    const halves = [['entries','ax_entries'],['exits','ax_exits']];
     const savedLine = hasSavedPlan(sym, actionModalPort) ? t('ax_saved_plan') : t('ax_no_plan');
     el.innerHTML = `
-      <div class="ax-half">
-        ${halves.map(([h,key])=>`<button class="ax-half-btn${h===_axPlanHalf?' active':''}" data-half="${h}" aria-pressed="${h===_axPlanHalf}" onclick="axSetPlanHalf('${h}')">${t(key)}</button>`).join('')}
-      </div>
-      <div id="axPlanEntries"${_axPlanHalf==='entries'?'':' hidden'}>
+      <div id="axPlanEntries">
+        <div class="ax-plan-sec-title">${t('ax_entries')}</div>
         <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--track);border-radius:var(--radius-sm);margin-bottom:12px">
           <span style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">${t('target_alloc_label')}</span>
           <div class="tranche-input-wrap has-suffix" style="width:90px">
@@ -8793,7 +8777,8 @@ function renderActionTabContent() {
         <button class="plan-add-btn" onclick="addTranche()">+ Add Tranche</button>
         <div id="rebalFundPanel" class="rebalfund-panel" style="display:none"></div>
       </div>
-      <div id="axPlanExits"${_axPlanHalf==='exits'?'':' hidden'}>
+      <div id="axPlanExits">
+        <div class="ax-plan-sec-title">${t('ax_exits')}</div>
         <div id="axSlRow" style="margin-bottom:14px">
           <label style="font-size:10px;font-weight:600;color:var(--loss);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">${t('stop_loss_label')}</label>
           <input class="tranche-input" id="planSL" type="number" step="any" min="0"
@@ -9352,8 +9337,6 @@ window.submitSymbolEdit = function(sym, tab) {
 const TRANCHE_COLORS = ['#6b7eb8','#8a5a7e','#b56a8a','#c79038','#6b8e5a','#7aa3b8','#9a7aa3','#9ca85a'];
 let planState = { symbol: null, name: '', tranches: [], model: null, sl: null, note: '', pendingTarget: null, pendingCategory: null };
 let planCache = {}; // { [portfolio]: { [sym]: { tranches, sl, note, trimTranches } } } — loaded at startup
-// Action modal Plan panel: Entries/Exits sub-toggle. Reset per openActionModal.
-let _axPlanHalf = 'entries';
 // Pending row highlight from an alert-triggered open — {half,row} or null; consumed (set back to
 // null) the first time the plan branch renders after being set, so a later re-render (save/clear/
 // switch away and back) never re-triggers the scroll+highlight.
@@ -9384,10 +9367,10 @@ function hasSavedPlan(sym, port) {
   return !!(hasEntries || hasTp || d.sl || d.note);
 }
 
-// Which half of the action modal's Plan panel (and which row in it) a triggered alert points at,
-// for the modal to land on when opened from that alert. Mirrors renderPlanWatch's SL/TP/entry HIT
-// thresholds verbatim (same pct formulas, same <=0/>=0 boundaries) so the two can never disagree —
-// near-misses (renderPlanWatch's *_NEAR alerts) do not move the half, only a HIT does.
+// Which row of the action modal's Plan panel a triggered alert points at (`half` names the section
+// it sits in), for the modal to scroll to when opened from that alert. Mirrors renderPlanWatch's
+// SL/TP/entry HIT thresholds verbatim (same pct formulas, same <=0/>=0 boundaries) so the two can
+// never disagree — near-misses (renderPlanWatch's *_NEAR alerts) never highlight, only a HIT does.
 // Priority when several are hit at once: SL hit -> TP hit -> entry hit (first match wins).
 function axAlertFocus(sym, port) {
   const d = getPlan(sym, port);
@@ -12822,6 +12805,22 @@ function ccPriceSub(p) {
   if (ms === 'OVERNIGHT' && p.postMarketPrice)
     return [`<span title="${t('overnight_price_tip')}">☾ ${line(fmtCurr(p.postMarketPrice), p.postMarketPct)}</span>`, (p.postMarketPct || 0) >= 0 ? 'cell-up' : 'cell-dn'];
   return [null, 'cell-mut'];
+}
+// The stock windows' version of that line: a labelled chip set beside the big last price (symbol
+// window hero + action-modal context). Same marketState gating as ccPriceSub; '' when no session.
+function extPriceChipHtml(p, fmt) {
+  const ms = p?.marketState;
+  let label, px, pct, tip = '';
+  if (ms === 'PRE' && p.preMarketPrice) { label = t('pre_market_status'); px = p.preMarketPrice; pct = p.preMarketPct; }
+  else if ((ms === 'POST' || ms === 'CLOSED' || ms === 'OVERNIGHT') && p.postMarketPrice) {
+    label = t('after_hours_status'); px = p.postMarketPrice; pct = p.postMarketPct;
+    if (ms === 'OVERNIGHT') tip = ` title="${t('overnight_price_tip')}"`;
+  } else return '';
+  const up = (pct || 0) >= 0;
+  return `<span class="ext-px"${tip}><span class="ext-px-l">${ms === 'PRE' ? '☀︎' : '☾'} ${label}</span>`
+    + `<span class="ext-px-v">${fmt(px)}</span>`
+    + (pct != null ? `<span class="${up ? 'cell-up' : 'cell-dn'}">${up ? '+' : ''}${pct.toFixed(2)}%</span>` : '')
+    + `</span>`;
 }
 function ccDateTd(ev, today) {
   if (!ev) return CC_DASH;
@@ -19111,9 +19110,7 @@ window.closeAllocMgmt = function(force) {
   // The Action modal may still be open underneath (opened via axOpenAllocFor) — its Plan panel's
   // target can now be stale. Refresh only the target-dependent bits; never re-render the whole
   // plan branch, which would rebuild the tranche inputs and lose in-progress typing. Every step
-  // is guarded on the element existing, since the Action modal may be on Trade or Manage (or on
-  // Plan but showing the Exits half, where planTargetPct still exists — it lives in Entries only,
-  // so that guard also covers that case correctly).
+  // is guarded on the element existing, since the Action modal may be on Trade or Manage.
   if (document.getElementById('actionModal')?.classList.contains('open') && actionModalSym && planState.symbol === actionModalSym) {
     const freshModel = modelForPort(actionModalPort);
     const freshPos = findPosIn(freshModel, actionModalSym) || findPos(actionModalSym);
