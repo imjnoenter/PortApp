@@ -2991,7 +2991,7 @@ const I18N = {
     cum_pct_label: "Cum %", amount_label: "Amount",
     charts_tab: "Charts", transactions_tab: "Transactions",
     all_stocks_label: "All Stocks", no_price_data: "No price data available",
-    allocation: "Allocation", invested: "Invested", holdings: "Holdings",
+    allocation: "Allocation", invested: "Invested", holdings: "Holdings", in_stocks: "In stocks",
     "All": "All", "Big Name": "Big Name", "Wait for sell": "Wait for sell", "Medium Cap": "Medium Cap", "Small Cap": "Small Cap",
     "Growth": "Growth", "Dividend": "Dividend", "Other": "Other",
     "Watchlist": "Watchlist", "Technology": "Technology",
@@ -3270,7 +3270,7 @@ const I18N = {
     cum_pct_label: "สะสม %", amount_label: "จำนวนเงิน",
     charts_tab: "กราฟ", transactions_tab: "รายการซื้อขาย",
     all_stocks_label: "หุ้นทั้งหมด", no_price_data: "ไม่มีข้อมูลราคา",
-    allocation: "สัดส่วน", invested: "ทุน", holdings: "รายการ",
+    allocation: "สัดส่วน", invested: "ทุน", holdings: "รายการ", in_stocks: "มูลค่าหุ้น",
     "All": "ทั้งหมด", "Big Name": "หุ้นชื่อใหญ่", "Wait for sell": "รอขาย",
     "Medium Cap": "หุ้นขนาดกลาง", "Small Cap": "หุ้นขนาดเล็ก", "Growth": "หุ้นเติบโต",
     "Dividend": "หุ้นปันผล", "Other": "อื่นๆ", "Watchlist": "รายการเฝ้าดู",
@@ -4238,6 +4238,49 @@ function applyLocalTxWrite(params, post) {
   const nextRow = txList.reduce((m, x) => Math.max(m, x.row), 1) + 1;
   txList.push({ row: nextRow, date: dateStr, time: timeStr, type: txTypeVal, ticker, shares, price,
                 tradeValue: tv, portfolio: port, com: comm, tax, total, commissionFree, note, pending: true });
+
+  const heldRow = _allRows.find(r => r.symbol === ticker && (r.portfolio || DEFAULT_PORT) === port);
+  if (heldRow) _localPins.rows.set(`${port}|${ticker}`, { row: { ...heldRow, portfolio: port }, until: Date.now() + LOCAL_PIN_MS });
+  if (cashRow) _localPins.cash.set(cashRow.name, { fcd: post.fcd, usd: post.usd, until: Date.now() + LOCAL_PIN_MS });
+}
+
+// Holdings + cash a just-recorded trade wrote, held over stale sheet reads. postTransactionUpdates
+// sends ABSOLUTE qty/avg/cash computed from _allRows/_portfolioRegistry, and init()'s un-busted gviz
+// read can still serve the pre-trade copy 5-30s after the write landed — the auto-refresh's
+// _bgPending skip only covers the time the write is in flight. A refresh in that window used to
+// reset the row, so the next trade on it computed from the old qty and overwrote the good value,
+// losing a whole buy and its cash. A pin outlives that window and drops as soon as a read agrees.
+const LOCAL_PIN_MS = 120_000;
+let _localPins = { rows: new Map(), cash: new Map() }; // rows: 'port|sym' -> {row, until}; cash: port -> {fcd, usd, until}
+const _pinSame = (a, b, tol) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < tol;
+
+// Call right after replacing _allRows / _portfolioRegistry with an un-busted read. `prevRows` /
+// `prevRegistry` are the arrays being replaced: a pin whose local row no longer matches it was
+// superseded by a later local edit (Corrections, Edit Cash), which must win, so it's dropped.
+function _applyLocalPins(prevRows, prevRegistry) {
+  const now = Date.now();
+  const rowOf = (rows, sym, port) => rows.find(r => r.symbol === sym && (r.portfolio || DEFAULT_PORT) === port);
+  for (const [key, pin] of _localPins.rows) {
+    const { symbol, portfolio, qty, avgPrice } = pin.row;
+    const prev = rowOf(prevRows, symbol, portfolio);
+    if (now > pin.until || !prev || !_pinSame(prev.qty, qty, 1e-5) || !_pinSame(prev.avgPrice, avgPrice, 1e-5)) {
+      _localPins.rows.delete(key); continue;
+    }
+    const row = rowOf(_allRows, symbol, portfolio);
+    if (!row) { _allRows.push({ ...pin.row }); continue; }
+    if (_pinSame(row.qty, qty, 1e-5) && _pinSame(row.avgPrice, avgPrice, 1e-5)) { _localPins.rows.delete(key); continue; }
+    row.qty = qty; row.avgPrice = avgPrice;
+  }
+  for (const [name, pin] of _localPins.cash) {
+    const prev = prevRegistry.find(p => p.name === name);
+    if (now > pin.until || !prev || !_pinSame(prev.fcd, pin.fcd, 1e-3) || !_pinSame(prev.usd, pin.usd, 1e-3)) {
+      _localPins.cash.delete(name); continue;
+    }
+    const reg = _portfolioRegistry.find(p => p.name === name);
+    if (!reg) continue;
+    if (_pinSame(reg.fcd, pin.fcd, 1e-3) && _pinSame(reg.usd, pin.usd, 1e-3)) { _localPins.cash.delete(name); continue; }
+    reg.fcd = pin.fcd; reg.usd = pin.usd; reg.cash = pin.fcd + pin.usd;
+  }
 }
 
 // Move shares between portfolios — no cash change, no realized P&L. Apps Script writes the
@@ -4617,6 +4660,9 @@ async function _reloadAfterTxWrite(patch) {
     fetchPortfolios(true), fetchTransactions(true), fetchTxList(true),
     patch ? null : fetchSheet(true),
   ]);
+  // The edit/delete just rewrote holdings + cash server-side on top of any recent trade, and these
+  // reads are cache-busted — they're newer than every pin, so a pin here would clobber the correction.
+  _localPins.rows.clear(); _localPins.cash.clear();
   if (patch) {
     for (const row of _allRows) {
       if (row.symbol === patch.symbol && row.portfolio === patch.portfolio) {
@@ -5460,12 +5506,12 @@ function _dcGather() {
   const td = lastTxData || {};
   // Unrealized + realized + dividends — only used for the baht fallback below.
   const totalRetUSD = model.totalPnl + (td.realizedPnl ?? 0) + (td.dividends?.net ?? 0);
-  // The percentage the foot puts beside Portfolio Value: unrealized P&L over the current value of
-  // the stocks, which is exactly what the Portfolio Value stat card shows (see sc-portVal's
+  // The percentage the foot puts beside Portfolio Value: unrealized P&L over the cost of the held
+  // shares, which is exactly what the Portfolio Value stat card shows (see sc-portVal's
   // portValPct). Deliberately NOT the Total Return card's figure — it sits beside that same value
   // here as it does there, so it has to be the same number.
-  const stocksVal  = model.totalCurrent - model.totalCash;
-  const portValPct = stocksVal > 0 ? model.totalPnl / stocksVal * 100 : 0;
+  const stocksCost = model.positions.reduce((s, p) => s + (p.costBasis || 0), 0);
+  const portValPct = stocksCost > 0 ? model.totalPnl / stocksCost * 100 : 0;
   let bahtRet, bahtPct, bahtNote;
   if (netContribTHB > 0) {
     bahtRet  = model.totalCurrent * fxRate - netContribTHB;
@@ -10838,8 +10884,11 @@ function renderStatCards(model, txData) {
   const totalRet = model.totalPnl + (realized ?? 0) + (div?.net ?? 0);
   const totalRetPct = model.totalInvested ? totalRet / model.totalInvested * 100 : 0;
 
-  const stocksVal = model.totalCurrent - model.totalCash;
-  const portValPct = stocksVal > 0 ? model.totalPnl / stocksVal * 100 : 0;
+  // Unrealized % is over what the held shares COST, the way the broker (Dime!) shows it — not over
+  // their current value, which overstated every loss and understated every gain.
+  const stocksVal  = model.totalCurrent - model.totalCash;
+  const stocksCost = model.positions.reduce((s, p) => s + (p.costBasis || 0), 0);
+  const portValPct = stocksCost > 0 ? model.totalPnl / stocksCost * 100 : 0;
   set('sc-portVal', `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div class="sc-label" style="margin-bottom:0">${t('port_val')}</div>
@@ -10848,7 +10897,7 @@ function renderStatCards(model, txData) {
     </div>
     <div class="sc-value">${fmtUSD(model.totalCurrent)} <span style="font-size:0.62em">(${fmtBaht(model.totalCurrent * fxRate)})</span></div>
     <div class="sc-sub ${cl(model.totalPnl)}">${m(model.totalPnl)}  ${p(portValPct)}</div>
-    <div class="sc-detail"><span style="display:inline-block">${t('invested')}: ${fmtCurr(stocksVal)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
+    <div class="sc-detail"><span style="display:inline-block">${t('th_total_cost')}: ${fmtCurr(stocksCost)} ·&nbsp;</span><span style="display:inline-block">${t('in_stocks')}: ${fmtCurr(stocksVal)} ·&nbsp;</span><span style="display:inline-block">${model.positions.length} ${t('holdings')}</span></div>`);
 
   const retLabel = [model.totalPnl !== 0 ? t('unrealized') : null, realized != null ? t('realized') : null, div?.net ? t('dividends') : null].filter(Boolean).join(' + ') || t('unrealized');
   const nc = netContributedForView();
@@ -13793,7 +13842,9 @@ window.submitAddSymbol = function() {
         // to a full re-read to fill it in, same as the pre-optimistic code always did.
         try {
           const table = await fetchSheet(true);
+          const prevRows = _allRows;
           _allRows = parseRows(table);
+          _applyLocalPins(prevRows, _portfolioRegistry);
           applyPortfolioView();
         } catch (e) { console.error('post-add-symbol refresh:', e); }
       }
@@ -19928,8 +19979,10 @@ async function init() {
   try {
     const [table, rate, portfolios] = await Promise.all([fetchSheet(), fetchFxRate(), fetchPortfolios(), fetchContributions(), ensureGicsMap()]);
     fxRate = rate;
+    const prevRows = _allRows, prevRegistry = _portfolioRegistry;
     _allRows = parseRows(table);
     _portfolioRegistry = portfolios;
+    _applyLocalPins(prevRows, prevRegistry);
     // Guard a stale saved view that no longer exists in this sheet's registry.
     if (activePortfolio !== 'ALL' && !_portfolioRegistry.some(p => p.name === activePortfolio)) {
       activePortfolio = 'ALL'; localStorage.setItem('portfolioView.v1', 'ALL');
