@@ -5911,6 +5911,18 @@ function _sdTradeTxs(sym) {
     .filter(x => x.type === 'Buy' || x.type === 'Sell');
 }
 
+// The ledger records Thai (UTC+7) date + time, but a session that opens at 20:30/21:30 Thai runs
+// past midnight — a buy at "17 Oct 03:10" was made on 16 Oct's US session, and that is the candle
+// it belongs on. Converts through America/New_York so DST is handled. No time → the date as-is.
+const _etDateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+function txMarketDate(date, time) {
+  const tm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(time || '');
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
+  if (!tm || !dm) return date;
+  const utc = Date.UTC(+dm[1], +dm[2] - 1, +dm[3], +tm[1] - 7, +tm[2], +(tm[3] || 0));
+  return _etDateFmt.format(new Date(utc));
+}
+
 // Base (unhighlighted) marker set for the symbol currently open in the modal — module-level so
 // the hover handler (_sdSetMarkerHover) can re-emit it without rebuilding from txList each time.
 let _sdTxMarkers = [];
@@ -5933,7 +5945,7 @@ let _sdMarkerHoverDate = null;
 function _sdApplyTxMarkers(sym, series) {
   if (!series) return;
   const byDate = {};
-  _sdTradeTxs(sym).forEach(x => (byDate[x.date] || (byDate[x.date] = [])).push(x));
+  _sdTradeTxs(sym).forEach(x => { const d = txMarketDate(x.date, x.time); (byDate[d] || (byDate[d] = [])).push(x); });
   // Quantities carry up to 4 decimals — format compactly so a whole-share trade reads "10", not
   // "10.0000", while a fractional one keeps only the digits it needs (max 4dp).
   const fmtShares = n => n.toFixed(4).replace(/\.?0+$/, '');
@@ -6646,7 +6658,7 @@ function renderSymbolModal() {
           <tbody>
             ${symTxs.map(x => {
               // Only Buy/Sell rows carry a chart marker to cross-highlight on hover.
-              const mkAttr = (x.type === 'Buy' || x.type === 'Sell') ? ` data-mk-date="${x.date}"` : '';
+              const mkAttr = (x.type === 'Buy' || x.type === 'Sell') ? ` data-mk-date="${txMarketDate(x.date, x.time)}"` : '';
               return `<tr${mkAttr}>
               <td>${fmtDate(x.date)}</td>
               <td><span class="${x.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy'}">${x.type}</span></td>
