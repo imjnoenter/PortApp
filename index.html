@@ -3186,7 +3186,8 @@ const I18N = {
     dbar_today_label: "today",
     dbar_change_label: "Change",
     monthly_returns_title: "Monthly Returns",
-    cf_title: "Weekly Cash Flow", cf_meta: "All portfolios · Mon–Sun, US market date",
+    cf_title: "Cash Flow", cf_meta: "All portfolios · US market date",
+    cf_weekly: "Weekly", cf_monthly: "Monthly", cf_month: "Month", cf_this_month: "this month",
     cf_cash: "Spendable cash", cf_cash_sub: "wallet", cf_cash_sub_reserve: "after reserve",
     cf_avg: "Avg weekly net", cf_avg_sub: "last {n} full weeks",
     cf_runway: "Cash runway", cf_weeks: "weeks", cf_until: "until ~",
@@ -3492,7 +3493,8 @@ const I18N = {
     dbar_today_label: "วันนี้",
     dbar_change_label: "เปลี่ยนแปลง",
     monthly_returns_title: "ผลตอบแทนรายเดือน",
-    cf_title: "กระแสเงินสดรายสัปดาห์", cf_meta: "ทุกพอร์ต · จันทร์–อาทิตย์ ตามวันตลาดสหรัฐ",
+    cf_title: "กระแสเงินสด", cf_meta: "ทุกพอร์ต · ตามวันตลาดสหรัฐ",
+    cf_weekly: "รายสัปดาห์", cf_monthly: "รายเดือน", cf_month: "เดือน", cf_this_month: "เดือนนี้",
     cf_cash: "เงินสดที่ใช้ได้", cf_cash_sub: "ในกระเป๋า", cf_cash_sub_reserve: "หลังหักเงินสำรอง",
     cf_avg: "สุทธิเฉลี่ยต่อสัปดาห์", cf_avg_sub: "{n} สัปดาห์เต็มล่าสุด",
     cf_runway: "เงินสดพอใช้อีก", cf_weeks: "สัปดาห์", cf_until: "ถึงราว ",
@@ -12169,12 +12171,13 @@ function _cfAddDays(dateStr, n) {
 function _cfMonday(dateStr) { return _cfAddDays(dateStr, -((new Date(dateStr + 'T00:00:00Z').getUTCDay() + 6) % 7)); }
 
 function computeWeeklyCashFlow() {
-  const weeks = new Map();
-  const bucket = d => {
-    const k = _cfMonday(d);
-    let w = weeks.get(k);
-    if (!w) weeks.set(k, w = { start: k, bought: 0, sold: 0, deposited: 0 });
-    return w;
+  const weeks = new Map(), months = new Map();
+  const blank = k => ({ start: k, bought: 0, sold: 0, deposited: 0 });
+  const add = (d, field, v) => {
+    for (const [map, k] of [[weeks, _cfMonday(d)], [months, d.slice(0, 7)]]) {
+      if (!map.has(k)) map.set(k, blank(k));
+      map.get(k)[field] += v;
+    }
   };
   let first = null;
   for (const x of txList || []) {
@@ -12183,7 +12186,7 @@ function computeWeeklyCashFlow() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) continue;
     const tv = Number(x.tradeValue) || (x.shares * x.price) || 0;
     const fee = feesOn(tv, x.commissionFree).total;
-    if (x.type === 'Buy') bucket(d).bought += tv + fee; else bucket(d).sold += tv - fee;
+    if (x.type === 'Buy') add(d, 'bought', tv + fee); else add(d, 'sold', tv - fee);
     if (!first || d < first) first = d;
   }
   if (!first) return null;
@@ -12192,15 +12195,25 @@ function computeWeeklyCashFlow() {
     const a = contribAmounts(c);
     // Legacy deposit rows carry baht only — convert at today's rate, the best available.
     const usd = a.usd != null ? a.usd : (fxRate > 0 ? (a.thb || 0) / fxRate : 0);
-    bucket(c.date).deposited += a.isDeposit ? usd : -usd;
+    add(c.date, 'deposited', a.isDeposit ? usd : -usd);
   }
   const net = w => w ? w.deposited + w.sold - w.bought : 0;
-  const thisWeek = _cfMonday(_etDateFmt.format(new Date()));
-  const shown = [];
+  const today = _etDateFmt.format(new Date());
+  const thisWeek = _cfMonday(today), thisMonth = today.slice(0, 7);
+  const shown = [], shownMonths = [];
   for (let i = 0; i < CF_WEEKS_SHOWN; i++) {
     const k = _cfAddDays(thisWeek, -7 * i);
-    const w = weeks.get(k) || { start: k, bought: 0, sold: 0, deposited: 0 };
+    const w = weeks.get(k) || blank(k);
     shown.push({ ...w, net: net(w) });
+  }
+  // Same count of calendar months, never reaching back before the first trade's month.
+  const firstMonth = first.slice(0, 7);
+  for (let i = 0, y = +thisMonth.slice(0, 4), m = +thisMonth.slice(5); i < CF_WEEKS_SHOWN; i++) {
+    const k = `${y}-${String(m).padStart(2, '0')}`;
+    if (k < firstMonth) break;
+    const w = months.get(k) || blank(k);
+    shownMonths.push({ ...w, net: net(w) });
+    if (--m === 0) { m = 12; y--; }
   }
   // Average over the last N COMPLETE weeks — this week is still running and would understate the
   // pace — but never back past the first trade's week, which would dilute it with empty weeks.
@@ -12214,7 +12227,16 @@ function computeWeeklyCashFlow() {
   const avgNet = n ? sum / n : null;
   const cash = _spendableWallet();
   const runway = avgNet != null && avgNet < 0 ? cash / -avgNet : null;
-  return { weeks: shown, thisWeek, avgNet, avgWeeks: n, cash, runway };
+  return { weeks: shown, months: shownMonths, thisWeek, thisMonth, avgNet, avgWeeks: n, cash, runway };
+}
+
+// Weekly | Monthly table toggle — a per-viewer convenience, so plain localStorage.
+let _cfPeriod = 'week';
+try { if (localStorage.getItem('cashFlowPeriod.v1') === 'month') _cfPeriod = 'month'; } catch (e) {}
+function setCashFlowPeriod(p) {
+  _cfPeriod = p === 'month' ? 'month' : 'week';
+  try { localStorage.setItem('cashFlowPeriod.v1', _cfPeriod); } catch (e) {}
+  renderWeeklyCashFlow();
 }
 
 function renderWeeklyCashFlow() {
@@ -12258,20 +12280,25 @@ function renderWeeklyCashFlow() {
     ${stat(t('cf_runway'), runwayV, runwaySub, runwayTone)}
   </div>`;
 
+  const monthly = _cfPeriod === 'month';
+  document.querySelectorAll('#cashFlowCard [data-cf-period]').forEach(b =>
+    b.classList.toggle('active', b.dataset.cfPeriod === _cfPeriod));
+  const monthLabel = k => new Date(k + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+
   const amt = v => isZero(v) ? `<td class="cf-zero">—</td>` : `<td>${fmtCurr(v)}</td>`;
-  const rows = cf.weeks.map(w => {
-    const now = w.start === cf.thisWeek;
+  const rows = (monthly ? cf.months : cf.weeks).map(w => {
+    const now = w.start === (monthly ? cf.thisMonth : cf.thisWeek);
     const netTd = isZero(w.net) ? `<td class="cf-zero">—</td>`
       : `<td${now ? '' : ` style="color:${w.net > 0 ? 'var(--gain)' : 'var(--loss)'}"`}>${signed(w.net)}</td>`;
     return `<tr${now ? ' class="cf-now"' : ''}>
-      <th class="cf-wk" scope="row">${weekLabel(w.start)}${now ? `<span class="cf-tag">${t('cf_this_week')}</span>` : ''}</th>
+      <th class="cf-wk" scope="row">${monthly ? monthLabel(w.start) : weekLabel(w.start)}${now ? `<span class="cf-tag">${t(monthly ? 'cf_this_month' : 'cf_this_week')}</span>` : ''}</th>
       ${amt(w.bought)}${amt(w.sold)}${amt(w.deposited)}${netTd}
     </tr>`;
   }).join('');
 
   body.innerHTML = `${stats}
     <div class="table-scroll"><table class="cf-table">
-      <thead><tr><th scope="col">${t('cf_week')}</th><th scope="col">${t('cf_bought')}</th><th scope="col">${t('cf_sold')}</th><th scope="col">${t('cf_deposited')}</th><th scope="col">${t('cf_net')}</th></tr></thead>
+      <thead><tr><th scope="col">${t(monthly ? 'cf_month' : 'cf_week')}</th><th scope="col">${t('cf_bought')}</th><th scope="col">${t('cf_sold')}</th><th scope="col">${t('cf_deposited')}</th><th scope="col">${t('cf_net')}</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <div class="cf-note">${t('cf_note')}</div>`;
@@ -18001,7 +18028,13 @@ function buildShell() {
           <div class="card" id="cashFlowCard" style="display:none">
             <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
               <div class="card-title" style="margin-bottom:0">${t('cf_title')}</div>
-              <div class="card-header-extra" style="font-size:11px;color:var(--muted)">${t('cf_meta')}</div>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <div class="card-header-extra" style="font-size:11px;color:var(--muted)">${t('cf_meta')}</div>
+                <div style="display:flex;gap:2px;background:var(--track);border-radius:6px;padding:2px">
+                  <button class="pnl-tab-btn" data-cf-period="week" onclick="setCashFlowPeriod('week')">${t('cf_weekly')}</button>
+                  <button class="pnl-tab-btn" data-cf-period="month" onclick="setCashFlowPeriod('month')">${t('cf_monthly')}</button>
+                </div>
+              </div>
             </div>
             <div id="cashFlowBody"></div>
           </div>
