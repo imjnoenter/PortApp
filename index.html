@@ -1259,6 +1259,21 @@ body.cc-dragging, body.cc-dragging * { cursor: grabbing !important; user-select:
 .mret-year { font-weight: 700; }
 .mret-avgrow { border-top: 1px solid var(--line); }
 .mret-avgrow .mret-rowlabel { color: var(--muted); }
+.cf-stats { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.cf-stat { flex: 1 1 140px; min-width: 0; background: var(--track); border-radius: 8px; padding: 8px 10px; }
+.cf-stat-l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-stat-v { font-family: var(--font-mono); font-variant-numeric: lining-nums tabular-nums; font-size: 15px; font-weight: 700; color: var(--ink); }
+.cf-stat-s { font-size: 10px; color: var(--muted); }
+.cf-table { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: 11.5px; font-variant-numeric: lining-nums tabular-nums; }
+.cf-table th, .cf-table td { padding: 5px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.cf-table thead th { font-family: var(--font-ui); font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.cf-table thead th:first-child, .cf-table .cf-wk { text-align: left; }
+.cf-wk { font-family: var(--font-ui); font-weight: 600; color: var(--ink); }
+.cf-table td { font-weight: 600; color: var(--ink); }
+.cf-table td.cf-zero { color: var(--muted); font-weight: 400; }
+.cf-now td, .cf-now .cf-wk { color: var(--muted); }
+.cf-tag { font-size: 9px; font-weight: 700; color: var(--muted); background: var(--track); border-radius: var(--radius-pill); padding: 1px 6px; margin-left: 4px; text-transform: uppercase; letter-spacing: .04em; }
+.cf-note { font-size: 10.5px; color: var(--muted); margin-top: var(--sp-2); }
 
 /* ── Tablet ≤1080px ── */
 @media (max-width: 1080px) {
@@ -3171,6 +3186,14 @@ const I18N = {
     dbar_today_label: "today",
     dbar_change_label: "Change",
     monthly_returns_title: "Monthly Returns",
+    cf_title: "Weekly Cash Flow", cf_meta: "All portfolios · Mon–Sun, US market date",
+    cf_cash: "Spendable cash", cf_cash_sub: "wallet", cf_cash_sub_reserve: "after reserve",
+    cf_avg: "Avg weekly net", cf_avg_sub: "last {n} full weeks",
+    cf_runway: "Cash runway", cf_weeks: "weeks", cf_until: "until ~",
+    cf_not_draining: "Not drawing down", cf_not_draining_sub: "cash grew on average",
+    cf_week: "Week", cf_bought: "Bought", cf_sold: "Sold", cf_deposited: "Deposited", cf_net: "Net",
+    cf_this_week: "this week",
+    cf_note: "Net = deposited + sold − bought, fees included. The average skips this week, which is still running. Dividends aren't counted.",
     mret_avg_label: "Avg", year_label: "Year",
     no_realized_pnl: "No realized P&L in this period.",
     no_tx_data: "No transaction data.",
@@ -3469,6 +3492,14 @@ const I18N = {
     dbar_today_label: "วันนี้",
     dbar_change_label: "เปลี่ยนแปลง",
     monthly_returns_title: "ผลตอบแทนรายเดือน",
+    cf_title: "กระแสเงินสดรายสัปดาห์", cf_meta: "ทุกพอร์ต · จันทร์–อาทิตย์ ตามวันตลาดสหรัฐ",
+    cf_cash: "เงินสดที่ใช้ได้", cf_cash_sub: "ในกระเป๋า", cf_cash_sub_reserve: "หลังหักเงินสำรอง",
+    cf_avg: "สุทธิเฉลี่ยต่อสัปดาห์", cf_avg_sub: "{n} สัปดาห์เต็มล่าสุด",
+    cf_runway: "เงินสดพอใช้อีก", cf_weeks: "สัปดาห์", cf_until: "ถึงราว ",
+    cf_not_draining: "เงินสดไม่ลดลง", cf_not_draining_sub: "โดยเฉลี่ยเงินสดเพิ่มขึ้น",
+    cf_week: "สัปดาห์", cf_bought: "ซื้อ", cf_sold: "ขาย", cf_deposited: "ฝากเข้า", cf_net: "สุทธิ",
+    cf_this_week: "สัปดาห์นี้",
+    cf_note: "สุทธิ = ฝากเข้า + ขาย − ซื้อ รวมค่าธรรมเนียมแล้ว ค่าเฉลี่ยไม่นับสัปดาห์นี้ซึ่งยังไม่จบ และไม่รวมเงินปันผล",
     mret_avg_label: "เฉลี่ย", year_label: "ปี",
     no_realized_pnl: "ไม่มีกำไร/ขาดทุนที่รับรู้แล้วในช่วงเวลานี้",
     no_tx_data: "ไม่มีข้อมูลประวัติการทำรายการ",
@@ -4763,6 +4794,7 @@ async function refreshTxPanel() {
   try {
     txList = await fetchTxList();
     renderTxPanel(txList);
+    renderWeeklyCashFlow();
   } catch(e) {
     body.innerHTML = `<div class="tx-panel-status error">Failed to load: ${e.message}<br><small>Make sure the sheet is shared as "Anyone with link — Viewer".</small></div>`;
   } finally {
@@ -12124,6 +12156,127 @@ function renderMonthlyReturns(model) {
   </table></div>`;
 }
 
+// ── Weekly cash flow (dashboard) ──────────────────────────────────────────────
+// Money out (buys, fees in) vs money in (sells net of fees, deposits net of withdrawals) per
+// Mon–Sun week, plus how long the spendable wallet lasts at the recent pace. Account-wide on every
+// tab: there is one wallet and contributions belong to the whole account (see Shared Cash Pool).
+// Trades bucket by US market date (txMarketDate) — a buy at 03:00 Thai on a Saturday is Friday's;
+// deposits have no time, so they bucket by their recorded date.
+const CF_WEEKS_SHOWN = 12, CF_AVG_WEEKS = 8;
+function _cfAddDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+}
+function _cfMonday(dateStr) { return _cfAddDays(dateStr, -((new Date(dateStr + 'T00:00:00Z').getUTCDay() + 6) % 7)); }
+
+function computeWeeklyCashFlow() {
+  const weeks = new Map();
+  const bucket = d => {
+    const k = _cfMonday(d);
+    let w = weeks.get(k);
+    if (!w) weeks.set(k, w = { start: k, bought: 0, sold: 0, deposited: 0 });
+    return w;
+  };
+  let first = null;
+  for (const x of txList || []) {
+    if (x.type !== 'Buy' && x.type !== 'Sell') continue;
+    const d = txMarketDate(x.date, x.time);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) continue;
+    const tv = Number(x.tradeValue) || (x.shares * x.price) || 0;
+    const fee = feesOn(tv, x.commissionFree).total;
+    if (x.type === 'Buy') bucket(d).bought += tv + fee; else bucket(d).sold += tv - fee;
+    if (!first || d < first) first = d;
+  }
+  if (!first) return null;
+  for (const c of _contribList || []) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date || '')) continue;
+    const a = contribAmounts(c);
+    // Legacy deposit rows carry baht only — convert at today's rate, the best available.
+    const usd = a.usd != null ? a.usd : (fxRate > 0 ? (a.thb || 0) / fxRate : 0);
+    bucket(c.date).deposited += a.isDeposit ? usd : -usd;
+  }
+  const net = w => w ? w.deposited + w.sold - w.bought : 0;
+  const thisWeek = _cfMonday(_etDateFmt.format(new Date()));
+  const shown = [];
+  for (let i = 0; i < CF_WEEKS_SHOWN; i++) {
+    const k = _cfAddDays(thisWeek, -7 * i);
+    const w = weeks.get(k) || { start: k, bought: 0, sold: 0, deposited: 0 };
+    shown.push({ ...w, net: net(w) });
+  }
+  // Average over the last N COMPLETE weeks — this week is still running and would understate the
+  // pace — but never back past the first trade's week, which would dilute it with empty weeks.
+  const firstWeek = _cfMonday(first);
+  let sum = 0, n = 0;
+  for (let i = 1; i <= CF_AVG_WEEKS; i++) {
+    const k = _cfAddDays(thisWeek, -7 * i);
+    if (k < firstWeek) break;
+    sum += net(weeks.get(k)); n++;
+  }
+  const avgNet = n ? sum / n : null;
+  const cash = _spendableWallet();
+  const runway = avgNet != null && avgNet < 0 ? cash / -avgNet : null;
+  return { weeks: shown, thisWeek, avgNet, avgWeeks: n, cash, runway };
+}
+
+function renderWeeklyCashFlow() {
+  const card = document.getElementById('cashFlowCard');
+  const body = document.getElementById('cashFlowBody');
+  if (!card || !body) return;
+  const cf = computeWeeklyCashFlow();
+  if (!cf) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const isZero = v => Math.abs(v) < 0.005;
+  const signed = v => (v >= 0 ? '+' : '−') + fmtCurr(Math.abs(v));
+  const dm = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+  const weekLabel = start => {
+    const a = new Date(start + 'T00:00:00Z'), b = new Date(_cfAddDays(start, 6) + 'T00:00:00Z');
+    return a.getUTCMonth() === b.getUTCMonth()
+      ? `${a.getUTCDate()}–${b.toLocaleDateString('en-GB', dm)}`
+      : `${a.toLocaleDateString('en-GB', dm)} – ${b.toLocaleDateString('en-GB', dm)}`;
+  };
+  const stat = (label, value, sub, tone) => `<div class="cf-stat">
+      <div class="cf-stat-l">${label}</div>
+      <div class="cf-stat-v"${tone ? ` style="color:${tone}"` : ''}>${value}</div>
+      ${sub ? `<div class="cf-stat-s">${sub}</div>` : ''}
+    </div>`;
+
+  let runwayV, runwaySub, runwayTone = null;
+  if (cf.avgNet == null) {
+    runwayV = '—'; runwaySub = '';
+  } else if (cf.runway == null) {
+    runwayV = t('cf_not_draining'); runwaySub = t('cf_not_draining_sub');
+  } else {
+    const wk = Math.floor(cf.runway);
+    const until = new Date(Date.now() + cf.runway * 7 * 864e5).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+    runwayV = `≈ ${wk} ${t('cf_weeks')}`; runwaySub = `${t('cf_until')}${until}`;
+    runwayTone = wk < 4 ? 'var(--loss)' : wk < 8 ? 'var(--honey)' : null;
+  }
+  const stats = `<div class="cf-stats">
+    ${stat(t('cf_cash'), fmtCurr(cf.cash), _reserveDollar() > 0 ? t('cf_cash_sub_reserve') : t('cf_cash_sub'))}
+    ${stat(t('cf_avg'), cf.avgNet == null ? '—' : signed(cf.avgNet), t('cf_avg_sub').replace('{n}', cf.avgWeeks),
+           cf.avgNet == null || isZero(cf.avgNet) ? null : cf.avgNet > 0 ? 'var(--gain)' : 'var(--loss)')}
+    ${stat(t('cf_runway'), runwayV, runwaySub, runwayTone)}
+  </div>`;
+
+  const amt = v => isZero(v) ? `<td class="cf-zero">—</td>` : `<td>${fmtCurr(v)}</td>`;
+  const rows = cf.weeks.map(w => {
+    const now = w.start === cf.thisWeek;
+    const netTd = isZero(w.net) ? `<td class="cf-zero">—</td>`
+      : `<td${now ? '' : ` style="color:${w.net > 0 ? 'var(--gain)' : 'var(--loss)'}"`}>${signed(w.net)}</td>`;
+    return `<tr${now ? ' class="cf-now"' : ''}>
+      <th class="cf-wk" scope="row">${weekLabel(w.start)}${now ? `<span class="cf-tag">${t('cf_this_week')}</span>` : ''}</th>
+      ${amt(w.bought)}${amt(w.sold)}${amt(w.deposited)}${netTd}
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `${stats}
+    <div class="table-scroll"><table class="cf-table">
+      <thead><tr><th scope="col">${t('cf_week')}</th><th scope="col">${t('cf_bought')}</th><th scope="col">${t('cf_sold')}</th><th scope="col">${t('cf_deposited')}</th><th scope="col">${t('cf_net')}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="cf-note">${t('cf_note')}</div>`;
+}
+
 function renderTopHoldings(model) {
   const card = document.getElementById('topHoldingsCard');
   const body = document.getElementById('topHoldingsBody');
@@ -15912,6 +16065,7 @@ function contribExpectSig(c){
 function applyContribChange(){
   rebuildContribCache();
   renderContribPanel();
+  renderWeeklyCashFlow();
   if (currentModel) renderStatCards(currentModel);
 }
 // A portfolio tab's total is its stocks plus the room under its limit, not money deposited — so
@@ -16647,6 +16801,7 @@ window.toggleCurrency = function() {
     document.getElementById('donut-value').textContent = fmtCurr(currentModel.totalCurrent);
     renderPnLBySector(currentModel);
     if (txList?.length) renderTxPanel(txList);
+    renderWeeklyCashFlow();
     if (txCache?.length) renderDividendBreakdown(txCache);
     if (_journalTrades.length) renderTradeJournal(_journalTrades);
     renderRiskPanel(currentModel);
@@ -17841,6 +17996,14 @@ function buildShell() {
           <div class="card" id="monthlyReturnsCard" style="display:none">
             <div class="card-title">${t('monthly_returns_title')}</div>
             <div id="monthlyReturnsBody"></div>
+          </div>
+          <!-- Weekly Cash Flow -->
+          <div class="card" id="cashFlowCard" style="display:none">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+              <div class="card-title" style="margin-bottom:0">${t('cf_title')}</div>
+              <div class="card-header-extra" style="font-size:11px;color:var(--muted)">${t('cf_meta')}</div>
+            </div>
+            <div id="cashFlowBody"></div>
           </div>
           <!-- Plan Watch (alerts only, hidden when none) + Calendar -->
           <div class="dash-alerts-row">
@@ -19902,6 +20065,7 @@ function renderModelViews(model) {
   renderCorrelationMatrix(model);
   renderDailyReturns(model);
   renderMonthlyReturns(model);
+  renderWeeklyCashFlow();
   renderWatchlist(model);
   renderPlansPanel();
   renderPlanWatch();
