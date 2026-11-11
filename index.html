@@ -3258,6 +3258,7 @@ const I18N = {
     manage_label: "Manage",
     language_label: "Language", currency_label: "Currency", theme_label: "Theme", tone_label: "Tone", price_source_label: "Prices", portfolios_label: "Portfolios",
     overview_label: "Overview", performance_label: "Performance", custom_tab_label: "Custom",
+    sort_basis_label: "Sort by", sort_basis_tip: "Sort Day Change, Day Return and Total Return by percent or by dollar amount",
     cols_btn: "Columns", cols_reset: "Reset", cols_hint: "Drag a column header to move it.",
     add_tab_tip: "Add tab", rename_tab: "Rename tab", delete_tab: "Delete tab", delete_tab_confirm: "Tap again to delete",
     rename_hint: "Double-click (or long-press) to rename",
@@ -3574,6 +3575,7 @@ const I18N = {
     manage_label: "จัดการ",
     language_label: "ภาษา", currency_label: "สกุลเงิน", theme_label: "ธีม", tone_label: "โทนสี", price_source_label: "แหล่งราคา", portfolios_label: "พอร์ตโฟลิโอ",
     overview_label: "ภาพรวม", performance_label: "ผลงาน", custom_tab_label: "กำหนดเอง",
+    sort_basis_label: "เรียงตาม", sort_basis_tip: "เรียง Day Change, Day Return และ Total Return ตามเปอร์เซ็นต์หรือจำนวนเงิน",
     cols_btn: "คอลัมน์", cols_reset: "รีเซ็ต", cols_hint: "ลากหัวคอลัมน์เพื่อย้ายตำแหน่ง",
     add_tab_tip: "เพิ่มแท็บ", rename_tab: "เปลี่ยนชื่อแท็บ", delete_tab: "ลบแท็บ", delete_tab_confirm: "แตะอีกครั้งเพื่อลบ",
     rename_hint: "ดับเบิลคลิก (หรือกดค้าง) เพื่อเปลี่ยนชื่อ",
@@ -6688,19 +6690,26 @@ function renderSymbolModal() {
       <div class="card-title">Transactions · ${symTxs.length} trade${symTxs.length === 1 ? '' : 's'}</div>
       <div class="sym-tx-scroll">
         <table class="sym-tx-table">
-          <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th><th>Total</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Gain</th><th>Value</th><th>Total</th></tr></thead>
           <tbody>
             ${symTxs.map(x => {
               // Only Buy/Sell rows carry a chart marker to cross-highlight on hover.
               const mkAttr = (x.type === 'Buy' || x.type === 'Sell') ? ` data-mk-date="${txMarketDate(x.date, x.time)}"` : '';
+              // Gain: where today's price stands against this buy's own price — per tranche, not
+              // the position's average, so it answers "is THIS lot worth trimming". Buys only: a
+              // sale is already closed, and a transfer's price is a carried cost, not a purchase.
+              const gainPct = (x.type === 'Buy' && price > 0 && x.price > 0) ? (price / x.price - 1) * 100 : null;
+              const gainCell = gainPct == null ? ''
+                : `<span style="color:var(${gainPct >= 0 ? '--gain' : '--loss'})">${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%</span>`;
               return `<tr${mkAttr}>
               <td>${fmtDate(x.date)}</td>
               <td><span class="${x.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy'}">${x.type}</span></td>
               <td>${x.shares}</td>
               <td>${fmtCurr(x.price)}</td>
+              <td>${gainCell}</td>
               <td>${fmtCurr(x.tradeValue)}</td>
               <td>${fmtCurr(x.total ?? x.tradeValue)}</td>
-            </tr>${symNoteRowHtml(x, 6)}`;
+            </tr>${symNoteRowHtml(x, 7)}`;
             }).join('')}
           </tbody>
         </table>
@@ -12438,6 +12447,31 @@ const PERF_METRIC_KEYS = new Set(['ytdRet', '1M', '3M', '1Y', '3Y', '5Y', 'expen
 // Every sortable column the Performance sub-tab has and Overview doesn't. Overview has to
 // resolve these itself now that the two share one sort — see renderTable's comparator.
 const PERF_ONLY_SORT_KEYS = new Set([...PERF_METRIC_KEYS, 'volume', 'marketCap']);
+// Sort basis for the columns that print both a percent and a dollar figure (Day Change, Day
+// Return, Total Return): 'pct' orders them by the percent, 'abs' by the dollars. The sort KEY
+// stays the percent one in both modes, so the header arrow and the shared-across-sub-tabs sort
+// keep working; only the value the comparators read is swapped, through sortAbsVal(). The one
+// exception is Day Change, whose dollars are per share where Day Return's are for the position —
+// they share dayChangePct, so in 'abs' mode Day Change's header switches to the plain `dayChange`
+// field (dayChangeSortKey) to keep the two columns distinct.
+let _sortBasis = localStorage.getItem('posSortBasis.v1') === 'abs' ? 'abs' : 'pct';
+const SORT_ABS = {
+  pnlPct:       p => p.pnl ?? null,
+  dayChangePct: p => p.dayChange != null ? p.dayChange * (p.qty || 0) : null,
+};
+// undefined = this sort has no dollar twin, use the normal value.
+const sortAbsVal = p => _sortBasis === 'abs' && SORT_ABS[sortKey] ? SORT_ABS[sortKey](p) : undefined;
+const dayChangeSortKey = () => _sortBasis === 'abs' ? 'dayChange' : 'dayChangePct';
+const sortBasisLabel = () => `${t('sort_basis_label')} ${_sortBasis === 'abs' ? '$' : '%'}`;
+window.toggleSortBasis = function() {
+  _sortBasis = _sortBasis === 'abs' ? 'pct' : 'abs';
+  try { localStorage.setItem('posSortBasis.v1', _sortBasis); } catch (_) {}
+  // Day Change's key differs per mode — carry an active sort on it across the switch.
+  if (sortKey === 'dayChange' && _sortBasis === 'pct') sortKey = 'dayChangePct';
+  const btn = document.getElementById('posSortBasisBtn');
+  if (btn) btn.textContent = sortBasisLabel();
+  renderTable(currentModel);
+};
 // Multi-select: each group holds an array of chosen values; empty === "All".
 // Filters drive the Holdings table only — the Breakdowns donuts are independent.
 let filterState = { category: [], sector: [], industry: [], custom: [], myGroup: [] };
@@ -12742,6 +12776,8 @@ function renderTable(model) {
       const bPct = b.preMarketPct ?? b.postMarketPct ?? null;
       if (aPct != null || bPct != null) return sortDir * ((aPct ?? 0) - (bPct ?? 0));
     }
+    const aAbs = sortAbsVal(a);
+    if (aAbs !== undefined) return sortDir * ((aAbs || 0) - (sortAbsVal(b) || 0));
     return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
   });
   renderWeightBar(sorted);
@@ -12754,7 +12790,7 @@ function renderTable(model) {
   const headers = [
     { key: 'symbol',       label: t('th_symbol'),        sort: true  },
     { key: 'price',        label: t('th_last_price'),    sort: true  },
-    { key: 'dayChangePct', label: t('th_day_change'),    sort: true  },
+    { key: dayChangeSortKey(), label: t('th_day_change'), sort: true  },
     { key: 'dayChangePct', label: t('th_day_return'),    sort: true  },
     { key: 'pnlPct',       label: t('total_ret'),        sort: true  },
     { key: 'qty',          label: t('th_quantity'),      sort: true  },
@@ -12899,7 +12935,7 @@ function renderPerformanceTable(model) {
   if (q) filtered = filtered.filter(p => p.symbol.toUpperCase().includes(q));
   // Resolve the derived numbers once per render; the comparator and perfRow both read this.
   const metrics = new Map(filtered.map(p => [p, perfMetrics(p)]));
-  const sortVal = p => PERF_METRIC_KEYS.has(sortKey) ? metrics.get(p)[sortKey] : p[sortKey];
+  const sortVal = p => { const abs = sortAbsVal(p); return abs !== undefined ? abs : PERF_METRIC_KEYS.has(sortKey) ? metrics.get(p)[sortKey] : p[sortKey]; };
   const sorted = [...filtered].sort((a, b) => {
     if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
     const av = sortVal(a), bv = sortVal(b);
@@ -13105,7 +13141,7 @@ const CC_COLUMNS = [
     cash: () => `<td><div class="asset-cell">${CC_CASH_ICON}<div><div class="asset-sym">Cash</div><div class="asset-name">Raw cash · not invested</div></div></div></td>` },
   { id: 'price', label: () => t('th_last_price'), sort: 'price',
     cell: p => { const [sub, cls] = ccPriceSub(p); return `<td>${ccDc(fmtCurr(p.price), sub, cls)}</td>`; } },
-  { id: 'dayChange', label: () => t('th_day_change'), sort: 'dayChangePct', cell: p => ccDayTd(p, p.dayChange) },
+  { id: 'dayChange', label: () => t('th_day_change'), get sort() { return dayChangeSortKey(); }, cell: p => ccDayTd(p, p.dayChange) },
   { id: 'dayReturn', label: () => t('th_day_return'), sort: 'dayChangePct', cell: p => ccDayTd(p, p.dayChange * p.qty) },
   { id: 'totalRet', label: () => t('total_ret'), sort: 'pnlPct', cell: p => ccMoneyTd(p.pnl, fmtPct(p.pnlPct)) },
   // Unrealized + realized + net dividends, % over every buy ever made — the Holdings Performance figure.
@@ -13259,7 +13295,8 @@ function renderCustomTable(model) {
   const cols = [CC_COLUMNS[0], ...view.order.filter(id => !view.hidden.has(id)).map(id => byId.get(id))];
 
   const sortCol = CC_COLUMNS.find(col => col.sort === sortKey);
-  const sortVal = p => sortCol?.val ? sortCol.val(p, c)
+  const sortVal = p => { const abs = sortAbsVal(p); return abs !== undefined ? abs : sortValBase(p); };
+  const sortValBase = p => sortCol?.val ? sortCol.val(p, c)
     : PERF_METRIC_KEYS.has(sortKey) ? perfMetrics(p)[sortKey] : (p[sortKey] ?? null);
   const sorted = [...filtered].sort((a, b) => {
     if (sortKey === 'symbol') return sortDir * a.symbol.localeCompare(b.symbol);
@@ -18077,6 +18114,7 @@ function buildShell() {
             </div>
             <div class="pos-tabs-row">
               <div id="posSubTabs" class="pos-sub-tabs">${posSubTabsHtml()}</div>
+              <button type="button" class="pos-cols-btn" id="posSortBasisBtn" data-no-shot onclick="toggleSortBasis()" title="${escHtml(t('sort_basis_tip'))}">${sortBasisLabel()}</button>
               <div class="pos-cols-wrap" id="posColsWrap" data-no-shot style="display:none">
                 <button type="button" class="pos-cols-btn" onclick="toggleColsMenu(event)" aria-haspopup="true">
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="4" x2="5" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="19" y1="4" x2="19" y2="20"/></svg>
