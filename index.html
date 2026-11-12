@@ -8219,14 +8219,22 @@ function symTxHistoryHtml(sym, port) {
     .filter(x => x.ticker === sym && (x.portfolio || DEFAULT_PORT) === port)
     .sort((a, b) => b.date.localeCompare(a.date));
   const badgeCls = x => x.type === 'Sell' ? 'tx-badge-sell' : 'tx-badge-buy';
+  // Gain: today's price against each buy's own price — same rule as the symbol window's
+  // Transactions table. Buys only: a sale is closed, a transfer's price is a carried cost.
+  const price = findPos(sym)?.price ?? null;
+  const gainCell = x => {
+    const g = (x.type === 'Buy' && price > 0 && x.price > 0) ? (price / x.price - 1) * 100 : null;
+    return g == null ? '' : `<span style="color:var(${g >= 0 ? '--gain' : '--loss'})">${g >= 0 ? '+' : ''}${g.toFixed(2)}%</span>`;
+  };
   const rows = txs.map(x => `<tr>
       <td style="padding:6px 8px;white-space:nowrap;color:var(--muted);font-size:11px">${fmtDate(x.date)}</td>
       <td style="padding:6px 8px"><span class="${badgeCls(x)}">${x.type}</span></td>
       <td style="padding:6px 8px;text-align:right">${x.shares}</td>
       <td style="padding:6px 8px;text-align:right">${fmtCurr(x.price)}</td>
+      <td style="padding:6px 8px;text-align:right;white-space:nowrap">${gainCell(x)}</td>
       <td style="padding:6px 8px;text-align:right">${fmtCurr(x.tradeValue)}</td>
       <td style="padding:6px 8px;text-align:right;font-weight:600">${fmtCurr(x.total||x.tradeValue)}</td>
-    </tr>${symNoteRowHtml(x, 6)}`).join('');
+    </tr>${symNoteRowHtml(x, 7)}`).join('');
   return `<div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
     <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${t('tx_panel_title')}</div>
     ${txs.length ? `<div style="max-height:180px;overflow-y:auto">
@@ -8236,6 +8244,7 @@ function symTxHistoryHtml(sym, port) {
           <th style="text-align:left;padding:5px 8px">${t('Type')}</th>
           <th style="text-align:right;padding:5px 8px">${t('Shares')}</th>
           <th style="text-align:right;padding:5px 8px">${t('Price')}</th>
+          <th style="text-align:right;padding:5px 8px">Gain</th>
           <th style="text-align:right;padding:5px 8px">${t('Value')}</th>
           <th style="text-align:right;padding:5px 8px">${t('Total')}</th>
         </tr></thead>
