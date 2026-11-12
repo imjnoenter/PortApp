@@ -16,7 +16,7 @@
 
 <div class="stat">
   <div class="label">{label}</div>
-  <div class="value {tone}">{value}{#if note} <span class="note">{note}</span>{/if}</div>
+  <div class="value {tone}">{value}{#if note}{' '}<span class="note">{note}</span>{/if}</div>
   {#if badge}<div class="badge {badgeTone ?? tone}">{badge}</div>{/if}
   {#if children}<div class="sub">{@render children()}</div>{/if}
 </div>

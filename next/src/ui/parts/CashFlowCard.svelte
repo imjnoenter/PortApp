@@ -56,7 +56,7 @@
           <tbody>
             {#each [...buckets].reverse() as b (b.key)}
               <tr>
-                <td>{name(b)}{#if b.current} <span class="muted small">{t('so far')}</span>{/if}</td>
+                <td>{name(b)}{#if b.current}{' '}<span class="muted small">{t('so far')}</span>{/if}</td>
                 <td class="n">{b.bought ? app.money(b.bought) : ''}</td>
                 <td class="n">{b.sold ? app.money(b.sold) : ''}</td>
                 <td class="n">{b.deposited ? app.money.signed(b.deposited) : ''}</td>

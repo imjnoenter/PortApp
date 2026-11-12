@@ -8,8 +8,12 @@ export const WORKSPACE = 'workspace';
 export class Workspace {
   symbol = $state('');
   portfolio = $state('');
-  /** Average cost after the trade being typed, when it would change. */
+  /** Average cost after the trade being typed, or after every buy in the plan being edited. */
   newAvg = $state<number | null>(null);
+  /** Shares held after the trade being typed, so the target bar can show where it would leave the position. */
+  newQty = $state<number | null>(null);
+  /** What the position would be worth, in the target's own dollars, once the plan being edited has run. */
+  planValue = $state<number | null>(null);
   /** The plan as edited so far, before it is saved. */
   plan = $state.raw<Plan | null>(null);
 }

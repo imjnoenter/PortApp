@@ -78,7 +78,7 @@
 
 <header class="top">
   <div class="bar">
-    <a class="brand" href="#/overview" onclick={e => { e.preventDefault(); app.go('overview'); }}>{app.profile?.profileName || 'Portfolio'}</a>
+    <a class="brand" href="#/overview" onclick={e => { e.preventDefault(); app.go('overview'); }}><img src="./favicon-white.png" alt="" width="30" height="30" /><span>{app.profile?.profileName || 'Portfolio'}</span></a>
 
     <nav aria-label={t('Pages')}>
       {#each PAGES as p (p)}
@@ -217,7 +217,10 @@
 <style>
   .top { position: sticky; top: 0; z-index: var(--z-nav); background: color-mix(in oklab, var(--bg) 86%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top); }
   .bar { display: flex; align-items: stretch; gap: var(--sp-7); max-width: var(--page-w); margin: 0 auto; padding: 0 var(--gutter); min-height: 64px; }
-  .brand { align-self: center; font: 750 23px/1 var(--font-display); letter-spacing: -0.035em; color: var(--ink); text-decoration: none; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The logo is smaller than the bar is tall, so adding it leaves the header the height it was. */
+  .brand { align-self: center; display: flex; align-items: center; gap: 10px; min-width: 0; font: 750 23px/1 var(--font-display); letter-spacing: -0.035em; color: var(--ink); text-decoration: none; max-width: 40vw; }
+  .brand img { flex: none; width: 30px; height: 30px; border-radius: 8px; }
+  .brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   nav { display: flex; align-items: stretch; gap: var(--sp-6); flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   nav::-webkit-scrollbar { display: none; }
@@ -272,6 +275,7 @@
   @media (max-width: 760px) {
     .bar { flex-wrap: wrap; gap: 0 var(--sp-4); min-height: 0; }
     .brand { flex: 1; font-size: 20px; padding: 14px 0 6px; }
+    .brand img { width: 26px; height: 26px; }
     .tools { padding-top: 6px; }
     .trade { padding: 7px 13px; }
     .toast { border-radius: var(--radius); flex-wrap: wrap; }

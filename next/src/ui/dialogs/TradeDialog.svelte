@@ -124,7 +124,8 @@
   $effect(() => {
     if (!ws) return;
     ws.newAvg = shares && price ? fx.newAvg : null;
-    return () => { ws.newAvg = null; };
+    ws.newQty = shares && price ? fx.newQty : null;
+    return () => { ws.newAvg = null; ws.newQty = null; };
   });
 
   function submit(e: SubmitEvent) {

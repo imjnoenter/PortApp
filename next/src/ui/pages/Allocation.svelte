@@ -100,7 +100,7 @@
                   <td>
                     <span class="sw" style:background={r.color}></span>
                     {#if r.key === CASH}{r.label}{:else}<button class="strong" onclick={e => { e.stopPropagation(); pick(r); }}>{r.label}</button>{/if}
-                    {#if canDrill && r.count}<span class="muted small"> {r.count}</span>{/if}
+                    {#if canDrill && r.count}<span class="muted small">{' '}{r.count}</span>{/if}
                   </td>
                   <td class="n">{money(r.value)}</td>
                   <td class="n">{pct(total ? r.value / total * 100 : 0, 1)}</td>
@@ -126,7 +126,7 @@
       {/if}
     </div>
     {#if m.port === ALL && targets.length}
-      <p class="small muted allnote">{t('Each target here is its share of the whole account: every portfolio’s target for the stock, in dollars, added up. Targets are still set per portfolio.')}{#if planned > 100.5} {t('They can pass 100% because the portfolios’ cash overlaps.')}{/if}</p>
+      <p class="small muted allnote">{t('Each target here is its share of the whole account: every portfolio’s target for the stock, in dollars, added up. Targets are still set per portfolio.')}{#if planned > 100.5}{' '}{t('They can pass 100% because the portfolios’ cash overlaps.')}{/if}</p>
     {/if}
     {#if targets.length}
       <div class="key small muted"><span class="kbar"></span>{t('Now')}<span class="ktick"></span>{t('Target')}</div>

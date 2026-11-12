@@ -4,7 +4,12 @@
 // full the position should be once that entry is bought, as a percentage of its target value.
 import { fifoKey } from './fifo.ts';
 
-export interface Tranche { price: number | null; cumPct: number }
+/**
+ * One planned buy. Its size is normally `cumPct`: how full the position should be afterwards, as a
+ * percentage of its target. An entry sized in shares on a holding with no target has no such
+ * percentage, so it carries its dollars instead and leaves `cumPct` at zero.
+ */
+export interface Tranche { price: number | null; cumPct: number; dollar?: number }
 /** `pct` is the share of the TARGET value to sell at `price`, not of what is held. */
 export interface Trim { price: number | null; pct: number }
 export interface Plan { sl: number | null; note: string; tranches: Tranche[]; trims: Trim[] }
@@ -20,7 +25,8 @@ export function parseTranche(v: unknown): Tranche {
   if (v == null || v === '') return { price: null, cumPct: 0 };
   const parts = String(v).split(':');
   const price = parseFloat(parts[0]);
-  return { price: Number.isFinite(price) ? price : null, cumPct: parseFloat(parts[parts.length - 1]) || 0 };
+  const dollar = parts.length >= 3 ? parseFloat(parts[1]) : NaN;
+  return { price: Number.isFinite(price) ? price : null, cumPct: parseFloat(parts[parts.length - 1]) || 0, ...(dollar > 0 ? { dollar } : {}) };
 }
 
 /** Accepts `70/50`, and `70:50:00`, which is what Sheets makes of it when the cell is not text. */
@@ -42,11 +48,15 @@ export function cleanPlan(p: Plan): Plan {
 
 export const planIsEmpty = (p: Plan) => p.sl == null && !p.note && !p.trims.length && p.tranches.every(blank);
 
-/** Dollars each entry buys: the step from where the position stands (or the rung before) up to its cumPct. */
+/**
+ * Dollars each entry buys: the step from where the position stands (or the rung before) up to its
+ * cumPct. An entry with no percentage (see Tranche) buys the dollars it carries.
+ */
 export function trancheDollars(tranches: readonly Tranche[], currPct: number, targetDollar: number): number[] {
   return tranches.map((t, i) => {
+    if (!(t.cumPct > 0)) return t.dollar ?? 0;
     const prev = i === 0 ? currPct : Math.max(currPct, tranches[i - 1].cumPct ?? currPct);
-    return Math.max(0, ((t.cumPct ?? 0) - prev) / 100 * targetDollar);
+    return Math.max(0, (t.cumPct - prev) / 100 * targetDollar);
   });
 }
 

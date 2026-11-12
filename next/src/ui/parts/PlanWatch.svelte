@@ -42,7 +42,7 @@
         <li>
           <button class:hit={a.hit} onclick={() => act(a)}>
             <Logo sym={a.symbol} size={30} />
-            <span class="who"><strong>{a.symbol}</strong>{#if showPort}<span class="muted small"> {a.portfolio}</span>{/if}<span class="small ink2 d">{detail(a)}</span></span>
+            <span class="who"><strong>{a.symbol}</strong>{#if showPort}<span class="muted small">{' '}{a.portfolio}</span>{/if}<span class="small ink2 d">{detail(a)}</span></span>
             <span class="pill {tone(a)}" class:solid={a.hit}>{label(a)}</span>
           </button>
         </li>

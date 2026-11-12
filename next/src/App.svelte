@@ -17,9 +17,12 @@
 {#if app.status === 'setup'}
   <Setup />
 {:else if app.status === 'loading'}
-  <div class="boot" aria-busy="true">
-    <span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>
-    {app.t('Loading your portfolio…')}
+  <div class="boot loading" aria-busy="true">
+    <img class="mark" src="./favicon-white.png" alt="" width="148" height="148" />
+    <div class="wait">
+      <span class="bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      {app.t('Loading your portfolio…')}
+    </div>
   </div>
 {:else if app.status === 'error'}
   <div class="boot">
@@ -39,6 +42,11 @@
 
 <style>
   .boot { min-height: 100dvh; display: flex; align-items: center; justify-content: center; gap: var(--sp-3); color: var(--ink-2); padding: var(--gutter); }
+  /* The logo is the page while it loads: large and centred, with the progress line under it. */
+  .boot.loading { flex-direction: column; gap: var(--sp-6); }
+  .mark { width: clamp(112px, 22vw, 148px); height: auto; aspect-ratio: 1; border-radius: 22%; box-shadow: var(--shadow); animation: settle 0.5s var(--ease) both; }
+  .wait { display: flex; align-items: center; gap: var(--sp-3); }
+  @keyframes settle { from { opacity: 0; transform: scale(0.92); } }
   .bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 18px; }
   .bars i { width: 5px; height: 100%; border-radius: 2px; background: var(--ink); transform-origin: bottom; animation: rise 0.9s var(--ease) infinite alternate; }
   .bars i:nth-child(2) { animation-delay: 0.15s; }

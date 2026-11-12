@@ -88,7 +88,36 @@
     const i = all.findIndex(p => p.d >= since);
     return i < 0 ? all.length : i;
   });
-  const shown = $derived(all.slice(from));
+  // ── The window on screen. The range buttons set it; the wheel zooms it about the pointer and a
+  // drag slides it, after which it is the user's own until a range button or a double-click resets it.
+  const MIN_DAYS = 10;
+  let view = $state<{ from: number; to: number } | null>(null);
+  $effect(() => { void sym; view = null; });
+  const win = $derived.by(() => {
+    if (!view) return { from, to: all.length };
+    const to = Math.min(all.length, Math.max(view.to, Math.min(all.length, MIN_DAYS)));
+    return { from: Math.max(0, Math.min(view.from, to - Math.min(to, MIN_DAYS))), to };
+  });
+  const shown = $derived(all.slice(win.from, win.to));
+  function setWindow(start: number, size: number) {
+    const n = Math.min(all.length, Math.max(MIN_DAYS, Math.round(size)));
+    const a = Math.max(0, Math.min(Math.round(start), all.length - n));
+    view = { from: a, to: a + n };
+  }
+  /** Attached by hand: a wheel listener must be non-passive to stop the page scrolling under the chart. */
+  function zoomable(node: SVGSVGElement) {
+    const onWheel = (e: WheelEvent) => {
+      if (!e.deltaY || all.length <= MIN_DAYS) return;
+      e.preventDefault();
+      const box = node.getBoundingClientRect(), at = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
+      const n = win.to - win.from, next = Math.min(all.length, Math.max(MIN_DAYS, n * (e.deltaY < 0 ? 0.8 : 1.25)));
+      // Keep the day under the pointer under the pointer.
+      setWindow(win.from + at * (n - 1) - at * (next - 1), next);
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return { destroy: () => node.removeEventListener('wheel', onWheel) };
+  }
+  let drag = $state<{ x: number; from: number; n: number; moved: boolean } | null>(null);
   $effect(() => { points = shown; });
 
   /** An exponential average over `n` closes, seeded with their plain average. Null until there are `n`. */
@@ -102,7 +131,7 @@
     for (let i = n; i < all.length; i++) { e = all[i].v * k + e * (1 - k); out[i] = e; }
     return out;
   }
-  const emas = $derived(ema ? EMAS.map(n => ({ n, v: average(n).slice(from) })).filter(e => e.v.some(x => x != null)) : []);
+  const emas = $derived(ema ? EMAS.map(n => ({ n, v: average(n).slice(win.from, win.to) })).filter(e => e.v.some(x => x != null)) : []);
 
   const g = $derived.by(() => {
     if (shown.length < 2) return null;
@@ -125,25 +154,20 @@
     return { lo, hi, x, y, inv, path, line, sticks, body: Math.max(0.6, step * 0.66), scale: ticks(inv(H), inv(0)), dates: dateTicks(shown.map(p => p.d)), area: `${line}L${x(shown.length - 1).toFixed(1)} ${H}L${x(0).toFixed(1)} ${H}Z`, inside: (v: number) => v >= lo && v <= hi };
   });
 
-  // A flag sits on the close of its day, at the price line. Labels are dropped where they would collide.
+  // A marker sits on the close of its day, at the price line. It carries no text of its own: with
+  // many trades the labels crowded the line they were marking. Hovering one says what was traded.
   const flags = $derived.by(() => {
     if (!g) return [];
-    const out: { left: number; top: number; buy: boolean; text: string; tip: string; label: boolean }[] = [];
-    for (const mk of [...marks].sort((a, b) => a.d < b.d ? -1 : 1)) {
+    const out: { left: number; top: number; buy: boolean; tip: string }[] = [];
+    for (const mk of marks) {
       if (mk.d < shown[0].d) continue;
       let i = shown.length - 1;
       while (i > 0 && shown[i].d > mk.d) i--;
       const buy = mk.type === 'Buy';
       out.push({
         left: g.x(i) / W * 100, top: g.y(shown[i].v) / H * 100, buy,
-        text: `${buy ? t('B') : t('S')} ${qty(mk.shares)} @ ${usd(mk.price)}`,
-        tip: `${buy ? t('Bought') : t('Sold')} ${qty(mk.shares)} ${t('at')} ${usd(mk.price)}\n${date(mk.d)}`, label: true,
+        tip: `${buy ? t('Bought') : t('Sold')} ${qty(mk.shares)} ${t('at')} ${usd(mk.price)}\n${date(mk.d)}`,
       });
-    }
-    // Newest first keeps the most recent labels; older neighbours within reach lose theirs.
-    const kept: number[] = [];
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (kept.some(x => Math.abs(x - out[i].left) < 15)) out[i].label = false; else kept.push(out[i].left);
     }
     return out;
   });
@@ -154,8 +178,23 @@
   // it reads the price at that height, so a level can be measured without a line being there.
   let at = $state<number | null>(null);
   let py = $state<number | null>(null);
+  function grab(e: PointerEvent) {
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, from: win.from, n: win.to - win.from, moved: false };
+    track(e);
+  }
   function track(e: PointerEvent) {
     const box = (e.currentTarget as SVGElement).getBoundingClientRect();
+    if (drag && e.buttons & 1) {
+      const shift = Math.round((drag.x - e.clientX) / box.width * drag.n);
+      // A few pixels of wobble in a click is not a drag.
+      if (shift || drag.moved) {
+        if (!drag.moved) { drag.moved = true; (e.currentTarget as SVGElement).setPointerCapture(e.pointerId); }
+        setWindow(drag.from + shift, drag.n);
+        at = null; py = null;
+        return;
+      }
+    } else if (drag) drag = null;
     at = Math.round(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)) * (shown.length - 1));
     py = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height)) * H;
   }
@@ -179,7 +218,7 @@
   <button class="pick" class:on={ema} aria-pressed={ema} onclick={() => ema = !ema}>{t('Averages')}</button>
   <div class="ranges" role="group" aria-label={t('Range')}>
     {#each RANGES as r (r.id)}
-      <button class:on={range === r.id} aria-pressed={range === r.id} onclick={() => { range = r.id; at = null; }}>{r.id === 'All' ? t('All') : r.id}</button>
+      <button class:on={!view && range === r.id} aria-pressed={!view && range === r.id} onclick={() => { range = r.id; view = null; at = null; }}>{r.id === 'All' ? t('All') : r.id}</button>
     {/each}
   </div>
 </div>
@@ -189,7 +228,8 @@
   <div class="plot">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <svg viewBox="0 0 {W} {H}" preserveAspectRatio="none" role="img" aria-label="{sym} {t('Price')}"
-      onpointermove={track} onpointerdown={track} onpointerleave={leave}>
+      class:dragging={drag?.moved} use:zoomable
+      onpointermove={track} onpointerdown={grab} onpointerup={() => drag = null} onpointercancel={() => drag = null} onpointerleave={leave} ondblclick={() => view = null}>
       {#each g.scale as v (v)}<line x1="0" x2={W} y1={g.y(v)} y2={g.y(v)} class="grid" vector-effect="non-scaling-stroke" />{/each}
       {#each g.dates as d (d.i)}<line x1={g.x(d.i)} x2={g.x(d.i)} y1="0" y2={H} class="grid" vector-effect="non-scaling-stroke" />{/each}
       {#if !g.sticks}<path d={g.area} class="area" />{/if}
@@ -215,9 +255,7 @@
       <span class="tag {l.tone}" style:top="{l.y / H * 100}%">{l.label} {usd(l.value)}</span>
     {/each}
     {#each flags as f, i (i)}
-      <span class="flag {f.buy ? 'buy' : 'sell'}" style:left="{f.left}%" style:top="{f.top}%" use:tip={f.tip}>
-        {#if f.label}<span class="ftext" class:flip={f.left > 78}>{f.text}</span>{/if}
-      </span>
+      <span class="flag {f.buy ? 'buy' : 'sell'}" style:left="{f.left}%" style:top="{f.top}%" use:tip={f.tip}></span>
     {/each}
   </div>
   <div class="yaxis" aria-hidden="true">
@@ -235,6 +273,7 @@
       {#each emas as e (e.n)}<span class="key"><i class="e{e.n}"></i>{e.n}</span>{/each}
     </span>
   </div>
+  <p class="small muted hint">{view ? t('Zoomed. Double-click the chart or pick a range to reset.') : t('Scroll to zoom, drag to move.')}</p>
   {#if kind === 'candles' && canCandle && !drawCandles}
     <p class="small muted off">{candleError ? t('Candles need the Apps Script connection, and it did not answer. Showing the line instead.') : t('Loading candles')}</p>
   {/if}
@@ -260,7 +299,8 @@
   .yaxis .badge { left: 2px; }
   .xaxis .badge { top: 3px; }
   .grid { stroke: var(--line-soft); stroke-width: 1; }
-  svg { display: block; width: 100%; height: clamp(220px, 32vh, 320px); touch-action: pan-y; cursor: crosshair; }
+  svg { display: block; width: 100%; height: clamp(220px, 32vh, 320px); touch-action: pan-y; cursor: crosshair; user-select: none; }
+  svg.dragging { cursor: grabbing; }
   .line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
   .line.faint { stroke: var(--muted); stroke-width: 1; opacity: 0.5; }
   .wick { stroke-width: 1; }
@@ -279,15 +319,15 @@
   /* Labels ride on their line at the left, where the price line is oldest and least likely to be read. */
   .tag { position: absolute; left: 6px; translate: 0 -50%; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap; background: var(--card); pointer-events: none; }
   .tag.avg, .tag.new { color: var(--accent-ink); } .tag.entry { color: var(--ink-2); } .tag.stop { color: var(--loss); } .tag.profit { color: var(--gain); }
-  .flag { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; border: 2px solid var(--card); }
+  /* Larger than it looks: the pointer has a 20px target around an 11px dot. */
+  .flag { position: absolute; width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; border-radius: 50%; border: 2px solid var(--card); cursor: help; }
+  .flag::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+  .flag:hover { scale: 1.35; }
   .flag.buy { background: var(--accent); } .flag.sell { background: var(--honey); }
-  .ftext { position: absolute; left: 50%; bottom: 13px; translate: -50% 0; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; color: #fff; pointer-events: none; }
-  .ftext.flip { left: auto; right: -4px; translate: 0 0; }
-  .buy .ftext { background: var(--accent); } .sell .ftext { background: var(--honey); }
-  .sell .ftext { bottom: auto; top: 13px; }
   .axis { display: flex; justify-content: center; gap: var(--sp-3); padding-top: 6px; }
   .keys { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2px 10px; }
   .key { display: inline-flex; align-items: center; gap: 4px; }
   .key i { width: 12px; height: 3px; border-radius: 2px; }
   .off { margin: 6px 0 0; }
+  .hint { margin: 4px 0 0; text-align: center; }
 </style>

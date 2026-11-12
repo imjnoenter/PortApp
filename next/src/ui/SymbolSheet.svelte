@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fifoKey } from '../core/fifo.ts';
-  import { date, pct, qty, sign, signedPct, usd } from '../core/format.ts';
+  import { baht, date, pct, qty, sign, signedPct, usd } from '../core/format.ts';
   import { txMarketDate } from '../core/market.ts';
   import { ALL } from '../core/model.ts';
   import { nextTranche, planKey, trancheDollars } from '../core/plan.ts';
@@ -54,7 +54,8 @@
         if (shares > 1e-9) out.push({ port, shares, cost, date: d });
       }
     }
-    return out.sort((a, b) => a.date.localeCompare(b.date));
+    // Newest first, like the trades above it. Which lot a sale takes is unchanged: still the oldest.
+    return out.sort((a, b) => b.date.localeCompare(a.date));
   });
   const showPort = $derived(ports.length > 1 && new Set(lots.map(l => l.port)).size > 1);
   const trades = $derived(app.viewTxs.filter(x => x.ticker === sym)
@@ -114,6 +115,8 @@
   }
   const focusEnd = (el: HTMLTextAreaElement) => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
 
+  const signedBaht = (n: number) => (n >= 0 ? '+' : '') + baht(n);
+  const signedUsd = (n: number) => (n >= 0 ? '+' : '') + usd(n);
   let drawing = $state(false);
   async function share() {
     if (drawing) return;
@@ -121,11 +124,19 @@
     try {
       const blob = await drawSymbolCard({
         symbol: sym, name: info?.name || '', price: usd(price), dayPct, dayLabel: t('today'),
-        points: points.map(p => p.v), rangeLabel: t('Price'),
-        facts: pos ? [
-          { label: t('Shares'), value: qty(pos.qty) }, { label: t('Avg cost'), value: usd(pos.avgPrice) },
-          { label: t('Unrealized'), value: signedPct(pos.pnlPct), tone: pos.pnl }, { label: t('Weight'), value: pct(pos.weightPct, 1) },
-        ] : [],
+        points, avg: pos?.avgPrice ?? null, marks,
+        labels: { avg: t('Avg cost'), buy: t('Buy'), sell: t('Sell') },
+        facts: [
+          ...(pos ? [[
+            { label: t('Shares'), value: qty(pos.qty) }, { label: t('Avg cost'), value: usd(pos.avgPrice) }, { label: t('Weight'), value: pct(pos.weightPct, 1) },
+          ]] : []),
+          [
+            // Each return in dollars, with the same amount in baht (at today's rate) under it.
+            ...(pos ? [{ label: t('Unrealized'), value: signedUsd(pos.pnl), note: `${signedBaht(pos.pnl * app.fx)} (${signedPct(pos.pnlPct)})`, tone: pos.pnl }] : []),
+            ...(sold.length ? [{ label: t('Realized'), value: signedUsd(realized), note: signedBaht(realized * app.fx), tone: realized }] : []),
+            ...(divs.length ? [{ label: t('Dividends'), value: signedUsd(divNet), note: signedBaht(divNet * app.fx), tone: divNet }] : []),
+          ],
+        ].filter(row => row.length),
       });
       app.dialog = { kind: 'share', blob, name: `${sym}-${app.today}.png` };
     } finally { drawing = false; }
@@ -178,7 +189,7 @@
         <div><dt>{t('Shares')}</dt><dd>{qty(pos.qty)}</dd></div>
         <div><dt>{t('Avg cost')}</dt><dd>{usd(pos.avgPrice)}</dd></div>
         <div><dt>{t('Value')}</dt><dd>{money(pos.currentValue)}</dd></div>
-        <div><dt>{t('Weight')}</dt><dd>{pct(pos.weightPct, 1)}{#if pos.target}<span class="muted small"> / {pct(pos.target * 100, 1)}</span>{/if}</dd></div>
+        <div><dt>{t('Weight')}</dt><dd>{pct(pos.weightPct, 1)}{#if pos.target}<span class="muted small">{' '}/ {pct(pos.target * 100, 1)}</span>{/if}</dd></div>
         <div><dt>{t('Unrealized')}</dt><dd class={sign(pos.pnl)}>{money.signed(pos.pnl)} <span class="small">{signedPct(pos.pnlPct)}</span></dd></div>
         <div><dt>{t('Realized')}</dt><dd class={sign(realized)}>{sold.length ? money.signed(realized) : '—'}</dd></div>
         <div><dt>{t('Dividends')}</dt><dd>{divs.length ? money(divNet) : '—'}</dd></div>
@@ -225,7 +236,7 @@
               {#each plan.tranches as x, i}
                 {#if x.price != null || x.cumPct > 0}
                   <tr class:next={i === ladder.next}>
-                    <td>{t('Buy')} {i + 1}{#if i === ladder.next} <span class="pill">{t('next')}</span>{/if}</td>
+                    <td>{t('Buy')} {i + 1}{#if i === ladder.next}{' '}<span class="pill">{t('next')}</span>{/if}</td>
                     <td class="n">{usd(x.price)}</td><td class="n ink2">{away(x.price)}</td>
                     <td class="n">{ladder.td > 0 ? usd(ladder.dollars[i]) : pct(x.cumPct, 0)}</td>
                   </tr>
@@ -252,32 +263,9 @@
         <div class="sec-head"><h3>{t('Where it sits')}</h3></div>
         <ul class="shares">
           {#each shares as s (s.label)}
-            <li><span class="lab">{t('Share of')} {s.label}<span class="muted small"> {s.n} {t('holdings')}</span></span><span class="strack"><span style:width="{s.pct}%"></span></span><span class="strong">{pct(s.pct, 1)}</span></li>
+            <li><span class="lab">{t('Share of')} {s.label} <span class="muted small">{s.n} {t('holdings')}</span></span><span class="strack"><span style:width="{s.pct}%"></span></span><span class="strong">{pct(s.pct, 1)}</span></li>
           {/each}
         </ul>
-      </section>
-    {/if}
-
-    {#if lots.length}
-      <section>
-        <div class="sec-head"><h3>{t('Open lots')}</h3><span class="small muted">{t('oldest sold first')}</span></div>
-        <div class="table-scroll">
-          <table class="tbl">
-            <thead><tr><th>{t('Bought')}</th><th class="n">{t('Shares')}</th><th class="n">{t('Cost')}</th><th class="n">{t('Gain')}</th>{#if showPort}<th>{t('Portfolio')}</th>{/if}</tr></thead>
-            <tbody>
-              {#each lots as l, i (i)}
-                {@const g = price == null ? null : (price - l.cost) * l.shares}
-                <tr>
-                  <td>{date(l.date)}</td>
-                  <td class="n">{qty(l.shares)}</td>
-                  <td class="n">{usd(l.cost)}</td>
-                  <td class="n {sign(g)}">{g == null ? '—' : money.signed(g)}<span class="sub {sign(g)}">{g == null || !l.cost ? '' : signedPct((price! / l.cost - 1) * 100, 1)}</span></td>
-                  {#if showPort}<td class="ink2">{l.port}</td>{/if}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
       </section>
     {/if}
 
@@ -305,6 +293,29 @@
       </section>
     {:else if !app.ledgerLoaded}
       <p class="empty">{t('Loading the trade ledger…')}</p>
+    {/if}
+
+    {#if lots.length}
+      <section>
+        <div class="sec-head"><h3>{t('Open lots')}</h3><span class="small muted">{t('newest shown first, oldest sold first')}</span></div>
+        <div class="table-scroll">
+          <table class="tbl">
+            <thead><tr><th>{t('Bought')}</th><th class="n">{t('Shares')}</th><th class="n">{t('Cost')}</th><th class="n">{t('Gain')}</th>{#if showPort}<th>{t('Portfolio')}</th>{/if}</tr></thead>
+            <tbody>
+              {#each lots as l, i (i)}
+                {@const g = price == null ? null : (price - l.cost) * l.shares}
+                <tr>
+                  <td>{date(l.date)}</td>
+                  <td class="n">{qty(l.shares)}</td>
+                  <td class="n">{usd(l.cost)}</td>
+                  <td class="n {sign(g)}">{g == null ? '—' : money.signed(g)}<span class="sub {sign(g)}">{g == null || !l.cost ? '' : signedPct((price! / l.cost - 1) * 100, 1)}</span></td>
+                  {#if showPort}<td class="ink2">{l.port}</td>{/if}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      </section>
     {/if}
 
     {#if divs.length}

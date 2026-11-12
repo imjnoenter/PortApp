@@ -41,9 +41,11 @@
   const quote = $derived(app.quotes[sym]);
   const price = $derived(pos?.price ?? quote?.price ?? row?.price ?? null);
   const dayPct = $derived(pos?.dayChangePct ?? quote?.changePct ?? null);
+  // A live pre-market or after-hours price, measured against the regular price beside it.
+  const ext = $derived(quote?.ext && quote.extPrice && price ? { pre: quote.ext === 'PRE', price: quote.extPrice, pct: (quote.extPrice / price - 1) * 100 } : null);
   const saved = $derived(app.plans[planKey(ws.portfolio, sym)] ?? null);
   const plan = $derived(tab === 'plan' && ws.plan ? ws.plan : saved);
-  const levels = $derived(planLevels(t, pos?.avgPrice, plan, tab === 'trade' ? ws.newAvg : null));
+  const levels = $derived(planLevels(t, pos?.avgPrice, plan, tab === 'details' ? null : ws.newAvg));
   const trades = $derived(app.txs.filter(x => x.ticker === sym && x.portfolio === ws.portfolio)
     .sort((a, b) => (b.dateStr + b.time).localeCompare(a.dateStr + a.time) || b.row - a.row));
   const marks = $derived(trades.filter(x => x.type === 'Buy' || x.type === 'Sell').map(x => ({ d: txMarketDate(x.dateStr, x.time), type: x.type, shares: x.shares, price: x.price })));
@@ -55,6 +57,20 @@
     const n = nextTranche(saved, price);
     return n ? { ...n, dollars: td > 0 ? trancheDollars(saved.tranches, (pos?.currentValue ?? 0) / td * 100, td)[n.index] : 0 } : null;
   });
+  // ── The target bar, and where the trade being typed would leave it ──
+  // A buy or a sale swaps shares for cash inside the same portfolio, so the target's dollars stay
+  // put and only the position's side of the bar moves.
+  const fill = $derived.by(() => {
+    if (!(td > 0)) return null;
+    const value = pos?.currentValue ?? 0, now = value / td * 100;
+    // A trade is valued at today's price. A plan is valued the way its percentages are: each buy
+    // at the dollars it spends, each sale at the share of the target it lets go.
+    const then = tab === 'trade' ? (ws.newQty != null && price ? ws.newQty * price : null) : tab === 'plan' ? ws.planValue : null;
+    const after = then == null || Math.abs(then - value) < 0.005 ? null : then / td * 100;
+    const scale = Math.max(100, now, after ?? 0);
+    return { value, now, then, after, scale, weight: m.investable ? (then ?? value) / m.investable * 100 : 0 };
+  });
+
   const hasRow = $derived(app.rawRows.some(r => r.symbol === sym && r.portfolio === ws.portfolio));
 </script>
 
@@ -71,6 +87,7 @@
       <div class="px">
         <div class="price">{usd(price)}</div>
         {#if dayPct != null}<div class="small {sign(dayPct)}">{signedPct(dayPct)} {t('today')}</div>{/if}
+        {#if ext}<div class="small"><span class="muted">{ext.pre ? t('Pre-market') : t('After hours')}</span> <span class="strong">{usd(ext.price)}</span> <span class={sign(ext.pct)}>{signedPct(ext.pct)}</span></div>{/if}
       </div>
     {/if}
     <button class="icon-btn" onclick={close} aria-label={t('Close')}>
@@ -89,19 +106,28 @@
           <div><dt>{t('Unrealized')}</dt><dd class={sign(pos?.pnl)}>{pos ? signedPct(pos.pnlPct) : '—'}</dd></div>
         </dl>
         <PriceChart {sym} {levels} {marks} />
-        {#if td > 0}
-          {@const now = (pos?.currentValue ?? 0) / td * 100}
+        {#if fill}
           <div class="fill">
-            <div class="frow"><span class="small ink2">{t('Filled')} {pct(now, 0)} {t('of target')}, {money(pos?.currentValue ?? 0)} {t('of')} {money(td)}</span><span class="small muted">{t('Target')} {pct(target * 100, 1)} {t('of')} {ws.portfolio}</span></div>
-            <span class="track"><span class:over={now > 100} style:width="{Math.min(100, now)}%"></span></span>
+            <div class="frow"><span class="small ink2">{t('Filled')} {pct(fill.now, 0)} {t('of target')}, {money(fill.value)} {t('of')} {money(td)}</span><span class="small muted">{t('Target')} {pct(target * 100, 1)} {t('of')} {ws.portfolio}</span></div>
+            <!-- Solid is what is held now. The lighter stretch is what the trade or plan adds; a hatched one is what it takes away. -->
+            <span class="track">
+              <span class="held" class:over={Math.min(fill.now, fill.after ?? fill.now) > 100} style:width="{Math.min(fill.now, fill.after ?? fill.now) / fill.scale * 100}%"></span>
+              {#if fill.after != null}
+                <span class="delta {fill.after > fill.now ? 'add' : 'cut'}" style:left="{Math.min(fill.now, fill.after) / fill.scale * 100}%" style:width="{Math.abs(fill.after - fill.now) / fill.scale * 100}%"></span>
+              {/if}
+              <span class="goal" style:left="{100 / fill.scale * 100}%"></span>
+            </span>
+            {#if fill.after != null}
+              <div class="frow"><span class="small strong">{tab === 'plan' ? t('After this plan') : t('After this trade')}: {pct(fill.after, 0)} {t('of target')}, {money(fill.then)}</span><span class="small ink2">{pct(fill.weight, 1)} {t('of')} {ws.portfolio}</span></div>
+            {/if}
           </div>
         {/if}
         {#if next}
           <p class="small ink2">{t('Next planned buy')}: {t('Buy')} {next.index + 1} {t('at')} {usd(next.tranche.price)}{#if next.dollars > 0}, {usd(next.dollars)}{/if}{#if price && next.tranche.price}, {pct((1 - next.tranche.price / price) * 100, 1)} {t('below now')}{/if}.</p>
         {/if}
         {#if trades.length}
-          <!-- Open while buying or selling: the earlier trades are what the next one is weighed against. -->
-          <details open={tab === 'trade'}>
+          <!-- Open on every tab: the earlier trades are what the next move is weighed against. -->
+          <details open>
             <summary>{t('Trades')} {trades.length}</summary>
             <table class="tbl">
               <thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th class="n">{t('Shares')}</th><th class="n">{t('Price')}</th><th class="n">{t('Gain')}</th></tr></thead>
@@ -179,9 +205,13 @@
   dd { margin: 2px 0 0; font: 650 17px/1.2 var(--font-display); letter-spacing: -0.02em; white-space: nowrap; }
   .fill { display: grid; gap: 6px; }
   .frow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 2px var(--sp-3); }
-  .track { display: block; height: 8px; border-radius: 4px; background: var(--wash); overflow: hidden; }
-  .track span { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
-  .track span.over { background: var(--honey); }
+  .track { position: relative; display: block; height: 10px; border-radius: 5px; background: var(--wash); overflow: hidden; }
+  .track .held { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+  .track .held.over { background: var(--honey); }
+  .track .delta { position: absolute; top: 0; bottom: 0; }
+  .track .delta.add { background: color-mix(in oklab, var(--accent) 45%, var(--card)); }
+  .track .delta.cut { background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--accent) 55%, var(--card)) 0 3px, transparent 3px 6px); }
+  .track .goal { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); }
   p { margin: 0; }
   summary { cursor: pointer; font-size: 14px; color: var(--ink-2); padding-bottom: var(--sp-2); }
 

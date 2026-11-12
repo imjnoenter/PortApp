@@ -90,7 +90,7 @@
         <li>
           <button onclick={() => app.symbol = e.symbol}>
             <Logo sym={e.symbol} size={26} />
-            <span class="who"><strong>{e.symbol}</strong> <span class="ink2">{e.kind === 'earnings' ? t('Earnings') : t('Ex-dividend')}</span>{#if e.note}<span class="small muted"> {e.note}</span>{/if}</span>
+            <span class="who"><strong>{e.symbol}</strong> <span class="ink2">{e.kind === 'earnings' ? t('Earnings') : t('Ex-dividend')}</span>{#if e.note}<span class="small muted">{' '}{e.note}</span>{/if}</span>
             {#if e.slot === 'bmo' || e.slot === 'amc'}<span class="pill {e.slot}">{e.slot === 'bmo' ? 'BMO' : 'AMC'}</span>{/if}
             <span class="when">{date(e.d, true)}</span>
           </button>

@@ -264,6 +264,22 @@
 
   <section class="card">
     <div class="bar">
+      {#if m.dayChange != null}
+        <!-- The whole tab's move today, whatever the filters or search below are showing. -->
+        <span class="today {sign(m.dayChange)}" title={t('Change today across the holdings of this portfolio')}>
+          <span class="lab">{t('Today')}</span>
+          <strong>{money.signed(m.dayChange)}</strong>
+          <span class="pc">{signedPct(m.dayPct)}</span>
+        </span>
+      {/if}
+      <span class="spacer"></span>
+      {#if view}<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>{/if}
+      {#if rows.length}<button class="btn" onclick={sharePic} disabled={drawing}>{t('Share')}</button>{/if}
+      {#if options.length}<button class="btn" class:on={active > 0} aria-expanded={filtersOpen} onclick={() => filtersOpen = !filtersOpen}>{t('Filter')}{active ? ` ${active}` : ''}</button>{/if}
+      <Seg small label={t('Sort returns by')} bind:value={basis} options={[{ value: 'pct', label: t('Sort by %') }, { value: 'abs', label: t('Sort by $') }]} />
+    </div>
+    <!-- Which table: its own line, under the controls that act on whichever one is showing. -->
+    <div class="bar under">
       <div class="tabs" role="group" aria-label={t('Table layout')}>
         <button class:on={tab === 'holdings'} aria-pressed={tab === 'holdings'} onclick={() => tab = 'holdings'}>{t('Holdings')}</button>
         <button class:on={tab === 'performance'} aria-pressed={tab === 'performance'} onclick={() => tab = 'performance'}>{t('Performance')}</button>
@@ -278,11 +294,6 @@
         {/each}
         <button class="add" onclick={addView} aria-label={t('Add a tab of your own')} title={t('Add a tab of your own')}>+</button>
       </div>
-      <span class="spacer"></span>
-      {#if view}<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>{/if}
-      {#if rows.length}<button class="btn" onclick={sharePic} disabled={drawing}>{t('Share')}</button>{/if}
-      {#if options.length}<button class="btn" class:on={active > 0} aria-expanded={filtersOpen} onclick={() => filtersOpen = !filtersOpen}>{t('Filter')}{active ? ` ${active}` : ''}</button>{/if}
-      <Seg small label={t('Sort returns by')} bind:value={basis} options={[{ value: 'pct', label: t('Sort by %') }, { value: 'abs', label: t('Sort by $') }]} />
     </div>
 
     {#if view && colsOpen}
@@ -324,15 +335,15 @@
 
     {#if rows.length}
       <div class="table-scroll">
-        <table class="tbl">
+        <table class="tbl dense">
           <thead>
             <tr>
-              <th class="sortable" aria-sort={aria('symbol')}><button onclick={() => sortBy(null)}>{t('Symbol')}{#if sortKey === 'symbol'}<span aria-hidden="true"> {dir === 1 ? '↑' : '↓'}</span>{/if}</button></th>
+              <th class="sortable" aria-sort={aria('symbol')}><button onclick={() => sortBy(null)}>{t('Symbol')}{#if sortKey === 'symbol'}<span aria-hidden="true">{' '}{dir === 1 ? '↑' : '↓'}</span>{/if}</button></th>
               {#each cols as c (c.id)}
                 <th class="sortable" class:n={!c.text && c.id !== 'range' && c.id !== 'alloc'} class:mine={!!view} class:lifting={drag?.on && drag.id === c.id}
                   class:before={drag?.on && drag.over === c.id && !drag.after && drag.id !== c.id} class:after={drag?.on && drag.over === c.id && drag.after && drag.id !== c.id}
                   data-col={c.id} aria-sort={aria(c.id)} onpointerdown={e => dragStart(e, c.id)}>
-                  <button onclick={() => sortBy(c)}>{t(c.label)}{#if sortKey === c.id}<span aria-hidden="true"> {dir === 1 ? '↑' : '↓'}{c.note ? (c.note() ? ` ${c.note()}${basis === 'abs' ? ' $' : ' %'}` : '') : c.abs ? (basis === 'abs' ? ' $' : ' %') : ''}</span>{/if}</button>
+                  <button onclick={() => sortBy(c)}>{t(c.label)}{#if sortKey === c.id}<span aria-hidden="true">{' '}{dir === 1 ? '↑' : '↓'}{c.note ? (c.note() ? ` ${c.note()}${basis === 'abs' ? ' $' : ' %'}` : '') : c.abs ? (basis === 'abs' ? ' $' : ' %') : ''}</span>{/if}</button>
                 </th>
               {/each}
             </tr>
@@ -343,9 +354,9 @@
               <tr class="click" onclick={() => app.symbol = p.symbol}>
                 <td class="sym">
                   <div class="symcell">
-                    <Logo sym={p.symbol} />
+                    <Logo sym={p.symbol} size={22} />
                     <div>
-                      <button class="strong" onclick={e => { e.stopPropagation(); app.symbol = p.symbol; }}>{p.symbol}</button>{#if p.basisFallback}<span class="muted" use:tip={t('Ledger does not match the share count, so this uses the sheet’s stored average.')}> ≈</span>{/if}
+                      <button class="strong" onclick={e => { e.stopPropagation(); app.symbol = p.symbol; }}>{p.symbol}</button>{#if p.basisFallback}<span class="muted" use:tip={t('Ledger does not match the share count, so this uses the sheet’s stored average.')}>{' '}≈</span>{/if}
                       {#if stop}<span class="pill {stop === 'hit' ? 'loss' : 'near'}">{stop === 'hit' ? t('Stop reached') : t('Near stop')}</span>{/if}
                       <span class="sub name">{p.name || ''}</span>
                     </div>
@@ -367,7 +378,7 @@
                     {@const a = alloc(p)}
                     <td>
                       <div class="alloc">
-                        <span class="pair">{pct(a.now, 1)}{#if a.target != null} <span class="muted">/ {pct(a.target, 1)}</span>{/if}</span>
+                        <span class="pair">{pct(a.now, 1)}{#if a.target != null}{' '}<span class="muted">/ {pct(a.target, 1)}</span>{/if}</span>
                         {#if a.want == null}
                           <span class="track"><span class="fill" style:width="{Math.min(a.now, 100)}%" style:background={colorFor(p.symbol)}></span></span>
                           <span class="ends"><span class="muted">{money(p.currentValue)}</span></span>
@@ -414,7 +425,7 @@
     <h2 class="section-title">{t('Watchlist')} <span class="muted">{m.watchlist.length}</span></h2>
     <section class="card">
       <div class="table-scroll">
-        <table class="tbl">
+        <table class="tbl dense">
           <thead><tr>
             <th class="sortable"><button onclick={() => wBy('symbol')}>{t('Symbol')}{wArrow('symbol')}</button></th>
             <th class="sortable n"><button onclick={() => wBy('price')}>{t('Price')}{wArrow('price')}</button></th>
@@ -425,7 +436,7 @@
           <tbody>
             {#each watch as w (w.symbol)}
               <tr class="click" onclick={() => app.symbol = w.symbol}>
-                <td><div class="symcell"><Logo sym={w.symbol} /><div><span class="strong">{w.symbol}</span><span class="sub name">{w.name || ''}</span></div></div></td>
+                <td class="sym"><div class="symcell"><Logo sym={w.symbol} size={22} /><div><span class="strong">{w.symbol}</span><span class="sub name">{w.name || ''}</span></div></div></td>
                 <td class="n">{usd(w.price)}</td>
                 <td class="n {sign(w.dayChangePct)}">{signedPct(w.dayChangePct)}</td>
                 <td class="n">{w.target ? pct(w.target * 100, 1) : ''}</td>
@@ -440,8 +451,23 @@
 </div>
 
 <style>
-  .card { padding: var(--sp-2) var(--sp-2) var(--sp-3); overflow: hidden; }
-  .bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); padding: var(--sp-3) var(--sp-3) var(--sp-4); }
+  .card { padding: var(--sp-1) var(--sp-1) var(--sp-2); overflow: hidden; }
+
+  /* ── A dense table: this page is for scanning many rows, so every gap is cut to the least that
+     still keeps a row readable and a cell tappable. ── */
+  .dense { font-size: 13px; }
+  .dense :global(th) { padding: 6px 8px; font-size: 12px; }
+  .dense :global(td) { padding: 5px 8px; line-height: 1.25; }
+  .dense :global(.sub) { font-size: 11px; }
+  .dense :global(tfoot td) { padding-block: 7px; }
+  /* A tinted pill in the day's colour: the label stays quiet, the amount leads, the percent rides in its own chip. */
+  .today { display: inline-flex; align-items: center; gap: 8px; align-self: center; padding: 5px 6px 5px 14px; border-radius: 999px; font-size: 14px; white-space: nowrap; background: color-mix(in oklab, currentColor 10%, transparent); }
+  .today.flat { color: var(--ink-2); }
+  .today .lab { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+  .today strong { font: 650 16px/1 var(--font-display); letter-spacing: -0.02em; }
+  .today .pc { padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; background: color-mix(in oklab, currentColor 16%, transparent); }
+  .bar.under { padding-top: 0; justify-content: flex-end; }
+  .bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2); }
   .bar .btn.on { background: var(--ink); color: var(--bg); }
   .tabs { display: inline-flex; align-items: center; padding: 3px; gap: 2px; background: var(--wash); border-radius: 999px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .tabs button { padding: 6px 15px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
@@ -468,16 +494,17 @@
   .section-title .muted { font-weight: 500; }
   .search { max-width: 300px; }
   th button { font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; white-space: nowrap; }
-  .symcell { display: flex; align-items: center; gap: 10px; }
-  .name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  .symcell { display: flex; align-items: center; gap: 8px; }
+  /* Half the room it had: the ticker is what is read, the name is a reminder. */
+  .name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
   .sym { position: sticky; left: 0; background: var(--card); z-index: 1; }
   tr.click:hover .sym { background: var(--sunk); }
-  .sym .pill { margin-left: 6px; font-size: 11px; }
+  .sym .pill { margin-left: 4px; font-size: 10px; padding: 1px 5px; }
   .pill.near { background: color-mix(in oklab, var(--honey) 16%, transparent); color: var(--honey); }
   /* Two cells that draw a bar with their numbers under it. */
-  .range, .alloc { display: grid; gap: 4px; min-width: 150px; font-size: 12px; font-variant-numeric: tabular-nums; }
-  .alloc { min-width: 170px; }
-  .alloc .pair { font-size: 14px; font-weight: 600; }
+  .range, .alloc { display: grid; gap: 2px; min-width: 128px; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .alloc { min-width: 146px; }
+  .alloc .pair { font-size: 13px; font-weight: 600; }
   .track { position: relative; display: block; height: 5px; border-radius: 3px; background: var(--wash); }
   .track .fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; opacity: 0.5; }
   .alloc .track .fill { opacity: 1; }
@@ -489,5 +516,13 @@
   .range.mid .fill, .range.mid .dot { background: var(--accent); } .range.mid .from { color: var(--accent-ink); }
   .from, .gap { font-weight: 600; }
   .gap.under { color: var(--accent-ink); } .gap.over { color: var(--honey); } .gap.ok { color: var(--muted); }
-  @media (max-width: 760px) { .name { max-width: 96px; } .search { max-width: none; flex: 1 1 100%; } .fgroup > span { flex-basis: 100%; } }
+  @media (max-width: 760px) { .name { max-width: 72px; } .search { max-width: none; flex: 1 1 100%; } .fgroup > span { flex-basis: 100%; } }
+  /* A phone held upright: the first column is the logo and the ticker and nothing wider, so the
+     numbers get the rest of the screen. The name and the stop-loss tag are in the symbol window. */
+  @media (max-width: 760px) and (orientation: portrait) {
+    .sym { width: 1%; padding-right: 6px; }
+    .sym .name, .sym .pill { display: none; }
+    .symcell { gap: 6px; }
+    .dense :global(td), .dense :global(th) { padding-inline: 6px; }
+  }
 </style>

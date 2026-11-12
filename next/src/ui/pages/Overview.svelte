@@ -53,13 +53,17 @@
     if (m.dayPct == null || m.dayChange == null || drawing) return;
     drawing = true;
     try {
-      const row = (p: (typeof moved)[number]) => ({ symbol: p.symbol, pct: signedPct(p.dayChangePct, 1), money: money.signed(p.dayChange! * p.qty) });
+      const row = (p: (typeof moved)[number]) => ({ symbol: p.symbol, pct: p.dayChangePct!, dollars: p.dayChange! * p.qty });
       const blob = await drawDayCard({
-        name: app.profile?.profileName || 'Portfolio', dateLabel: date(app.today),
-        dayPct: m.dayPct, dayMoney: money.signed(m.dayChange), value: money(m.totalCurrent), unrealizedPct: signedPct(m.totalPnlPct),
+        name: app.profile?.profileName || 'Portfolio', day: app.today,
+        dayChange: m.dayChange, dayPct: m.dayPct, fx: app.fx, spxPct: app.quotes['^GSPC']?.changePct ?? null,
         bars: dailyBars(app.series, 20, m.dayPct, app.today).map(b => ({ r: b.r, today: b.today })),
         up: gainers.slice(0, 3).map(row), down: losers.slice(0, 3).map(row),
-        labels: { today: t('Today'), value: t('Portfolio value'), unrealized: t('Unrealized'), days: t('Last 20 trading days'), up: t('Up most'), down: t('Down most') },
+        value: m.totalCurrent, unrealizedPct: m.totalPnlPct,
+        // The same two figures as the Total return card: profit against the baht paid in when that
+        // is known, otherwise the dollar return converted, and the card says which.
+        ...(bahtReturn ? { bahtReturn: bahtReturn.gain, bahtPct: bahtReturn.pct, bahtNote: 'paid-in' as const }
+          : { bahtReturn: usdReturn * app.fx, bahtPct: usdReturnPct, bahtNote: 'converted' as const }),
       });
       app.dialog = { kind: 'share', blob, name: `portfolio-${app.today}.png` };
     } finally { drawing = false; }

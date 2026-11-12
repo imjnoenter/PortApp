@@ -350,7 +350,7 @@ test('edits: deposits, targets and tags', () => {
 });
 
 test('plan: the sheet format round-trips and each entry buys its step toward the target', () => {
-  assert.deepEqual(parseTranche('150:500.00:50'), { price: 150, cumPct: 50 });
+  assert.deepEqual(parseTranche('150:500.00:50'), { price: 150, cumPct: 50, dollar: 500 });
   assert.deepEqual(parseTranche(''), { price: null, cumPct: 0 });
   assert.deepEqual(parseTrim('70/50'), { price: 70, pct: 50 });
   assert.deepEqual(parseTrim('70:50:00'), { price: 70, pct: 50 });
@@ -524,4 +524,13 @@ test('benchmark: every line starts from the same close and compounds from there'
   assert.ok(benchmark(s, 10, { idx: late, sym: 'QQQ' }).other);
   const none = benchmark(s, 0, null);
   assert.equal(none.other, null); assert.equal(none.otherFrom, null);
+});
+
+test('plan: an entry sized in dollars keeps them when there is no target', () => {
+  // No target, so no percentage: the entry keeps the dollars it was given.
+  const sized = [{ price: 90, cumPct: 0, dollar: 450 }, { price: 80, cumPct: 0 }];
+  assert.deepEqual(trancheDollars(sized, 0, 0), [450, 0]);
+  assert.equal(planStrings({ sl: null, note: '', tranches: sized, trims: [] }, 0, 0).tranches, '90:450.00:0,80:0.00:0');
+  assert.deepEqual(parseTranche('90:450.00:0'), { price: 90, cumPct: 0, dollar: 450 });
+
 });
