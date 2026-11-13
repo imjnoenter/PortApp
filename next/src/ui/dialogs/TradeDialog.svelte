@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext, untrack } from 'svelte';
   import { DEFAULT_PORT } from '../../core/fifo.ts';
-  import { qty as fmtQty, usd } from '../../core/format.ts';
+  import { qty as fmtQty, sign, signedPct, usd } from '../../core/format.ts';
   import { COMMISSION_RATE, VAT_RATE } from '../../core/fees.ts';
   import { ALL } from '../../core/model.ts';
   import { nextTranche, planKey, trancheDollars } from '../../core/plan.ts';
@@ -69,6 +69,23 @@
   const wallet = $derived(app.registry.find(p => p.name === DEFAULT_PORT));
   const cashNow = $derived(cashSource === 'FCD' ? wallet?.fcd ?? 0 : wallet?.usd ?? 0);
   const cashAfter = $derived(cashSource === 'FCD' ? fx.fcd : fx.usd);
+
+  // ── The profit or loss of this one trade ──
+  // A sale: what it brings in, less the selling fee, less what the shares it sells cost (oldest lots
+  // first, which is the fall in the holding's total cost). A buy has realized nothing; what it shows
+  // is where the lot stands at today's price, which matters when a trade is entered after the fact.
+  const result = $derived.by(() => {
+    if (!shares || !price) return null;
+    if (type === 'Sell') {
+      const cost = fx.oldQty * fx.oldAvg - fx.newQty * fx.newAvg;
+      if (!(cost > 0)) return null;
+      const pnl = fx.tradeValue - fx.fees.total - cost;
+      return { sale: true, pnl, pct: pnl / cost * 100, cost };
+    }
+    if (!live || Math.abs(live - price) < 0.005) return null;
+    const pnl = (live - price) * shares;
+    return { sale: false, pnl, pct: (live / price - 1) * 100, cost: fx.tradeValue };
+  });
 
   const problem = $derived.by(() => {
     if (!symbol || !shares || !price) return ' ';
@@ -217,6 +234,14 @@
           <tr><th>{t('Cash')}, {cashSource}</th><td>{usd(cashNow)}</td><td class:loss={cashAfter < 0}>{usd(cashAfter)}</td></tr>
         </tbody>
       </table>
+      {#if result}
+        <div class="result {sign(result.pnl)}">
+          <span class="lab">{result.sale ? t('Profit on this sale') : t('This lot at today’s price')}</span>
+          <strong>{(result.pnl >= 0 ? '+' : '') + usd(result.pnl)}</strong>
+          <span class="pc">{signedPct(result.pct)}</span>
+          <span class="small muted why">{result.sale ? `${t('against a cost of')} ${usd(result.cost)}, ${t('after the selling fee')}` : `${t('bought at')} ${usd(price)}, ${t('now')} ${usd(live)}`}</span>
+        </div>
+      {/if}
       <p class="small muted">{t('Trade value')} {usd(fx.tradeValue)}, {t('fees')} {usd(fx.fees.total)}, {type === 'Buy' ? t('you pay') : t('you receive')} {usd(fx.amount)}</p>
       {#if cashAfter < 0}<p class="small loss">{t('This takes the balance below zero. The trade is still recorded.')}</p>{/if}
       {#if funding}
@@ -246,6 +271,13 @@
   label.inline select { width: auto; }
   label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
   .btn { justify-self: start; }
+  /* One trade's own result, set apart from the before-and-after table above it. */
+  .result { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 10px 14px; border-radius: var(--radius-sm); background: color-mix(in oklab, currentColor 9%, transparent); }
+  .result.flat { color: var(--ink-2); }
+  .result .lab { font-size: 13px; color: var(--ink-2); }
+  .result strong { font: 650 18px/1 var(--font-display); letter-spacing: -0.02em; }
+  .result .pc { padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 650; background: color-mix(in oklab, currentColor 15%, transparent); }
+  .result .why { flex: 1 1 100%; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chips .btn { font-size: 12px; padding: 6px 12px; }
   .sum { width: 100%; border-collapse: collapse; font-size: 14px; }

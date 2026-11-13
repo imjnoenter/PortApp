@@ -47,6 +47,8 @@
   /** The extended session some holding has a live price for, if any. */
   const ext = $derived(m.positions.find(p => p.ext)?.ext ?? null);
   const dash: Cell = { main: '—', tone: 'muted' };
+  /** A dollar amount as a percentage of everything in the tab: stocks plus cash. */
+  const share = (dollars: number) => m.totalCurrent ? pct(dollars / m.totalCurrent * 100, 1) : undefined;
   const text = (id: string, label: string, pick: (p: Position) => string | null): Col =>
     ({ id, label, text: true, val: pick, cell: p => pick(p) ? { main: pick(p)!, tone: 'ink2' } : dash });
   const away = (level: number | null | undefined, p: Position) => level ? signedPct((p.price / level - 1) * 100, 1) : '';
@@ -62,10 +64,12 @@
       cell: p => ({ main: signedPct(p.dayChangePct), tone: sign(p.dayChangePct), sub: p.dayChange == null ? undefined : money.signed(p.dayChange * p.qty), subTone: sign(p.dayChange) }) },
     { id: 'qty', label: 'Shares', val: p => p.qty, cell: p => ({ main: qty(p.qty) }) },
     { id: 'avg', label: 'Avg cost', val: p => p.avgPrice, cell: p => ({ main: usd(p.avgPrice) }) },
-    { id: 'cost', label: 'Cost', val: p => p.costBasis, cell: p => ({ main: money(p.costBasis) }) },
-    { id: 'value', label: 'Value', val: p => p.currentValue, cell: p => ({ main: money(p.currentValue), strong: true, sub: `${t('Cost')} ${money(p.costBasis)}` }) },
+    // Both show their share of the whole portfolio, cash included, so the two lines can be compared:
+    // what went in against what it is worth now, on the same base.
+    { id: 'cost', label: 'Cost', val: p => p.costBasis, cell: p => ({ main: money(p.costBasis), sub: share(p.costBasis) }) },
+    { id: 'value', label: 'Value', val: p => p.currentValue, cell: p => ({ main: money(p.currentValue), strong: true, sub: share(p.currentValue) }) },
     { id: 'unrealized', label: 'Unrealized', val: p => p.pnlPct, abs: p => p.pnl,
-      cell: p => ({ main: money.signed(p.pnl), tone: sign(p.pnl), sub: signedPct(p.pnlPct), subTone: sign(p.pnl) }) },
+      cell: p => ({ main: signedPct(p.pnlPct), tone: sign(p.pnl), sub: money.signed(p.pnl), subTone: sign(p.pnl) }) },
     { id: 'weight', label: 'Weight', val: p => p.weightPct, cell: p => ({ main: pct(p.weightPct, 1), sub: p.target ? `${t('Target')} ${pct(p.target * 100, 1)}` : undefined }) },
     { id: 'total', label: 'Total result', val: p => perfBy.get(p.symbol)?.pct ?? null, abs: p => perfBy.get(p.symbol)?.total ?? null,
       cell: p => { const h = perfBy.get(p.symbol); return h ? { main: money.signed(h.total), tone: sign(h.total), sub: h.pct == null ? undefined : signedPct(h.pct, 1), subTone: sign(h.total) } : dash; } },
@@ -105,7 +109,7 @@
   }
   const byId = new Map(COLS.map(c => [c.id, c]));
   const TABS = {
-    holdings: ['price', 'day', 'qty', 'avg', 'value', 'unrealized', 'alloc', 'range'],
+    holdings: ['price', 'day', 'qty', 'avg', 'cost', 'value', 'unrealized', 'alloc', 'range'],
     performance: ['price', 'day', 'rYTD', 'r1M', 'r3M', 'r1Y', 'r3Y', 'r5Y', 'total', 'cap', 'volume'],
   };
   /** A tab of the user's own: a name and the columns it shows, in order. */
@@ -178,6 +182,7 @@
   });
   const shownValue = $derived(rows.reduce((s, p) => s + p.currentValue, 0));
   const shownPnl = $derived(rows.reduce((s, p) => s + p.pnl, 0));
+  const shownCost = $derived(rows.reduce((s, p) => s + p.costBasis, 0));
   const whole = $derived(!query && !active);
 
   // Where the price sits between the 52-week low and high, 0–100.
@@ -235,7 +240,7 @@
         subtitle: `${rows.length} ${t('holdings')}, ${date(app.today)}`,
         columns: shown.map(c => ({ label: t(c.label), left: c.text })),
         rows: rows.map(p => ({ symbol: p.symbol, name: p.name || '', cells: shown.map(c => c.cell(p)) })),
-        foot: { label: whole ? t('Total') : t('Shown'), cells: shown.map(c => c.id === 'value' ? money(whole ? m.totalCurrent : shownValue) : c.id === 'unrealized' ? money.signed(shownPnl) : '') },
+        foot: { label: whole ? t('Total') : t('Shown'), cells: shown.map(c => c.id === 'value' ? money(whole ? m.totalCurrent : shownValue) : c.id === 'cost' ? money(shownCost) : c.id === 'unrealized' ? money.signed(shownPnl) : '') },
       });
       app.dialog = { kind: 'share', blob, name: `positions-${app.today}.png` };
     } finally { drawing = false; }
@@ -400,14 +405,14 @@
             {#if whole}
               <tr>
                 <td>{m.limit ? t('Room to buy') : t('Cash')}</td>
-                {#each cols as c (c.id)}<td class="n">{c.id === 'value' ? money(m.cash) : (c.id === 'weight' || c.id === 'alloc') && m.totalCurrent ? pct(m.cash / m.totalCurrent * 100, 1) : ''}</td>{/each}
+                {#each cols as c (c.id)}<td class="n">{c.id === 'value' ? money(m.cash) : (c.id === 'weight' || c.id === 'alloc') && m.totalCurrent ? pct(m.cash / m.totalCurrent * 100, 1) : ''}{#if c.id === 'value' && m.totalCurrent}<span class="sub">{pct(m.cash / m.totalCurrent * 100, 1)}</span>{/if}</td>{/each}
               </tr>
             {/if}
             <tr>
               <td>{whole ? t('Total') : t('Shown')}</td>
               {#each cols as c (c.id)}
                 <td class="n {c.id === 'unrealized' ? sign(shownPnl) : c.id === 'day' && whole ? sign(m.dayChange) : ''}">
-                  {c.id === 'value' ? money(whole ? m.totalCurrent : shownValue) : c.id === 'unrealized' ? money.signed(shownPnl) : c.id === 'day' && whole && m.dayChange != null ? signedPct(m.dayPct) : ''}
+                  {c.id === 'value' ? money(whole ? m.totalCurrent : shownValue) : c.id === 'cost' ? money(shownCost) : c.id === 'unrealized' ? money.signed(shownPnl) : c.id === 'day' && whole && m.dayChange != null ? signedPct(m.dayPct) : ''}
                 </td>
               {/each}
             </tr>

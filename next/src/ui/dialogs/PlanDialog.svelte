@@ -6,7 +6,7 @@
   // the target a sale lets go). The sheet stores the percentage. Under every row is what it comes
   // to in dollars. In the workspace the chart and the target bar beside the form follow along.
   import { getContext, untrack } from 'svelte';
-  import { pct, qty as fmtQty, usd } from '../../core/format.ts';
+  import { pct, qty as fmtQty, sign, signedPct, usd } from '../../core/format.ts';
   import { MAX_TRANCHES, MAX_TRIMS, planKey } from '../../core/plan.ts';
   import type { Plan } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -44,6 +44,14 @@
   const td = $derived(targetOk ? target * m.investable : 0);
   const currPct = $derived(td > 0 ? (pos?.currentValue || 0) / td * 100 : 0);
   const heldQty = $derived(pos?.qty ?? 0);
+  const avgCost = $derived(pos?.avgPrice ?? 0);
+  const signedUsd = (n: number) => (n >= 0 ? '+' : '') + usd(n);
+  /** A planned buy, valued at today's price: what the lot would be up or down if bought there. */
+  const lotNow = (at: number, shares: number) => price ? { pnl: (price - at) * shares, pct: (price / at - 1) * 100 } : null;
+  /** A planned sale against the average cost of what is held: the profit it would bank, before fees. */
+  const saleGain = (at: number, shares: number) => avgCost > 0 ? { pnl: (at - avgCost) * shares, pct: (at / avgCost - 1) * 100 } : null;
+  /** What the stop would cost if it were reached: every share held, from its average cost down to the stop. */
+  const stopLoss = $derived.by(() => { const sl = parseNum(slText); return sl > 0 && heldQty > 0 && avgCost > 0 ? { pnl: (sl - avgCost) * heldQty, pct: (sl / avgCost - 1) * 100 } : null; });
 
   const orNull = (s: string) => { const n = parseNum(s); return n > 0 ? n : null; };
   // Highest price on top, in both lists: entries step down from the first buy, take-profits step
@@ -159,6 +167,7 @@
       {#if td > 0}{t('Target value')} {usd(td)}. {t('Held now')} {usd(pos?.currentValue ?? 0)}, {pct(currPct, 1)} {t('of target')}.
       {:else}{t('Set a target to size an entry by percentage. Until then, size it in shares.')}{/if}
       {#if price}{t('Price now')} {usd(price)}.{/if}
+      {#if stopLoss}{t('At the stop, the holding closes at')} <strong class={sign(stopLoss.pnl)}>{signedUsd(stopLoss.pnl)} ({signedPct(stopLoss.pct, 1)})</strong>.{/if}
     </p>
 
     <section>
@@ -177,7 +186,9 @@
               {@render remove(() => entries.splice(i, 1))}
               <p class="read small">
                 {#if b.at && b.shares > 0}
+                  {@const g = lotNow(b.at, b.shares)}
                   <strong>{t('Buys')} {usd(b.dollars)}</strong>, {fmtQty(+b.shares.toFixed(4))} {t('shares')}{#if away(b.at)}, {away(b.at)}{/if}.
+                  {#if g && Math.abs(g.pnl) >= 0.005}<span class="pl {sign(g.pnl)}">{t('At today’s price')} {signedUsd(g.pnl)} ({signedPct(g.pct, 1)})</span>{/if}
                 {:else if b.at}<span class="muted">{away(b.at)}</span>{/if}
               </p>
             </div>
@@ -188,7 +199,7 @@
     </section>
 
     <section>
-      <h3>{t('Take profit')}</h3>
+      <h3>{t('Sell')}</h3>
       {#if trims.length}
         <div class="rows">
           <div class="heads small muted"><span>{t('Sell at')}</span><span>{t('Shares')}</span><span>{t('% of target to sell')}</span><span></span></div>
@@ -203,7 +214,9 @@
               {@render remove(() => trims.splice(i, 1))}
               <p class="read small">
                 {#if s.at && s.shares > 0}
+                  {@const g = saleGain(s.at, Math.min(s.shares, s.before))}
                   <strong>{t('Sells')} {usd(s.dollars)}</strong>, {fmtQty(+s.shares.toFixed(4))} {t('shares')}{#if away(s.at)}, {away(s.at)}{/if}.
+                  {#if g}<span class="pl {sign(g.pnl)}">{t('Profit')} {signedUsd(g.pnl)} ({signedPct(g.pct, 1)})</span>{/if}
                   {#if s.over}<span class="loss">{t('more than is held then')} ({fmtQty(+s.before.toFixed(4))}).</span>{/if}
                 {:else if s.at}<span class="muted">{away(s.at)}</span>{/if}
               </p>
@@ -212,7 +225,7 @@
         </div>
       {/if}
       {#if trims.length < MAX_TRIMS}<button type="button" class="btn" onclick={() => trims.push({ price: '', shares: '', pct: '', by: td > 0 ? 'pct' : 'shares' })}>{t('Add a sale')}</button>{/if}
-      {#if unsavable}<p class="small loss" role="alert">{t('A take-profit is stored as a share of the target, so it needs a target to be saved.')}</p>{/if}
+      {#if unsavable}<p class="small loss" role="alert">{t('A planned sale is stored as a share of the target, so it needs a target to be saved.')}</p>{/if}
     </section>
 
     <label class="field"><span>{t('Note')}</span><input class="input" bind:value={note} /></label>
@@ -236,4 +249,5 @@
   .line .icon-btn { width: 34px; height: 34px; }
   .read { grid-column: 1 / -1; margin: 0; color: var(--ink-2); line-height: 1.5; min-height: 1.5em; }
   .read strong { color: var(--ink); font-weight: 600; }
+  .pl { font-weight: 650; white-space: nowrap; }
 </style>

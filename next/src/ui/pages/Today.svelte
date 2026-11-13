@@ -5,6 +5,8 @@
   import { addZone, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone, ZONE_COLORS } from '../../core/board.ts';
   import type { Board, Zone } from '../../core/board.ts';
   import { pct, sign, signedPct, usd } from '../../core/format.ts';
+  import { ALL } from '../../core/model.ts';
+  import { planKey, trancheDollars } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
   import DeleteButton from '../parts/DeleteButton.svelte';
   import Logo from '../parts/Logo.svelte';
@@ -55,11 +57,32 @@
       weight: p ? p.weightPct : null,
     };
   }
+  /**
+   * The plan's levels for a card, nearest first on each side of the price: every buy not yet reached
+   * with what it spends, every take-profit, and the stop. A level the price has already passed is
+   * marked, so the card says what is waiting and what is due.
+   */
+  function levels(sym: string) {
+    const port = app.view === ALL ? app.homePort(sym) : app.view;
+    const plan = app.plans[planKey(port, sym)];
+    if (!plan) return [];
+    const m = app.portModel(port), p = m.positions.find(x => x.symbol === sym);
+    const price = p?.price ?? app.quotes[sym]?.price ?? null;
+    const target = p?.target ?? m.watchlist.find(w => w.symbol === sym)?.target ?? 0, td = target * m.investable;
+    const dollars = trancheDollars(plan.tranches, td > 0 ? (p?.currentValue ?? 0) / td * 100 : 0, td);
+    const gap = (level: number) => price ? (level / price - 1) * 100 : null;
+    const out: { kind: 'profit' | 'entry' | 'stop'; label: string; price: number; size: string; gap: number | null; due: boolean }[] = [];
+    plan.trims.forEach((x, i) => { if (x.price) out.push({ kind: 'profit', label: `${t('Sell')} ${i + 1}`, price: x.price, size: x.pct ? `${+x.pct.toFixed(1)}% ${t('of target')}` : '', gap: gap(x.price), due: !!price && !!p && price >= x.price }); });
+    plan.tranches.forEach((x, i) => { if (x.price) out.push({ kind: 'entry', label: `${t('Buy')} ${i + 1}`, price: x.price, size: dollars[i] > 0 ? usd(dollars[i]) : x.cumPct > 0 ? `${t('to')} ${+x.cumPct.toFixed(0)}%` : '', gap: gap(x.price), due: !!price && price <= x.price }); });
+    if (plan.sl) out.push({ kind: 'stop', label: t('Stop loss'), price: plan.sl, size: '', gap: gap(plan.sl), due: !!price && !!p && price <= plan.sl });
+    return out.sort((a, b) => b.price - a.price);
+  }
+
   /** Where the price stands against the stock's plan. */
   function status(sym: string): { label: string; tone: string; solid: boolean } {
     const a = alert.get(sym);
     if (a) {
-      const what = a.kind === 'stop' ? t('Stop loss') : a.kind === 'profit' ? `${t('Take profit')} ${a.step}` : `${t('Buy')} ${a.step}`;
+      const what = a.kind === 'stop' ? t('Stop loss') : a.kind === 'profit' ? `${t('Sell')} ${a.step}` : `${t('Buy')} ${a.step}`;
       return { label: `${what} ${a.hit ? t('reached') : t('close')}`, tone: a.kind === 'stop' ? 'loss' : a.kind === 'profit' ? 'gain' : 'accent', solid: a.hit };
     }
     return planned.has(sym) ? { label: t('Plan not reached'), tone: 'quiet', solid: false } : { label: t('No plan'), tone: 'none', solid: false };
@@ -134,6 +157,7 @@
 {#snippet card(sym: string, ghost: boolean)}
   {@const f = facts(sym)}
   {@const s = status(sym)}
+  {@const lv = levels(sym)}
   <div class="top">
     <span class="grip" aria-hidden="true"><i></i><i></i><i></i></span>
     <Logo {sym} size={22} />
@@ -145,10 +169,22 @@
     <span class="day {sign(f.dayPct)}">{signedPct(f.dayPct)}{#if f.dayMoney != null}<span class="small">{' '}{money.signed(f.dayMoney)}</span>{/if}</span>
   </div>
   <dl>
-    <div><dt>{t('Unrealized')}</dt><dd class={sign(f.unrealized)}>{f.unrealized == null ? '—' : money.signed(f.unrealized)}{#if f.unrealizedPct != null}<span class="small">{' '}{signedPct(f.unrealizedPct, 1)}</span>{/if}</dd></div>
+    <div><dt>{t('Unrealized')}</dt><dd class={sign(f.unrealized)}>{f.unrealizedPct == null ? '—' : signedPct(f.unrealizedPct, 1)}{#if f.unrealized != null}<span class="small">{' '}{money.signed(f.unrealized)}</span>{/if}</dd></div>
     <div><dt>{t('Realized')}</dt><dd class={sign(f.realized)}>{f.realized == null ? '—' : money.signed(f.realized)}</dd></div>
     <div><dt>{t('Weight')}</dt><dd>{f.weight == null ? '—' : pct(f.weight, 1)}</dd></div>
   </dl>
+  {#if lv.length}
+    <ul class="plan">
+      {#each lv as l (l.label)}
+        <li class="{l.kind}" class:due={l.due}>
+          <span class="what">{l.label}</span>
+          <span class="at">{usd(l.price)}</span>
+          <span class="size">{l.size}</span>
+          <span class="gap">{l.due ? t('reached') : l.gap == null ? '' : signedPct(l.gap, 1)}</span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   {#if !ghost}
     <button class="off" onclick={e => { e.stopPropagation(); save(removeCard(board, sym)); }} onpointerdown={e => e.stopPropagation()} aria-label="{t('Take off the board')}: {sym}" title={t('Take off the board')}>
       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -328,6 +364,15 @@
   dl div { min-width: 0; }
   dt { font-size: 10px; color: var(--muted); }
   dd { margin: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The plan's levels, highest price first, so the list reads like the chart: sales above, buys below. */
+  .plan { list-style: none; margin: 0; padding: 5px 0 0; border-top: 1px solid var(--line-soft); display: grid; gap: 2px; }
+  .plan li { display: grid; grid-template-columns: minmax(0, 1.5fr) auto minmax(0, 1.2fr) auto; align-items: baseline; gap: 6px; font-size: 11px; }
+  .plan .what { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .plan .profit .what { color: var(--gain); } .plan .entry .what { color: var(--accent-ink); } .plan .stop .what { color: var(--loss); }
+  .plan .at { font-weight: 650; }
+  .plan .size { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .plan .gap { color: var(--muted); text-align: right; white-space: nowrap; }
+  .plan li.due .gap { color: var(--ink); font-weight: 650; }
   .off { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); opacity: 0; transition: opacity 0.12s var(--ease); }
   .tile:hover .off, .off:focus-visible { opacity: 1; }
   .off:hover { background: var(--wash); color: var(--ink); }

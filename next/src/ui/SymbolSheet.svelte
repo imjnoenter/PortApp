@@ -239,7 +239,7 @@
             <thead><tr><th>{t('Step')}</th><th class="n">{t('Price')}</th><th class="n">{t('From now')}</th><th class="n">{t('Size')}</th></tr></thead>
             <tbody>
               {#each plan.trims as x}
-                <tr><td>{t('Take profit')}</td><td class="n">{usd(x.price)}</td><td class="n ink2">{away(x.price)}</td><td class="n">{x.pct ? pct(x.pct, 0) + ' ' + t('of target') : ''}</td></tr>
+                <tr><td>{t('Sell')}</td><td class="n">{usd(x.price)}</td><td class="n ink2">{away(x.price)}</td><td class="n">{x.pct ? pct(x.pct, 0) + ' ' + t('of target') : ''}</td></tr>
               {/each}
               {#each plan.tranches as x, i}
                 {#if x.price != null || x.cumPct > 0}

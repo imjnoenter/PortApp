@@ -24,7 +24,7 @@ export function planLevels(t: (s: string) => string, avg: number | null | undefi
   if (avg && avg > 0) out.push({ label: t('Avg cost'), value: avg, tone: 'avg' });
   if (newAvg && newAvg > 0 && (!avg || Math.abs(newAvg - avg) > 0.005)) out.push({ label: t('New avg'), value: newAvg, tone: 'new' });
   if (plan) {
-    plan.trims.forEach((x, i) => { if (x.price) out.push({ label: `${t('Take profit')} ${i + 1}`, value: x.price, tone: 'profit' }); });
+    plan.trims.forEach((x, i) => { if (x.price) out.push({ label: `${t('Sell')} ${i + 1}`, value: x.price, tone: 'profit' }); });
     plan.tranches.forEach((x, i) => { if (x.price) out.push({ label: `${t('Buy')} ${i + 1}`, value: x.price, tone: 'entry' }); });
     if (plan.sl) out.push({ label: t('Stop loss'), value: plan.sl, tone: 'stop' });
   }

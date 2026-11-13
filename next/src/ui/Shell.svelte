@@ -54,7 +54,7 @@
     if (known && app.prefs.notify && 'Notification' in window && Notification.permission === 'granted') {
       for (const a of hits) {
         if (known.has(a.key)) continue;
-        const what = a.kind === 'stop' ? t('Stop loss reached') : a.kind === 'profit' ? `${t('Take profit')} ${a.step} ${t('reached')}` : `${t('Buy')} ${a.step} ${t('reached')}`;
+        const what = a.kind === 'stop' ? t('Stop loss reached') : a.kind === 'profit' ? `${t('Sell')} ${a.step} ${t('reached')}` : `${t('Buy')} ${a.step} ${t('reached')}`;
         new Notification(`${a.symbol}: ${what}`, { body: `${t('Level')} ${usd(a.level)}`, tag: a.key });
       }
     }

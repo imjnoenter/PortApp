@@ -22,7 +22,7 @@
 
   function label(a: PlanAlert) {
     if (a.kind === 'stop') return a.hit ? t('Stop loss reached') : t('Near stop loss');
-    if (a.kind === 'profit') return `${t('Take profit')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
+    if (a.kind === 'profit') return `${t('Sell')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
     if (a.kind === 'entry') return `${t('Buy')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
     return a.gap > 0 ? t('Over target') : t('Under target');
   }
