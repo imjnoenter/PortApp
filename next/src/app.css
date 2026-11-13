@@ -10,7 +10,8 @@
   --radius: 20px; --radius-sm: 10px; --radius-xs: 6px;
   --z-sticky: 10; --z-nav: 20; --z-pop: 30; --z-sheet: 40; --z-dialog: 50; --z-toast: 55; --z-tip: 60;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --page-w: 1440px;
+  /* No cap: the page uses the full width of the window at every size and zoom level. */
+  --page-w: none;
   --gutter: clamp(16px, 3.2vw, 44px);
 
   --bg: #e9edf2; --card: #ffffff; --sunk: #f1f3f7; --line: #d6dce5; --line-soft: #e7eaf0;
@@ -37,7 +38,8 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+/* The scrollbar's space is kept on every page, so the header does not shift between a long page and a short one. */
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 400 14px/1.45 var(--font);
@@ -122,7 +124,10 @@ a { color: var(--accent-ink); }
 .page-count { color: var(--muted); font-size: 15px; padding-bottom: 6px; }
 .section-title { font: 650 24px/1.1 var(--font-display); letter-spacing: -0.03em; margin-top: var(--sp-5); }
 .grid { display: grid; gap: var(--sp-5); }
-.page { display: grid; gap: var(--sp-5); }
+/* One column that may shrink to the screen. Without the explicit minmax(0, …) a grid column is at
+   least as wide as its widest child wants to be, so one wide table (the monthly grid is 640px)
+   made the whole page wider than a phone, and the phone then zoomed everything out to fit. */
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
 
 @media (max-width: 760px) {
   .card-pad { padding: var(--sp-5) var(--sp-4); }
@@ -133,7 +138,7 @@ a { color: var(--accent-ink); }
 }
 
 /* Forms inside a dialog */
-.form { display: grid; gap: var(--sp-5); }
+.form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
 .form p { margin: 0; font-size: 14px; }
 .fgrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
 .fgrid .wide { grid-column: 1 / -1; }

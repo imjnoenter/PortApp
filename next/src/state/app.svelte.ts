@@ -34,8 +34,8 @@ import {
 import type { Params } from '../data/write.ts';
 import { TH } from './i18n.ts';
 
-export type PageId = 'overview' | 'positions' | 'allocation' | 'analysis' | 'activity';
-export const PAGES: PageId[] = ['overview', 'positions', 'allocation', 'analysis', 'activity'];
+export type PageId = 'overview' | 'today' | 'positions' | 'allocation' | 'analysis' | 'activity';
+export const PAGES: PageId[] = ['overview', 'today', 'positions', 'allocation', 'analysis', 'activity'];
 
 export const NASDAQ = 'QQQ';
 const ETF_KEY = 'portapp.next.etf.v1.';

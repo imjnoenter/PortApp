@@ -8,6 +8,7 @@ import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, monthlyR
 import { session, txMarketDate, weekStart } from './market.ts';
 import { squarify } from './treemap.ts';
 import { driftAlert, planAlerts } from './alerts.ts';
+import { addZone, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
 import { blendedHoldings, trueExposure } from './etf.ts';
 import { betas, closedTrades, concentration, correlation, groupPnl, holdingsPerf, stopCover, stressTest } from './insights.ts';
 import { addDays } from './market.ts';
@@ -533,4 +534,32 @@ test('plan: an entry sized in dollars keeps them when there is no target', () =>
   assert.equal(planStrings({ sl: null, note: '', tranches: sized, trims: [] }, 0, 0).tranches, '90:450.00:0,80:0.00:0');
   assert.deepEqual(parseTranche('90:450.00:0'), { price: 90, cumPct: 0, dollar: 450 });
 
+});
+
+test('board: a card is in one zone at a time, and zones keep their cards when edited', () => {
+  let b = newBoard();
+  assert.deepEqual(b.zones.map(z => z.name), ['Waiting to buy', 'Bought', 'Watching', 'Waiting to sell']);
+  assert.equal(new Set(b.zones.map(z => z.color)).size, 4);                 // four different colours
+  b = moveCard(b, 'AAA', 'z1', 0); b = moveCard(b, 'BBB', 'z1', 9); b = moveCard(b, 'CCC', 'z1', 1);
+  assert.deepEqual(b.zones[0].cards, ['AAA', 'CCC', 'BBB']);
+  b = moveCard(b, 'AAA', 'z2', 0);                                           // across zones: leaves the first
+  assert.deepEqual(b.zones[0].cards, ['CCC', 'BBB']); assert.deepEqual(b.zones[1].cards, ['AAA']);
+  b = moveCard(b, 'CCC', 'z1', 1);                                           // within a zone: the index counts the others
+  assert.deepEqual(b.zones[0].cards, ['BBB', 'CCC']);
+  assert.equal(moveCard(b, 'AAA', 'nowhere', 0), b);
+  assert.deepEqual([...onBoard(b)].sort(), ['AAA', 'BBB', 'CCC']);
+  assert.equal(onBoard(removeCard(b, 'BBB')).has('BBB'), false);
+
+  const more = addZone(b, 'Ideas');
+  assert.equal(more.zones.length, 5); assert.equal(new Set(more.zones.map(z => z.color)).size, 5);
+  assert.equal(updateZone(b, 'z2', { name: 'Done', color: 5 }).zones[1].name, 'Done');
+  assert.deepEqual(shiftZone(b, 'z2', -1).zones.map(z => z.id), ['z2', 'z1', 'z3', 'z4']);
+  assert.equal(shiftZone(b, 'z1', -1), b);
+  const fewer = removeZone(b, 'z1');                                         // its cards move, they are not lost
+  assert.deepEqual(fewer.zones.map(z => z.id), ['z2', 'z3', 'z4']); assert.deepEqual(fewer.zones[0].cards, ['AAA', 'BBB', 'CCC']);
+
+  // What comes back from storage is not trusted: a repeat is dropped, a bad colour is wrapped, junk gives the starter board.
+  const read = readBoard({ zones: [{ id: 'a', name: 'A', color: 8, cards: ['X', 'X', 3] }, { id: 'b', cards: ['X', 'Y'] }, null] });
+  assert.deepEqual(read.zones.map(z => z.cards), [['X'], ['Y']]); assert.equal(read.zones[0].color, 2);
+  assert.equal(readBoard(null).zones.length, 4); assert.equal(readBoard({ zones: [] }).zones.length, 0);
 });

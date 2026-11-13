@@ -194,8 +194,8 @@
 
   .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); }
   .context, .task { overflow-y: auto; padding: var(--sp-5) var(--sp-6) calc(var(--sp-6) + env(safe-area-inset-bottom)); }
-  .context { display: grid; gap: var(--sp-5); align-content: start; border-right: 1px solid var(--line-soft); }
-  .task { display: grid; gap: var(--sp-5); align-content: start; }
+  .context { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); align-content: start; border-right: 1px solid var(--line-soft); }
+  .task { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); align-content: start; }
   .reveal { display: none; }
   .tabs { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
   .port { width: auto; padding-block: 6px; }

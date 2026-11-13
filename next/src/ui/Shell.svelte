@@ -21,10 +21,11 @@
   import Allocation from './pages/Allocation.svelte';
   import Overview from './pages/Overview.svelte';
   import Positions from './pages/Positions.svelte';
+  import Today from './pages/Today.svelte';
   import Seg from './parts/Seg.svelte';
 
   const t = app.t;
-  const TITLES: Record<PageId, string> = { overview: 'Overview', positions: 'Positions', allocation: 'Allocation', analysis: 'Analysis', activity: 'Activity' };
+  const TITLES: Record<PageId, string> = { overview: 'Overview', today: 'Today Plan', positions: 'Positions', allocation: 'Allocation', analysis: 'Analysis', activity: 'Activity' };
   const SESSION = { open: 'Market open', pre: 'Pre-market', post: 'After hours', closed: 'Market closed' };
 
   const views = $derived([{ value: ALL, label: t('All') }, ...app.shownPorts.map(p => ({ value: p, label: p }))]);
@@ -173,6 +174,7 @@
 
   <main>
     {#if app.page === 'overview'}<Overview />
+    {:else if app.page === 'today'}<Today />
     {:else if app.page === 'positions'}<Positions />
     {:else if app.page === 'allocation'}<Allocation />
     {:else if app.page === 'analysis'}<Analysis />

@@ -164,14 +164,6 @@
   </header>
 
   <div class="body">
-    <!-- The chart leads: it is what the window is opened to look at. -->
-    <section>
-      <div class="sec-head">
-        <h3>{t('Price')}</h3>
-      </div>
-      <PriceChart {sym} {levels} {marks} bind:points />
-    </section>
-
     {#if app.canWrite}
       <div class="acts">
         <button class="btn primary" onclick={() => app.dialog = { kind: 'trade', symbol: sym, type: 'Buy' }}>{t('Buy')}</button>
@@ -183,6 +175,14 @@
         {#if homeRow && !(homeRow.qty || 0)}<button class="btn" onclick={() => { app.removeSymbol(sym, home); close(); }}>{t('Remove from the watchlist')}</button>{/if}
       </div>
     {/if}
+    <!-- The chart comes first after the actions: it is what the window is opened to look at. -->
+    <section>
+      <div class="sec-head">
+        <h3>{t('Price')}</h3>
+      </div>
+      <PriceChart {sym} {levels} {marks} bind:points />
+    </section>
+
     {#if pos?.ext}
       <p class="small {sign(pos.extPct)}">{pos.ext === 'PRE' ? t('Pre') : t('After')} {usd(pos.extPrice)} {signedPct(pos.extPct)}</p>
     {/if}
@@ -375,7 +375,7 @@
   .price { font: 650 clamp(22px, 3vw, 30px)/1.1 var(--font-display); letter-spacing: -0.03em; }
   .px .small { font-size: 14px; font-weight: 500; margin-top: 2px; }
   header .icon-btn { align-self: flex-start; margin: -8px -8px 0 0; background: var(--wash); }
-  .body { flex: 1; overflow-y: auto; padding: 0 var(--sp-6) calc(var(--sp-7) + env(safe-area-inset-bottom)); display: grid; gap: var(--sp-6); align-content: start; }
+  .body { flex: 1; overflow-y: auto; padding: 0 var(--sp-6) calc(var(--sp-7) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); align-content: start; }
   .plot { position: relative; }
   .dot, .dotkey { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--card); }
   .dot { position: absolute; margin: -4.5px 0 0 -4.5px; pointer-events: none; }

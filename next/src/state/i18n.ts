@@ -164,6 +164,14 @@ export const TH: Record<string, string> = {
   'Scroll to zoom, drag to move.': 'เลื่อนล้อเมาส์เพื่อซูม ลากเพื่อเลื่อน', 'Zoomed. Double-click the chart or pick a range to reset.': 'ซูมอยู่ ดับเบิลคลิกกราฟหรือเลือกช่วงเพื่อรีเซ็ต',
   'Change today across the holdings of this portfolio': 'การเปลี่ยนแปลงวันนี้ของหุ้นในพอร์ตนี้',
   'Reached': 'ถึงแล้ว', 'Not reached yet': 'ยังไม่ถึง', 'the price is at or past the level': 'ราคาถึงหรือผ่านระดับแล้ว', 'close to a level, or off target': 'ใกล้ระดับ หรือเบี่ยงจากเป้าหมาย',
+  // today plan
+  'Today Plan': 'แผนวันนี้', 'on the board': 'บนกระดาน', 'Add a zone': 'เพิ่มโซน', 'Add a stock': 'เพิ่มหุ้น', 'Hide the list': 'ซ่อนรายการ', 'Drag a stock onto a zone. A click puts it in': 'ลากหุ้นไปวางในโซน หรือคลิกเพื่อใส่ใน',
+  'Waiting to buy': 'รอซื้อ', 'Bought, as a zone': 'ซื้อแล้ว', 'Watching': 'จับตา', 'Waiting to sell': 'รอขาย', 'New zone': 'โซนใหม่',
+  'No stock matches that search.': 'ไม่พบหุ้นที่ค้นหา', 'Everything you hold or watch is already on the board.': 'หุ้นที่ถือหรือจับตาอยู่บนกระดานครบแล้ว',
+  'Zone name': 'ชื่อโซน', 'Click to rename': 'คลิกเพื่อเปลี่ยนชื่อ', 'Zone settings': 'ตั้งค่าโซน', 'Colour': 'สี', 'Delete zone': 'ลบโซน',
+  'Drag a card here, or press + to add one.': 'ลากการ์ดมาวางที่นี่ หรือกด + เพื่อเพิ่ม', 'Take off the board': 'นำออกจากกระดาน',
+  'The board is empty. Add a zone to start laying out the day.': 'กระดานว่างอยู่ เพิ่มโซนเพื่อเริ่มวางแผนของวัน',
+  'Plan not reached': 'ยังไม่ถึงแผน', 'No plan': 'ไม่มีแผน',
   // setup
   'Connect your sheet': 'เชื่อมต่อชีตของคุณ', 'Name': 'ชื่อ', 'Google Sheet link or ID': 'ลิงก์หรือ ID ของ Google Sheet',
   'Apps Script URL': 'URL ของ Apps Script', 'Write key': 'คีย์สำหรับบันทึก', 'optional, for saving': 'ไม่บังคับ ใช้สำหรับบันทึก',
