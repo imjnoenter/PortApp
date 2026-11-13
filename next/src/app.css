@@ -10,8 +10,8 @@
   --radius: 20px; --radius-sm: 10px; --radius-xs: 6px;
   --z-sticky: 10; --z-nav: 20; --z-pop: 30; --z-sheet: 40; --z-dialog: 50; --z-toast: 55; --z-tip: 60;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  /* No cap: the page uses the full width of the window at every size and zoom level. */
-  --page-w: none;
+  /* The widest the page gets on a large screen. Below this it fills the window, phones included. */
+  --page-w: 1440px;
   --gutter: clamp(16px, 3.2vw, 44px);
 
   --bg: #e9edf2; --card: #ffffff; --sunk: #f1f3f7; --line: #d6dce5; --line-soft: #e7eaf0;
