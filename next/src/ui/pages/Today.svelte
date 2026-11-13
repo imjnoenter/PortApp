@@ -10,6 +10,7 @@
   import { app } from '../../state/app.svelte.ts';
   import DeleteButton from '../parts/DeleteButton.svelte';
   import Logo from '../parts/Logo.svelte';
+  import PlanWatch from '../parts/PlanWatch.svelte';
 
   const t = app.t;
   const money = $derived(app.money);
@@ -200,6 +201,9 @@
     <button class="btn" onclick={newZone}>{t('Add a zone')}</button>
     <button class="btn primary" aria-expanded={adding} onclick={() => adding ? adding = false : openAdd()}>{adding ? t('Hide the list') : t('Add a stock')}</button>
   </header>
+
+  <!-- The same list as on the Overview: what has reached its level, and what is close. -->
+  <PlanWatch />
 
   {#if adding}
     <section class="card picker">
