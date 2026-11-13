@@ -46,6 +46,16 @@
   const heldQty = $derived(pos?.qty ?? 0);
 
   const orNull = (s: string) => { const n = parseNum(s); return n > 0 ? n : null; };
+  // Highest price on top, in both lists: entries step down from the first buy, take-profits step
+  // down to the lowest sale at the bottom. Rows without a price stay below. Run when a price box is
+  // left, never while typing, so a row cannot jump out from under the cursor.
+  const byPrice = <T extends { price: string }>(rows: T[]) => rows
+    .map((r, i) => ({ r, i, p: orNull(r.price) }))
+    .sort((a, b) => (a.p == null ? 1 : 0) - (b.p == null ? 1 : 0) || (b.p ?? 0) - (a.p ?? 0) || a.i - b.i)
+    .map(x => x.r);
+  const same = <T,>(a: T[], b: T[]) => a.every((x, i) => x === b[i]);
+  function sortEntries() { const next = byPrice(entries); if (!same(next, entries)) entries = next; }
+  function sortTrims() { const next = byPrice(trims); if (!same(next, trims)) trims = next; }
 
   // ── Buys, in ladder order: each starts from where the one before it left the position ──
   const buys = $derived.by(() => {
@@ -159,7 +169,7 @@
           {#each entries as e, i (i)}
             {@const b = buys[i]}
             <div class="line">
-              <input class="input" inputmode="decimal" bind:value={e.price} placeholder="0.00" aria-label="{t('Buy at')} {i + 1}" />
+              <input class="input" inputmode="decimal" bind:value={e.price} onchange={sortEntries} placeholder="0.00" aria-label="{t('Buy at')} {i + 1}" />
               <input class="input" class:derived={e.by !== 'shares'} inputmode="decimal" placeholder="0" aria-label="{t('Shares')} {i + 1}"
                 value={e.by === 'shares' ? e.shares : b.shares ? numText(b.shares, 4) : ''} oninput={ev => { e.shares = ev.currentTarget.value; e.by = 'shares'; }} />
               <input class="input" class:derived={e.by !== 'cum'} inputmode="decimal" placeholder={td > 0 ? '0' : '—'} disabled={!(td > 0)} aria-label="{t('% of target after')} {i + 1}"
@@ -185,7 +195,7 @@
           {#each trims as x, i (i)}
             {@const s = sales[i]}
             <div class="line">
-              <input class="input" inputmode="decimal" bind:value={x.price} placeholder="0.00" aria-label="{t('Sell at')} {i + 1}" />
+              <input class="input" inputmode="decimal" bind:value={x.price} onchange={sortTrims} placeholder="0.00" aria-label="{t('Sell at')} {i + 1}" />
               <input class="input" class:derived={x.by !== 'shares'} inputmode="decimal" placeholder="0" aria-label="{t('Shares')} {i + 1}"
                 value={x.by === 'shares' ? x.shares : s.shares ? numText(s.shares, 4) : ''} oninput={ev => { x.shares = ev.currentTarget.value; x.by = 'shares'; }} />
               <input class="input" class:derived={x.by !== 'pct'} inputmode="decimal" placeholder={td > 0 ? '0' : '—'} disabled={!(td > 0)} aria-label="{t('% of target to sell')} {i + 1}"

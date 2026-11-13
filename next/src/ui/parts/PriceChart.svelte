@@ -171,6 +171,8 @@
     }
     return out;
   });
+  // Today's price, drawn across the chart and labelled on the price scale.
+  const nowY = $derived(g && price != null && g.inside(price) ? g.y(price) : null);
   const lines = $derived(g ? levels.filter(l => g.inside(l.value)).map(l => ({ ...l, y: g.y(l.value) })) : []);
   const off = $derived(g ? levels.filter(l => !g.inside(l.value)) : []);
 
@@ -249,6 +251,7 @@
         <path d={g.line} class="line" vector-effect="non-scaling-stroke" />
       {/if}
       {#if read && at != null}<line x1={g.x(at)} x2={g.x(at)} y1="0" y2={H} class="cross" vector-effect="non-scaling-stroke" />{/if}
+      {#if nowY != null}<line x1="0" x2={W} y1={nowY} y2={nowY} class="now" vector-effect="non-scaling-stroke" />{/if}
       {#if py != null}<line x1="0" x2={W} y1={py} y2={py} class="cross" vector-effect="non-scaling-stroke" />{/if}
     </svg>
     {#each lines as l (l.label)}
@@ -260,6 +263,7 @@
   </div>
   <div class="yaxis" aria-hidden="true">
     {#each g.scale as v (v)}<span style:top="{g.y(v) / H * 100}%">{tickLabel(v, g.scale)}</span>{/each}
+    {#if nowY != null}<span class="badge now" style:top="{nowY / H * 100}%">{usd(price)}</span>{/if}
     {#if py != null}<span class="badge" style:top="{py / H * 100}%">{usd(g.inv(py))}</span>{/if}
   </div>
   <div class="xaxis" aria-hidden="true">
@@ -297,6 +301,9 @@
   .xaxis span { position: absolute; top: 5px; translate: -50% 0; white-space: nowrap; }
   .yaxis .badge, .xaxis .badge { padding: 1px 6px; border-radius: 4px; background: var(--ink); color: var(--card); font-weight: 600; z-index: 1; }
   .yaxis .badge { left: 2px; }
+  /* Gold, not green or red: the price line must not look like a gain, a loss or a sale marker. */
+  .now { stroke: var(--gold); stroke-width: 1.5; stroke-dasharray: 3 3; }
+  .yaxis .badge.now { background: var(--gold); color: var(--card); z-index: 0; }
   .xaxis .badge { top: 3px; }
   .grid { stroke: var(--line-soft); stroke-width: 1; }
   svg { display: block; width: 100%; height: clamp(220px, 32vh, 320px); touch-action: pan-y; cursor: crosshair; user-select: none; }

@@ -14,7 +14,11 @@
   import { WORKSPACE } from '../workspace.svelte.ts';
   import type { Workspace } from '../workspace.svelte.ts';
 
-  let { symbol: symbol0 = '', type: type0 = 'Buy' }: { symbol?: string; type?: 'Buy' | 'Sell' } = $props();
+  let { symbol: symbol0 = '', type: type0 = 'Buy', price: price0, amount: amount0 }: {
+    symbol?: string; type?: 'Buy' | 'Sell';
+    /** Filled in from a plan: the entry's price and the dollars it buys. Both stay editable. */
+    price?: number; amount?: number;
+  } = $props();
 
   const t = app.t;
   const close = () => { app.dialog = null; };
@@ -28,10 +32,10 @@
   let picked = $state<string | null>(null);
   let dateStr = $state(opened.dateStr);
   let time = $state(opened.time);
-  let priceText = $state<string | null>(null);
+  let priceText = $state<string | null>(untrack(() => price0 ? trim(price0, 4) : null));
   let sharesText = $state('');
-  let amountText = $state('');
-  let last = $state<'shares' | 'amount'>('shares');
+  let amountText = $state(untrack(() => amount0 ? trim(amount0, 2) : ''));
+  let last = $state<'shares' | 'amount'>(untrack(() => amount0 ? 'amount' : 'shares'));
   let commissionFree = $state(false);
   let cashSource = $state<CashSource>('USD');
   let note = $state('');

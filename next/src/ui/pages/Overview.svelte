@@ -97,6 +97,12 @@
           <span class="muted">{t('Waiting for today’s prices')}</span>
         {/if}
       </div>
+      {#if m.positions.length}
+        <div class="unreal">
+          <span class={sign(m.totalPnl)}>{money.signed(m.totalPnl)} ({signedPct(m.totalPnlPct)})</span>
+          <span class="muted">{t('Unrealized')}</span>
+        </div>
+      {/if}
       {#if extended}
         <div class="ext">
           <span class="muted">{extended.pre ? t('Pre-market') : t('After hours')}</span>
@@ -123,8 +129,6 @@
       <div class="mapfit"><Treemap positions={m.positions} mode={mapMode} /></div>
     </div>
   </section>
-
-  <PlanWatch />
 
   <section class="figures" aria-label={t('Returns')}>
     <Stat label={t('Unrealized')} value={money.signed(m.totalPnl)} tone={sign(m.totalPnl)} badge={signedPct(m.totalPnlPct)}>
@@ -160,6 +164,8 @@
       </Stat>
     {/if}
   </section>
+
+  <PlanWatch />
 
   <div class="pair wide-left">
     {#if days.length >= 5}
@@ -266,6 +272,7 @@
   .value { font: 750 clamp(34px, 15cqi, 76px)/1 var(--font-display); letter-spacing: -0.045em; margin: var(--sp-3) 0 var(--sp-3); white-space: nowrap; }
   .day { font-size: 17px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .shareday { margin-left: auto; padding: 5px 13px; font-size: 12px; }
+  .unreal { margin-top: 4px; font-size: 15px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .ext { margin-top: var(--sp-2); font-size: 14px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .extsum { font: 650 18px/1.2 var(--font-display); letter-spacing: -0.02em; }
   .movers.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-6); }

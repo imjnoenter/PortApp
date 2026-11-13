@@ -163,7 +163,8 @@
       </div>
       {#key tab + '|' + ws.portfolio}
         {#if tab === 'trade'}
-          <TradeDialog symbol={ws.symbol} type={first.kind === 'trade' ? first.type : undefined} />
+          <TradeDialog symbol={ws.symbol} type={first.kind === 'trade' ? first.type : undefined}
+            price={first.kind === 'trade' ? first.price : undefined} amount={first.kind === 'trade' ? first.amount : undefined} />
         {:else if !sym}
           <p class="empty">{t('Enter a symbol under Trade first.')}</p>
         {:else if tab === 'plan'}

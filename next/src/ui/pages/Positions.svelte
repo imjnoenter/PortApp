@@ -272,14 +272,7 @@
           <span class="pc">{signedPct(m.dayPct)}</span>
         </span>
       {/if}
-      <span class="spacer"></span>
-      {#if view}<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>{/if}
-      {#if rows.length}<button class="btn" onclick={sharePic} disabled={drawing}>{t('Share')}</button>{/if}
-      {#if options.length}<button class="btn" class:on={active > 0} aria-expanded={filtersOpen} onclick={() => filtersOpen = !filtersOpen}>{t('Filter')}{active ? ` ${active}` : ''}</button>{/if}
-      <Seg small label={t('Sort returns by')} bind:value={basis} options={[{ value: 'pct', label: t('Sort by %') }, { value: 'abs', label: t('Sort by $') }]} />
-    </div>
-    <!-- Which table: its own line, under the controls that act on whichever one is showing. -->
-    <div class="bar under">
+      <!-- Which table, beside the day's figure; the controls that act on it sit to the right. -->
       <div class="tabs" role="group" aria-label={t('Table layout')}>
         <button class:on={tab === 'holdings'} aria-pressed={tab === 'holdings'} onclick={() => tab = 'holdings'}>{t('Holdings')}</button>
         <button class:on={tab === 'performance'} aria-pressed={tab === 'performance'} onclick={() => tab = 'performance'}>{t('Performance')}</button>
@@ -294,6 +287,11 @@
         {/each}
         <button class="add" onclick={addView} aria-label={t('Add a tab of your own')} title={t('Add a tab of your own')}>+</button>
       </div>
+      <span class="spacer"></span>
+      {#if view}<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>{/if}
+      {#if rows.length}<button class="btn" onclick={sharePic} disabled={drawing}>{t('Share')}</button>{/if}
+      {#if options.length}<button class="btn" class:on={active > 0} aria-expanded={filtersOpen} onclick={() => filtersOpen = !filtersOpen}>{t('Filter')}{active ? ` ${active}` : ''}</button>{/if}
+      <Seg small label={t('Sort returns by')} bind:value={basis} options={[{ value: 'pct', label: t('Sort by %') }, { value: 'abs', label: t('Sort by $') }]} />
     </div>
 
     {#if view && colsOpen}
@@ -466,7 +464,6 @@
   .today .lab { font-size: 12px; font-weight: 500; color: var(--ink-2); }
   .today strong { font: 650 16px/1 var(--font-display); letter-spacing: -0.02em; }
   .today .pc { padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; background: color-mix(in oklab, currentColor 16%, transparent); }
-  .bar.under { padding-top: 0; justify-content: flex-end; }
   .bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2); }
   .bar .btn.on { background: var(--ink); color: var(--bg); }
   .tabs { display: inline-flex; align-items: center; padding: 3px; gap: 2px; background: var(--wash); border-radius: 999px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }

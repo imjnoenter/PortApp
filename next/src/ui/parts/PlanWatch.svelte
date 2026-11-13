@@ -9,7 +9,15 @@
   const t = app.t;
   const MAX = 8;
   let all = $state(false);
-  const list = $derived(all ? app.alerts : app.alerts.slice(0, MAX));
+  // Two groups: levels the price has already reached, then the ones it is close to (and drift).
+  const groups = $derived.by(() => {
+    let room = all ? Infinity : MAX;
+    return [
+      { id: 'hit', title: t('Reached'), sub: t('the price is at or past the level'), items: app.alerts.filter(a => a.hit) },
+      { id: 'near', title: t('Not reached yet'), sub: t('close to a level, or off target'), items: app.alerts.filter(a => !a.hit) },
+    ].map(g => { const items = g.items.slice(0, Math.max(0, room)); room -= items.length; return { ...g, items, total: g.items.length }; })
+      .filter(g => g.total);
+  });
   const showPort = $derived(app.view === ALL && app.ports.length > 1);
 
   function label(a: PlanAlert) {
@@ -26,7 +34,10 @@
   }
   const tone = (a: PlanAlert) => a.kind === 'stop' ? 'loss' : a.kind === 'profit' ? 'gain' : a.kind === 'entry' ? 'accent' : 'warn';
   function act(a: PlanAlert) {
-    if (app.canWrite && a.hit && a.kind !== 'drift') app.dialog = { kind: 'trade', symbol: a.symbol, type: a.kind === 'entry' ? 'Buy' : 'Sell' };
+    if (!app.canWrite || a.kind === 'drift') { app.symbol = a.symbol; return; }
+    // A planned buy opens the buy form filled in with that entry: its price, and the dollars it buys.
+    if (a.kind === 'entry') app.dialog = { kind: 'trade', symbol: a.symbol, type: 'Buy', portfolio: a.portfolio, price: a.level, amount: a.dollars > 0 ? a.dollars : undefined };
+    else if (a.hit) app.dialog = { kind: 'trade', symbol: a.symbol, type: 'Sell', portfolio: a.portfolio };
     else app.symbol = a.symbol;
   }
 </script>
@@ -37,17 +48,22 @@
       <h2 class="card-title">{t('Needs attention')}</h2>
       <span class="card-sub">{app.alerts.filter(a => a.hit).length} {t('reached')}, {app.alerts.filter(a => !a.hit).length} {t('to watch')}</span>
     </div>
-    <ul>
-      {#each list as a (a.key)}
-        <li>
-          <button class:hit={a.hit} onclick={() => act(a)}>
-            <Logo sym={a.symbol} size={30} />
-            <span class="who"><strong>{a.symbol}</strong>{#if showPort}<span class="muted small">{' '}{a.portfolio}</span>{/if}<span class="small ink2 d">{detail(a)}</span></span>
-            <span class="pill {tone(a)}" class:solid={a.hit}>{label(a)}</span>
-          </button>
-        </li>
-      {/each}
-    </ul>
+    {#each groups as g (g.id)}
+      <div class="group {g.id}">
+        <h3><span class="dot"></span>{g.title} <span class="count">{g.total}</span> <span class="small muted">{g.sub}</span></h3>
+        <ul>
+          {#each g.items as a (a.key)}
+            <li>
+              <button class:hit={a.hit} onclick={() => act(a)}>
+                <Logo sym={a.symbol} size={30} />
+                <span class="who"><strong>{a.symbol}</strong>{#if showPort}<span class="muted small">{' '}{a.portfolio}</span>{/if}<span class="small ink2 d">{detail(a)}</span></span>
+                <span class="pill {tone(a)}" class:solid={a.hit}>{label(a)}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
     {#if app.alerts.length > MAX}
       <button class="btn more" onclick={() => all = !all}>{all ? t('Show fewer') : `${t('Show all')} ${app.alerts.length}`}</button>
     {/if}
@@ -55,6 +71,13 @@
 {/if}
 
 <style>
+  .group + .group { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--line-soft); }
+  h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 var(--sp-2); font: 650 15px/1.2 var(--font-display); letter-spacing: -0.01em; }
+  h3 .small { font-family: var(--font); font-weight: 400; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; align-self: center; }
+  .hit .dot { background: var(--loss); box-shadow: 0 0 0 4px color-mix(in oklab, var(--loss) 20%, transparent); }
+  .near .dot { background: var(--honey); }
+  .count { padding: 1px 8px; border-radius: 999px; font: 650 12px var(--font); background: var(--wash); color: var(--ink-2); }
   ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 2px var(--sp-5); }
   li button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; margin: 0 -8px; border-radius: var(--radius-sm); text-align: left; }
   li button:hover { background: var(--sunk); }

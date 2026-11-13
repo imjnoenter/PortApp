@@ -73,7 +73,7 @@ const SHEET_MS = 5 * 60_000;
 const HISTORY_MS = 6 * 3600_000;
 
 export type DialogState = null
-  | { kind: 'trade'; symbol?: string; type?: 'Buy' | 'Sell' }
+  | { kind: 'trade'; symbol?: string; type?: 'Buy' | 'Sell'; portfolio?: string; price?: number; amount?: number }
   | { kind: 'cash' }
   | { kind: 'contrib'; row?: number }
   | { kind: 'tx'; row: number }

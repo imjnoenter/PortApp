@@ -163,6 +163,7 @@ export const TH: Record<string, string> = {
   'After this plan': 'หลังทำตามแผนนี้',
   'Scroll to zoom, drag to move.': 'เลื่อนล้อเมาส์เพื่อซูม ลากเพื่อเลื่อน', 'Zoomed. Double-click the chart or pick a range to reset.': 'ซูมอยู่ ดับเบิลคลิกกราฟหรือเลือกช่วงเพื่อรีเซ็ต',
   'Change today across the holdings of this portfolio': 'การเปลี่ยนแปลงวันนี้ของหุ้นในพอร์ตนี้',
+  'Reached': 'ถึงแล้ว', 'Not reached yet': 'ยังไม่ถึง', 'the price is at or past the level': 'ราคาถึงหรือผ่านระดับแล้ว', 'close to a level, or off target': 'ใกล้ระดับ หรือเบี่ยงจากเป้าหมาย',
   // setup
   'Connect your sheet': 'เชื่อมต่อชีตของคุณ', 'Name': 'ชื่อ', 'Google Sheet link or ID': 'ลิงก์หรือ ID ของ Google Sheet',
   'Apps Script URL': 'URL ของ Apps Script', 'Write key': 'คีย์สำหรับบันทึก', 'optional, for saving': 'ไม่บังคับ ใช้สำหรับบันทึก',

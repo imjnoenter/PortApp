@@ -18,6 +18,8 @@
   --wash: color-mix(in oklab, var(--ink) 7%, transparent);
   --accent: #2f46f5; --accent-ink: #2438d6; --accent-soft: color-mix(in oklab, var(--accent) 10%, var(--card));
   --gain: #08875a; --loss: #d42f48; --honey: #a86400;
+  /* Today's price on a chart: a colour no gain, loss or marker uses, so it never reads as one of them. */
+  --gold: #a88200;
   /* Treemap tiles carry white text in both themes, so they get their own fills. */
   --tile: #636d80; --gain-fill: #0a8a55; --loss-fill: #d42f48;
   --shadow: 0 24px 60px -24px rgb(14 19 32 / 0.35);
@@ -28,6 +30,7 @@
   --ink: #edf0f7; --ink-2: #aab3c6; --muted: #7d889f;
   --accent: #8497ff; --accent-ink: #a3b1ff;
   --gain: #3dd68c; --loss: #ff6f82; --honey: #f0b24a;
+  --gold: #ffd84d;
   --tile: #3a4460; --gain-fill: #159a63; --loss-fill: #d8405a;
   --shadow: 0 24px 60px -24px rgb(0 0 0 / 0.7);
   color-scheme: dark;

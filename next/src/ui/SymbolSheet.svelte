@@ -164,6 +164,14 @@
   </header>
 
   <div class="body">
+    <!-- The chart leads: it is what the window is opened to look at. -->
+    <section>
+      <div class="sec-head">
+        <h3>{t('Price')}</h3>
+      </div>
+      <PriceChart {sym} {levels} {marks} bind:points />
+    </section>
+
     {#if app.canWrite}
       <div class="acts">
         <button class="btn primary" onclick={() => app.dialog = { kind: 'trade', symbol: sym, type: 'Buy' }}>{t('Buy')}</button>
@@ -250,13 +258,6 @@
         </div>
       </section>
     {/if}
-
-    <section>
-      <div class="sec-head">
-        <h3>{t('Price')}</h3>
-      </div>
-      <PriceChart {sym} {levels} {marks} bind:points />
-    </section>
 
     {#if shares.length}
       <section>
