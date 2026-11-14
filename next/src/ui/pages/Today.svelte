@@ -2,7 +2,7 @@
   // Today Plan: a board of zones the user names and colours, with a card per stock that is dragged
   // from zone to zone as the day's plan changes. The board is a personal working surface, so it is
   // kept in this browser, per account; nothing here writes to the sheet.
-  import { addZone, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone, ZONE_COLORS } from '../../core/board.ts';
+  import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone, ZONE_COLORS } from '../../core/board.ts';
   import type { Board, Zone } from '../../core/board.ts';
   import { pct, sign, signedPct, usd } from '../../core/format.ts';
   import { ALL } from '../../core/model.ts';
@@ -95,15 +95,39 @@
   let adding = $state(false);
   let addTo = $state('');
   let query = $state('');
+  // The tray's order: as listed (holdings, then the watchlist), or by today's move or the unrealized
+  // return. Pressing the active one again turns it round. A stock with no figure (no quote yet, or
+  // a watched stock with no unrealized return) always goes last, whichever way round.
+  type SortKey = 'list' | 'day' | 'unrealized';
+  let sortKey = $state<SortKey>('list');
+  let sortDir = $state<1 | -1>(-1);
+  function sortBy(k: SortKey) {
+    if (k === 'list') { sortKey = 'list'; return; }
+    if (sortKey === k) sortDir = sortDir === 1 ? -1 : 1;
+    else { sortKey = k; sortDir = -1; }
+  }
   const choices = $derived.by(() => {
     const q = query.trim().toLowerCase();
     const all = [
-      ...app.model.positions.map(p => ({ symbol: p.symbol, name: p.name, day: p.dayChangePct, unrealized: p.pnlPct as number | null })),
-      ...app.model.watchlist.map(w => ({ symbol: w.symbol, name: w.name, day: w.dayChangePct ?? app.quotes[w.symbol]?.changePct ?? null, unrealized: null })),
+      ...app.model.positions.map(p => ({ symbol: p.symbol, name: p.name, held: true, day: p.dayChangePct, unrealized: p.pnlPct as number | null })),
+      ...app.model.watchlist.filter(w => !app.model.positions.some(p => p.symbol === w.symbol))
+        .map(w => ({ symbol: w.symbol, name: w.name, held: false, day: w.dayChangePct ?? app.quotes[w.symbol]?.changePct ?? null, unrealized: null })),
     ];
     // The name is not shown, but typing it still finds the stock.
-    return all.filter(c => !placed.has(c.symbol)&& (!q || c.symbol.toLowerCase().includes(q) || c.name?.toLowerCase().includes(q)));
+    const shown = all.filter(c => !placed.has(c.symbol)&& (!q || c.symbol.toLowerCase().includes(q) || c.name?.toLowerCase().includes(q)));
+    if (sortKey === 'list') return shown;
+    const k = sortKey;
+    return shown.map((c, i) => ({ c, i })).sort((a, b) => {
+      const x = a.c[k], y = b.c[k];
+      if (x == null || y == null) return x == null && y == null ? a.i - b.i : x == null ? 1 : -1;
+      return (x - y) * sortDir || a.i - b.i;
+    }).map(o => o.c);
   });
+  // Held and watched are shown apart, each in the chosen order.
+  const groups = $derived([
+    { id: 'held', label: t('Holdings'), items: choices.filter(c => c.held) },
+    { id: 'watch', label: t('Watchlist'), items: choices.filter(c => !c.held) },
+  ].filter(g => g.items.length));
   function openAdd(zoneId?: string) {
     if (!board.zones.length) save(addZone(board, t('Watching')));
     addTo = zoneId ?? (board.zones.some(z => z.id === addTo) ? addTo : board.zones[0].id);
@@ -198,6 +222,7 @@
     <h1 class="page-title">{t('Today Plan')}</h1>
     <span class="page-count">{placed.size} {t('on the board')}</span>
     <span class="spacer"></span>
+    {#if placed.size}<DeleteButton label={t('Clear the board')} confirm={t('Press again to clear')} onconfirm={() => { adding = false; save(clearCards(board)); }} />{/if}
     <button class="btn" onclick={newZone}>{t('Add a zone')}</button>
     <button class="btn primary" aria-expanded={adding} onclick={() => adding ? adding = false : openAdd()}>{adding ? t('Hide the list') : t('Add a stock')}</button>
   </header>
@@ -210,22 +235,36 @@
       <div class="prow">
         <input class="input" type="search" bind:value={query} placeholder={t('Search symbol or name')} aria-label={t('Search symbol or name')} use:focus
           onkeydown={e => { if (e.key === 'Enter' && choices.length) { add(choices[0].symbol); query = ''; } else if (e.key === 'Escape') { e.stopPropagation(); adding = false; } }} />
+        <div class="seg sorts" role="group" aria-label={t('Sort the list')}>
+          <button type="button" class:on={sortKey === 'list'} aria-pressed={sortKey === 'list'} onclick={() => sortBy('list')}>{t('As listed')}</button>
+          {#each [['day', t('Today')], ['unrealized', t('Unrealized')]] as [k, label] (k)}
+            <button type="button" class:on={sortKey === k} aria-pressed={sortKey === k} onclick={() => sortBy(k as SortKey)}
+              title={sortKey === k ? (sortDir === -1 ? t('Highest first. Press again for lowest first.') : t('Lowest first. Press again for highest first.')) : t('Highest first')}>
+              {label}{#if sortKey === k}<span aria-hidden="true">{' '}{sortDir === -1 ? '↓' : '↑'}</span><span class="vh">{' '}{sortDir === -1 ? t('highest first') : t('lowest first')}</span>{/if}
+            </button>
+          {/each}
+        </div>
         <span class="small muted">{t('Drag a stock onto a zone. A click puts it in')} <strong>{zoneName(board.zones.find(z => z.id === addTo) ?? board.zones[0])}</strong>.</span>
       </div>
       {#if choices.length}
+        <div class="tray">
+        {#each groups as g (g.id)}
+        <h3 class="gtitle">{g.label} <span class="muted">{g.items.length}</span></h3>
         <ul class="choices">
-          {#each choices as c (c.symbol)}
+          {#each g.items as c (c.symbol)}
             <li>
               <button class="chip" class:lifting={drag?.on && drag.sym === c.symbol} onpointerdown={e => grab(e, c.symbol, true)} onclick={() => pick(c.symbol)}>
                 <Logo sym={c.symbol} size={22} />
                 <strong>{c.symbol}</strong>
                 <span class="spacer"></span>
                 <span class="fig"><span class="k">{t('Today')}</span> <span class={sign(c.day)}>{signedPct(c.day, 1)}</span></span>
-                <span class="fig"><span class="k">{t('Unrealized')}</span> <span class={sign(c.unrealized)}>{c.unrealized == null ? '—' : signedPct(c.unrealized, 1)}</span></span>
+                {#if c.held}<span class="fig"><span class="k">{t('Unrealized')}</span> <span class={sign(c.unrealized)}>{c.unrealized == null ? '—' : signedPct(c.unrealized, 1)}</span></span>{/if}
               </button>
             </li>
           {/each}
         </ul>
+        {/each}
+        </div>
       {:else}
         <p class="small muted none">{query ? t('No stock matches that search.') : t('Everything you hold or watch is already on the board.')}</p>
       {/if}
@@ -304,7 +343,16 @@
   .picker { padding: var(--sp-4); display: grid; gap: var(--sp-3); }
   .prow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
   .prow > .input { flex: 1 1 220px; }
-  .choices { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 6px; max-height: 280px; overflow-y: auto; }
+  .sorts { display: inline-flex; padding: 3px; gap: 2px; background: var(--wash); border-radius: 999px; }
+  .sorts button { padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+  .sorts button:hover { color: var(--ink); }
+  .sorts button.on { background: var(--ink); color: var(--bg); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tray { max-height: 340px; overflow-y: auto; display: grid; gap: var(--sp-2); }
+  .gtitle { margin: var(--sp-2) 0 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .gtitle:first-child { margin-top: 0; }
+  .gtitle .muted { font-weight: 500; }
+  .choices { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 6px; }
   /* A chip is picked up whole, so it must not start a scroll or a text selection under the finger. */
   .chip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--sunk); text-align: left; font-size: 14px; cursor: grab; touch-action: none; user-select: none; font-variant-numeric: tabular-nums; }
   .chip:hover { background: var(--wash); }

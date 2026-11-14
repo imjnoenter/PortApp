@@ -8,7 +8,7 @@ import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMo
 import { session, sessionDay, txMarketDate, weekStart } from './market.ts';
 import { squarify } from './treemap.ts';
 import { driftAlert, planAlerts } from './alerts.ts';
-import { addZone, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
+import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
 import { blendedHoldings, trueExposure } from './etf.ts';
 import { betas, closedTrades, concentration, correlation, groupPnl, holdingsPerf, stopCover, stressTest } from './insights.ts';
 import { addDays } from './market.ts';
@@ -577,6 +577,15 @@ test('plan: an entry sized in dollars keeps them when there is no target', () =>
   assert.equal(planStrings({ sl: null, note: '', tranches: sized, trims: [] }, 0, 0).tranches, '90:450.00:0,80:0.00:0');
   assert.deepEqual(parseTranche('90:450.00:0'), { price: 90, cumPct: 0, dollar: 450 });
 
+});
+
+test('board: clearing takes every card off and keeps the zones', () => {
+  let b = newBoard();
+  b = moveCard(moveCard(b, 'X', 'z1', 0), 'Y', 'z2', 0);
+  b = updateZone(b, 'z2', { color: 5 });
+  const c = clearCards(b);
+  assert.equal(onBoard(c).size, 0);
+  assert.deepEqual(c.zones.map(z => [z.id, z.name, z.color]), b.zones.map(z => [z.id, z.name, z.color]));
 });
 
 test('board: a card is in one zone at a time, and zones keep their cards when edited', () => {

@@ -44,6 +44,9 @@ export function moveCard(b: Board, sym: string, zoneId: string, index: number): 
 
 export const removeCard = (b: Board, sym: string): Board => ({ zones: b.zones.map(z => ({ ...z, cards: z.cards.filter(s => s !== sym) })) });
 
+/** Every stock off the board; the zones, their names and colours stay for the next day. */
+export const clearCards = (b: Board): Board => ({ zones: b.zones.map(z => ({ ...z, cards: [] })) });
+
 export function addZone(b: Board, name: string): Board {
   const used = new Set(b.zones.map(z => z.color));
   const color = [...Array(ZONE_COLORS).keys()].find(c => !used.has(c)) ?? b.zones.length % ZONE_COLORS;

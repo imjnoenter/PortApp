@@ -86,13 +86,15 @@
 <div class="page">
   <section class="hero">
     <div class="worth">
-      <h1>{m.port === ALL ? t('Portfolio value') : `${m.port} ${t('value')}`}</h1>
+      <div class="worth-head">
+        <h1>{m.port === ALL ? t('Portfolio value') : `${m.port} ${t('value')}`}</h1>
+        {#if m.dayChange != null}<button class="btn shareday" onclick={shareDay} disabled={drawing}>{t('Share today')}</button>{/if}
+      </div>
       <div class="value">{money(m.totalCurrent)}</div>
       <div class="day">
         {#if m.dayChange != null}
           <span class={sign(m.dayChange)}>{money.signed(m.dayChange)} ({signedPct(m.dayPct)})</span>
           <span class="muted">{t('today')}</span>
-          <button class="btn shareday" onclick={shareDay} disabled={drawing}>{t('Share today')}</button>
         {:else}
           <span class="muted">{t('Waiting for today’s prices')}</span>
         {/if}
@@ -271,7 +273,8 @@
   h1 { font-size: 15px; font-weight: 500; color: var(--ink-2); }
   .value { font: 750 clamp(34px, 15cqi, 76px)/1 var(--font-display); letter-spacing: -0.045em; margin: var(--sp-3) 0 var(--sp-3); white-space: nowrap; }
   .day { font-size: 17px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
-  .shareday { margin-left: auto; padding: 5px 13px; font-size: 12px; }
+  .worth-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+  .shareday { padding: 5px 13px; font-size: 12px; }
   .unreal { margin-top: 4px; font-size: 15px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .ext { margin-top: var(--sp-2); font-size: 14px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .extsum { font: 650 18px/1.2 var(--font-display); letter-spacing: -0.02em; }

@@ -157,6 +157,7 @@
     <div class="px">
       <div class="price">{price == null ? '—' : usd(price)}</div>
       {#if dayPct != null}<div class="small {sign(dayPct)}">{dayAbs == null ? '' : (dayAbs > 0 ? '+' : '') + usd(dayAbs) + ' '}({signedPct(dayPct)}) {t('today')}</div>{/if}
+      {#if pos?.ext}<div class="small ext {sign(pos.extPct)}">{pos.ext === 'PRE' ? t('Pre') : t('After')} {usd(pos.extPrice)} {signedPct(pos.extPct)}</div>{/if}
     </div>
     <button class="icon-btn" onclick={close} aria-label={t('Close')}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -183,9 +184,6 @@
       <PriceChart {sym} {levels} {marks} bind:points />
     </section>
 
-    {#if pos?.ext}
-      <p class="small {sign(pos.extPct)}">{pos.ext === 'PRE' ? t('Pre') : t('After')} {usd(pos.extPrice)} {signedPct(pos.extPct)}</p>
-    {/if}
     {#if info?.sector || info?.industry || info?.category}
       <div class="tags">
         {#each [info.sector, info.industry, info.category, info.custom, info.myGroup].filter(Boolean) as tag}<span class="pill">{tag}</span>{/each}
@@ -374,6 +372,7 @@
   .px { text-align: right; }
   .price { font: 650 clamp(22px, 3vw, 30px)/1.1 var(--font-display); letter-spacing: -0.03em; }
   .px .small { font-size: 14px; font-weight: 500; margin-top: 2px; }
+  .px .ext { font-size: 13px; }
   header .icon-btn { align-self: flex-start; margin: -8px -8px 0 0; background: var(--wash); }
   .body { flex: 1; overflow-y: auto; padding: 0 var(--sp-6) calc(var(--sp-7) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); align-content: start; }
   .plot { position: relative; }

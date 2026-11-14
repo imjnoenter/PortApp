@@ -4,6 +4,7 @@
   import { PALETTE, date, pct, sign, signedPct } from '../../core/format.ts';
   import { NASDAQ, app } from '../../state/app.svelte.ts';
   import LineChart from '../parts/LineChart.svelte';
+  import Logo from '../parts/Logo.svelte';
   import Seg from '../parts/Seg.svelte';
   import { tip } from '../tip.ts';
 
@@ -199,7 +200,7 @@
           <li>
             <button onclick={() => app.symbol = h.symbol}
               use:tip={`${h.symbol}${h.held ? '' : ', ' + t('sold out')}\n${t('Unrealized')} ${money.signed(h.unrealized)}\n${t('Realized')} ${money.signed(h.realized)}\n${t('Dividends')} ${money(h.dividends)}\n${t('Put in')} ${money(h.deployed)}`}>
-              <span class="lab" class:muted={!h.held}><span class="strong">{h.symbol}</span></span>
+              <span class="lab who" class:muted={!h.held}><Logo sym={h.symbol} size={22} /><span class="strong">{h.symbol}</span></span>
               <span class="track mid"><span class="fill {v >= 0 ? 'up' : 'down'}" style:width="{Math.abs(v) / perfMax * 50}%"></span></span>
               <span class="val {sign(v)}">{perfUnit === 'money' ? money.signed(h.total) : h.pct == null ? '—' : signedPct(h.pct, 1)}</span>
             </button>
@@ -276,6 +277,10 @@
   .bars button:hover { background: var(--sunk); }
   .lab { flex: 0 0 64px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lab.wide { flex-basis: 150px; }
+  /* A holding's row leads with its logo; a sold-out one is dimmed whole, logo included. */
+  .lab.who { flex-basis: 96px; display: flex; align-items: center; gap: 8px; }
+  .lab.who .strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .lab.who.muted :global(.logo) { opacity: 0.55; }
   .track { position: relative; flex: 1; height: 10px; border-radius: 5px; background: var(--wash); overflow: hidden; }
   .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; background: var(--accent); }
   /* Zero sits in the middle: gains grow right, losses grow left. */
