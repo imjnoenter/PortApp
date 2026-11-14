@@ -4,8 +4,8 @@ import { feesOn } from './fees.ts';
 import { fifoWalk, fifoBasis, fifoAfterTrade, fifoKey } from './fifo.ts';
 import { buildModel, computeLimits, rowsForView, targetDollar } from './model.ts';
 import type { Book } from './model.ts';
-import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';
-import { session, txMarketDate, weekStart } from './market.ts';
+import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMoves, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';
+import { session, sessionDay, txMarketDate, weekStart } from './market.ts';
 import { squarify } from './treemap.ts';
 import { driftAlert, planAlerts } from './alerts.ts';
 import { addZone, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
@@ -160,6 +160,13 @@ test('market clock and ledger dates', () => {
   assert.equal(session(new Date('2026-11-14T15:00:00Z')), 'closed');  // Saturday
   assert.equal(txMarketDate('2026-10-17', '03:10:00'), '2026-10-16'); // Thai small hours = previous US session
   assert.equal(txMarketDate('2026-10-17', ''), '2026-10-17');
+  // The session a trade is first held through. New York is 11 hours behind Bangkok in October.
+  assert.equal(sessionDay('2026-10-16', '21:00:00'), '2026-10-16');   // 10:00 New York, market open
+  assert.equal(sessionDay('2026-10-17', '02:59:00'), '2026-10-16');   // 15:59 New York, the last minute
+  assert.equal(sessionDay('2026-10-17', '03:10:00'), '2026-10-17');   // 16:10 New York, after the close: next day
+  assert.equal(sessionDay('2026-10-16', '15:30:00'), '2026-10-16');   // 04:30 New York, pre-market
+  assert.equal(sessionDay('2026-10-16', '09:00:00'), '2026-10-16');   // 22:00 the evening before: next day, the 16th
+  assert.equal(sessionDay('2026-10-16', ''), '2026-10-16');
   assert.equal(weekStart('2026-11-08'), '2026-11-02');                // Sunday belongs to the week before
 });
 
@@ -181,13 +188,47 @@ test('time-weighted returns ignore deposits', () => {
   const txs = [tx(dates[0], 'Buy', 'A', 10, 50), tx(dates[30], 'Buy', 'A', 100, prices.A[dates[30]])];
   const s = returnSeries(txs, idx)!;
   assert.equal(s.rp.length, 59);
-  for (const r of s.rp) near(r, 0.01, 1e-9);                 // the 10× top-up never shows as a return
+  // The 10× top-up never shows as a return. Its fee does: money that went in and bought nothing.
+  const topUp = 100 * prices.A[dates[30]], drag = feesOn(topUp).total / (10 * prices.A[dates[29]]);
+  s.rp.forEach((r, i) => near(r, i === 29 ? 0.01 - drag : 0.01, 1e-9));
   const m = monthlyReturns(s)!;
   assert.equal(m.years[0].year, 2026);
-  near(m.years[0].yearTotal!, 1.01 ** 59 - 1, 1e-9);
+  near(m.years[0].yearTotal!, 1.01 ** 58 * (1.01 - drag) - 1, 1e-9);
   const bars = dailyBars(s, 30, 0.5, '2026-12-31');
   assert.equal(bars.length, 30);
   assert.ok(bars[29].today);
+});
+
+test('returns: trades land in their own session, transfers and splits are not gains', () => {
+  const { prices, dates } = flatHistory(60, { SPY: () => 100, A: () => 50, B: i => i < 40 ? 400 : 100 });
+  // B split 4:1 on day 40. The sheet holds adjusted closes, so B reads 100 throughout.
+  for (const d of dates) prices.B[d] = 100;
+  const splits = { B: { [dates[40]]: 4 } };
+  // No SPY close on day 20: it is not a trading day here, and its trade waits for day 21.
+  delete prices.SPY[dates[20]];
+  const idx = new PriceIndex(prices);
+  const late = (d: string) => { const n = new Date(d + 'T00:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); return n.toISOString().slice(0, 10); };
+  const txs = [
+    tx(dates[0], 'Buy', 'A', 10, 50),
+    // Recorded at 01:00 Bangkok the next day: early afternoon in New York on dates[5] itself.
+    tx(late(dates[5]), 'Buy', 'A', 10, 50, 'Long-Term', { time: '01:00:00' }),
+    tx(dates[20], 'Buy', 'A', 10, 50),
+    tx(dates[30], 'Buy', 'B', 1, 400),                                           // one old share = four of today's
+    tx(dates[45], 'Transfer-In', 'A', 10, 20),                                   // carried cost 20, worth 50
+  ];
+  const moves = ledgerMoves(txs, splits);
+  assert.equal(moves[1].day, dates[5]);
+  near(moves.find(m => m.t.ticker === 'B')!.shares, 4);
+  const s = returnSeries(txs, idx, splits)!;
+  assert.equal(s.dts.includes(dates[20]), false);
+  const fee = (tv: number) => feesOn(tv).total;
+  const at = (d: string) => s.rp[s.dts.indexOf(d)];
+  near(at(dates[5]), -fee(500) / 500, 1e-12);          // booked on the New York day, not Bangkok's
+  near(at(dates[6]), 0, 1e-12);
+  near(at(dates[21]), -fee(500) / 1000, 1e-12);        // carried over the missing day
+  near(at(dates[30]), -fee(400) / 1500, 1e-12);        // 1 share at 400 is worth 4 × 100, not 1 × 100
+  near(at(dates[40]), 0, 1e-12);                       // the split day is flat
+  near(at(dates[45]), 0, 1e-12);                       // shares moved in are capital at the close, with no fee
 });
 
 test('IRR: one buy, doubled in a year', () => {
@@ -509,7 +550,9 @@ test('benchmark: every line starts from the same close and compounds from there'
   assert.equal(all.dates.length, 60); assert.equal(all.dates[0], dates[0]); assert.equal(all.dates[59], dates[59]);
   assert.equal(new Set(all.dates).size, 60);                      // no date twice
   for (const line of [all.portfolio, all.spy, all.other!]) { assert.equal(line.length, 60); assert.equal(line[0], 0); }
-  near(all.portfolio[59], (1.01 ** 59 - 1) * 100, 1e-6);          // the top-up on day 30 moves nothing
+  // The top-up on day 30 moves nothing but its own fee.
+  const drag = feesOn(100 * prices.A[dates[30]]).total / (10 * prices.A[dates[29]]);
+  near(all.portfolio[59], (1.01 ** 58 * (1.01 - drag) - 1) * 100, 1e-6);
   near(all.spy[59], (1.002 ** 59 - 1) * 100, 1e-6);
   near(all.other![59], (1.003 ** 59 - 1) * 100, 1e-6);
 

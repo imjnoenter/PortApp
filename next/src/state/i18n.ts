@@ -143,7 +143,7 @@ export const TH: Record<string, string> = {
   'They can pass 100% because the portfolios’ cash overlaps.': 'รวมกันอาจเกิน 100% เพราะเงินสดของแต่ละพอร์ตซ้อนทับกัน',
   'of the way up the range': 'ของช่วงราคา',
   'Unrealized P/L': 'กำไรที่ยังไม่รับรู้', 'Realized P/L': 'กำไรที่รับรู้แล้ว',
-  'Return against the S&P 500 and the Nasdaq': 'ผลตอบแทนเทียบ S&P 500 และ Nasdaq',
+  'Return against the S&P 500 and the Nasdaq 100': 'ผลตอบแทนเทียบ S&P 500 และ Nasdaq 100',
   'The Nasdaq line needs QQQ’s price history. Add QQQ to the watchlist and it will appear once the sheet has fetched it.': 'เส้น Nasdaq ต้องใช้ประวัติราคาของ QQQ เพิ่ม QQQ ในรายการจับตา แล้วเส้นจะแสดงเมื่อชีตดึงข้อมูลมาแล้ว',
   'would make it': 'จะทำให้เป็น', 'Against the last regular close': 'เทียบราคาปิดปกติล่าสุด',
   'holdings have a price': 'ตัวมีราคา', 'Nothing down': 'ไม่มีตัวที่ลง', 'Nothing up': 'ไม่มีตัวที่ขึ้น', 'deposits left out': 'ไม่รวมเงินฝาก',

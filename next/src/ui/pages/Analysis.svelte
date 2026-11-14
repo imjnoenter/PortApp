@@ -64,7 +64,7 @@
 
   <div class="pair">
     <section class="card card-pad">
-      <div class="card-head"><h2 class="card-title">{t('Return against the S&P 500 and the Nasdaq')}</h2><span class="card-sub">{t('Time-weighted, deposits taken out')}</span></div>
+      <div class="card-head"><h2 class="card-title">{t('Return against the S&P 500 and the Nasdaq 100')}</h2><span class="card-sub">{t('Time-weighted, deposits taken out')}</span></div>
       {#if bench}
         <LineChart zero labels={bench.dates} format={v => signedPct(v, 1)} lines={benchLines} />
         {#if lead}

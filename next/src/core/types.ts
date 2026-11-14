@@ -76,6 +76,8 @@ export interface Contribution {
 export interface History {
   prices: Record<string, Record<string, number>>;     // sym → date → close
   dividends: Record<string, Record<string, number>>;  // sym → ex-date → per-share amount
+  /** sym → first day on the new share count → new shares per old share (4 for a 4:1 split, 0.1 for a 1:10 reverse). */
+  splits?: Record<string, Record<string, number>>;
 }
 
 export interface Position extends HoldingRow {

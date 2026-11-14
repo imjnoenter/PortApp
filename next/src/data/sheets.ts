@@ -75,14 +75,16 @@ export async function loadTransactions(sheetId: string, fresh = false): Promise<
 
 export async function loadHistory(sheetId: string): Promise<History> {
   const t = await fetchTable(sheetId, 'History');
-  const c = { date: t.col('Date'), sym: t.col('Ticker', 'Symbol'), close: t.col('Close'), div: t.col('Dividend') };
-  const h: History = { prices: {}, dividends: {} };
+  const c = { date: t.col('Date'), sym: t.col('Ticker', 'Symbol'), close: t.col('Close'), div: t.col('Dividend'), split: t.col('Split') };
+  const h: History = { prices: {}, dividends: {}, splits: {} };
   for (const r of t.rows) {
     const d = date(r, c.date), sym = str(r, c.sym);
     if (!d || !sym) continue;
     const close = num(r, c.close), div = num(r, c.div);
     if (close != null && close > 0) (h.prices[sym] ||= {})[d] = close;
     if (div != null && div > 0) (h.dividends[sym] ||= {})[d] = div;
+    const split = num(r, c.split);
+    if (split != null && split > 0 && split !== 1) (h.splits![sym] ||= {})[d] = split;
   }
   return h;
 }

@@ -1,7 +1,7 @@
 // Everything computed from the ledger + price history. None of it depends on live quotes except
 // where a caller passes today's figure in, so a quote tick recomputes almost nothing here.
 import { feesOn } from './fees.ts';
-import { addDays, txMarketDate, weekStart } from './market.ts';
+import { addDays, sessionDay, txMarketDate, weekStart } from './market.ts';
 import type { FifoResult } from './fifo.ts';
 import type { Contribution, History, Tx } from './types.ts';
 
@@ -25,6 +25,8 @@ export class PriceIndex {
   /** The earliest day there is a close for. */
   first(sym: string): string | null { return this.m.get(sym)?.d[0] ?? null; }
   days(sym: string) { return this.m.get(sym)?.d.length || 0; }
+  /** Every day there is a close for, oldest first. */
+  dates(sym: string): readonly string[] { return this.m.get(sym)?.d ?? []; }
 
   /** Close on the nearest trading day at or before `date`. */
   at(sym: string, date: string): number | null {
@@ -37,6 +39,52 @@ export class PriceIndex {
     }
     return ans < 0 ? null : s.v[ans];
   }
+}
+
+// ───────────────────────── the ledger, in sessions and today's shares ─────────────────────────
+
+export type Splits = NonNullable<History['splits']>;
+
+/**
+ * Shares today for one share on `day`. The stored closes are adjusted for every split since, and
+ * the ledger is not, so a trade's shares are converted before they are multiplied by a close.
+ */
+export function splitFactor(splits: Splits | undefined, sym: string, day: string): number {
+  const s = splits?.[sym];
+  if (!s) return 1;
+  let f = 1;
+  for (const d in s) if (d > day) f *= s[d];
+  return f;
+}
+
+export interface Move {
+  t: Tx; day: string;
+  /** Signed, in today's shares. */
+  shares: number;
+  /** Cash that crossed the wallet, signed like the shares: what a buy cost with its fee, what a sale paid after it. Null for a transfer, which is valued at that day's close instead. */
+  cash: number | null;
+}
+
+/**
+ * Every row that changes a holding, in the order it happened, dated by the US session it belongs to.
+ * The ledger's own date is Bangkok's, which runs a day ahead of New York for most of the session.
+ */
+export function ledgerMoves(txs: readonly Tx[], splits?: Splits, transfers = true): Move[] {
+  const out: Move[] = [];
+  for (const t of txs) {
+    if (!t.dateStr || !t.shares) continue;
+    const trade = t.type === 'Buy' || t.type === 'Sell';
+    if (!trade && !(transfers && (t.type === 'Transfer-In' || t.type === 'Transfer-Out'))) continue;
+    const dir = t.type === 'Buy' || t.type === 'Transfer-In' ? 1 : -1;
+    const day = sessionDay(t.dateStr, t.time);
+    const tv = t.tradeValue != null ? t.tradeValue : t.shares * t.price;
+    out.push({
+      t, day, shares: dir * t.shares * splitFactor(splits, t.ticker, day),
+      cash: trade ? dir * tv + feesOn(tv, t.commissionFree).total : null,
+    });
+  }
+  const key = (m: Move) => m.day + ' ' + m.t.dateStr + ' ' + (m.t.time || '');
+  return out.map((m, i) => ({ m, i, k: key(m) })).sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : a.i - b.i).map(x => x.m);
 }
 
 // ───────────────────────── dividends ─────────────────────────
@@ -67,7 +115,7 @@ export function computeDividends(txs: readonly Tx[], history: History): Dividend
     const dates = Object.keys(history.dividends[sym]).sort();
     let i = 0, held = 0, g = 0;
     for (const d of dates) {
-      while (i < list.length && list[i].dateStr <= d) held = Math.max(0, held + shareDelta(list[i++]));
+      while (i < list.length && list[i].dateStr <= d) { const t = list[i++]; held = Math.max(0, held + shareDelta(t) * splitFactor(history.splits, sym, t.dateStr)); }
       if (held <= 1e-9) continue;
       const gross = held * history.dividends[sym][d];
       g += gross;
@@ -149,24 +197,31 @@ export interface ReturnSeries {
 /**
  * Daily time-weighted returns for the portfolio (rp) and SPY (rs). Each day's external cash flow is
  * stripped out, `(V_end − flow) / V_prev − 1`, so a deposit never reads as a gain.
+ *
+ * - A trade counts from the session it belongs to, not the ledger's Bangkok date.
+ * - The flow is the cash that moved: a buy's fee is money in that bought no shares, so it shows as
+ *   the small loss it is, and a sale's fee likewise.
+ * - Shares moved in from another portfolio arrive at that day's close: they are capital, not a gain.
+ * - The trading days are SPY's own. A day the sheet has no SPY close for is not a day here; its
+ *   trades are carried into the next one rather than measured against a stale price.
  */
-export function returnSeries(txs: readonly Tx[], idx: PriceIndex): ReturnSeries | null {
-  if (!idx.has('SPY')) return null;
-  const trades = txs.filter(t => (t.type === 'Buy' || t.type === 'Sell') && t.dateStr)
-    .sort((a, b) => a.dateStr < b.dateStr ? -1 : a.dateStr > b.dateStr ? 1 : 0);
-  const first = trades.find(t => t.type === 'Buy');
+export function returnSeries(txs: readonly Tx[], idx: PriceIndex, splits?: Splits): ReturnSeries | null {
+  const cal = idx.dates('SPY');
+  if (!cal.length) return null;
+  const moves = ledgerMoves(txs, splits);
+  const first = moves.find(m => m.shares > 0);
   if (!first) return null;
-  const days = idx.allDates.filter(d => d >= first.dateStr);
+  const days = cal.filter(d => d >= first.day);
   if (days.length < 25) return null;
 
   const held = new Map<string, number>();
   const out: ReturnSeries = { rp: [], rs: [], dts: [], start: '' };
-  let ti = 0, flow = 0, prevVal = 0, prevSpy = 0, prevDay = '';
+  let mi = 0, flow = 0, prevVal = 0, prevSpy = 0, prevDay = '';
   for (const day of days) {
-    while (ti < trades.length && trades[ti].dateStr <= day) {
-      const t = trades[ti++], amt = t.shares * t.price, dir = t.type === 'Buy' ? 1 : -1;
-      held.set(t.ticker, Math.max(0, (held.get(t.ticker) || 0) + dir * t.shares));
-      flow += dir * amt;
+    while (mi < moves.length && moves[mi].day <= day) {
+      const m = moves[mi++];
+      held.set(m.t.ticker, Math.max(0, (held.get(m.t.ticker) || 0) + m.shares));
+      flow += m.cash ?? m.shares * (idx.at(m.t.ticker, day) ?? m.t.price / splitFactor(splits, m.t.ticker, m.day));
     }
     let val = 0, any = false;
     for (const [sym, q] of held) {
@@ -174,9 +229,9 @@ export function returnSeries(txs: readonly Tx[], idx: PriceIndex): ReturnSeries 
       any = true;
       val += q * (idx.at(sym, day) || 0);
     }
-    const spy = idx.at('SPY', day);
+    const spy = idx.at('SPY', day)!;
     // A day that can't be valued carries its flow forward rather than booking it as a return later.
-    if ((any && val <= 0) || !spy) continue;
+    if (any && val <= 0) continue;
     if (prevVal > 0 && prevSpy > 0) {
       if (!out.dts.length) out.start = prevDay;
       out.rp.push((val - flow) / prevVal - 1);

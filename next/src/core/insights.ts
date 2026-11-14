@@ -1,7 +1,7 @@
 // Analysis built on the model, the ledger and price history: risk, correlation, stress, income,
 // per-holding performance and the journal of closed trades. All pure; all safe to call with thin data.
-import { withholdingRate } from './analytics.ts';
-import type { Dividends, PriceIndex, RealizedSale } from './analytics.ts';
+import { ledgerMoves, withholdingRate } from './analytics.ts';
+import type { Dividends, PriceIndex, RealizedSale, Splits } from './analytics.ts';
 import { fifoKey } from './fifo.ts';
 import { addDays } from './market.ts';
 import type { Plan } from './plan.ts';
@@ -260,19 +260,19 @@ export function closedTrades(txs: readonly Tx[], sales: readonly RealizedSale[])
 export interface WorthSeries { dates: string[]; value: number[]; invested: number[] }
 
 /** Market value of the holdings each trading day, beside the net money put into them (buys less sales). */
-export function worthSeries(txs: readonly Tx[], idx: PriceIndex): WorthSeries | null {
-  const trades = txs.filter(t => t.type === 'Buy' || t.type === 'Sell').sort((a, b) => a.dateStr < b.dateStr ? -1 : a.dateStr > b.dateStr ? 1 : 0);
-  if (!trades.length) return null;
-  const days = idx.allDates.filter(d => d >= trades[0].dateStr);
+export function worthSeries(txs: readonly Tx[], idx: PriceIndex, splits?: Splits): WorthSeries | null {
+  const moves = ledgerMoves(txs, splits, false);
+  if (!moves.length) return null;
+  const days = idx.allDates.filter(d => d >= moves[0].day);
   if (days.length < 5) return null;
   const held = new Map<string, number>();
   const out: WorthSeries = { dates: [], value: [], invested: [] };
-  let ti = 0, invested = 0;
+  let mi = 0, invested = 0;
   for (const day of days) {
-    while (ti < trades.length && trades[ti].dateStr <= day) {
-      const t = trades[ti++], dir = t.type === 'Buy' ? 1 : -1;
-      held.set(t.ticker, Math.max(0, (held.get(t.ticker) || 0) + dir * t.shares));
-      invested += dir * t.shares * t.price;
+    while (mi < moves.length && moves[mi].day <= day) {
+      const m = moves[mi++];
+      held.set(m.t.ticker, Math.max(0, (held.get(m.t.ticker) || 0) + m.shares));
+      invested += Math.sign(m.shares) * m.t.shares * m.t.price;
     }
     let val = 0;
     for (const [sym, q] of held) if (q > 1e-9) val += q * (idx.at(sym, day) || 0);

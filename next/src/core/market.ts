@@ -46,6 +46,21 @@ export function txMarketDate(dateStr: string, time: string): string {
   return ET_DATE.format(new Date(Date.UTC(y, mo - 1, d, Number(m[1]) - 7, Number(m[2]), Number(m[3] || 0))));
 }
 
+/**
+ * The US session a trade's shares are first held through. Before 16:00 New York that is the same
+ * New York day; a trade made after the close (after-hours, or overnight) is not in that day's
+ * closing value, so it belongs to the next one. The result can be a weekend or a holiday: whoever
+ * walks a list of trading days takes the first one on or after it. A row with no time keeps its date.
+ */
+export function sessionDay(dateStr: string, time: string): string {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(time || '');
+  if (!m) return dateStr;
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const at = new Date(Date.UTC(y, mo - 1, d, Number(m[1]) - 7, Number(m[2]), Number(m[3] || 0)));
+  const day = ET_DATE.format(at);
+  return etClock(at).min >= 960 ? addDays(day, 1) : day;
+}
+
 /** Monday of the week containing dateStr. */
 export function weekStart(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);

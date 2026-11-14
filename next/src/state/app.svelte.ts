@@ -172,7 +172,7 @@ class AppState {
 
   viewTxs = $derived(this.view === ALL ? this.txs : this.txs.filter(t => t.portfolio === this.view));
   priceIndex = $derived(new PriceIndex(this.history.prices));
-  series = $derived(returnSeries(this.viewTxs, this.priceIndex));
+  series = $derived(returnSeries(this.viewTxs, this.priceIndex, this.history.splits));
   monthly = $derived(monthlyReturns(this.series));
   risk = $derived(riskStats(this.series));
   sales = $derived(realizedSales(this.fifo, this.view));
@@ -191,7 +191,7 @@ class AppState {
   income = $derived(forwardIncome(this.model, this.history.dividends, this.today));
   perf = $derived(holdingsPerf(this.model, this.viewTxs, this.sales, this.dividends));
   journal = $derived(closedTrades(this.viewTxs, this.sales));
-  worth = $derived(worthSeries(this.viewTxs, this.priceIndex));
+  worth = $derived(worthSeries(this.viewTxs, this.priceIndex, this.history.splits));
 
   session = $derived(session(new Date(this.now)));
   money = $derived(moneyFormatter(this.prefs.currency, this.fx));
@@ -253,6 +253,12 @@ class AppState {
         quiet(this.#loadEtf(p, mine)),
       ];
       if (Date.now() - this.#historyAt > HISTORY_MS) {
+        // Nothing extends the sheet's price history on its own: the script does it when asked, and
+        // paces itself. Its reply can't be read, so read the sheet again once it has had time to
+        // finish and the sheet's public copy has caught up.
+        if (canWrite(p)) void send(p, { action: 'maintenance' }).then(() => setTimeout(() => {
+          if (p === this.profile) void loadHistory(p.sheetId).then(h => { if (p === this.profile) this.history = h; }).catch(() => {});
+        }, 45_000)).catch(() => {});
         jobs.push(quiet(loadHistory(p.sheetId).then(h => { if (mine()) { this.history = h; this.#historyAt = Date.now(); } })));
       }
       await Promise.all(jobs);
