@@ -220,7 +220,8 @@ export function buildModel(book: Book, port: string, limits: Limits = computeLim
     stockTotal, costTotal, totalCurrent, investable, totalInvested, totalPnl,
     totalPnlPct: costTotal ? totalPnl / costTotal * 100 : 0,
     dayChange: anyQuoted ? dayDollar : null,
-    dayPct: anyQuoted && quotedValue ? dayDollar / quotedValue * 100 : null,
+    // Over what those holdings were worth at the last close, not what they are worth now.
+    dayPct: anyQuoted && quotedValue - dayDollar > 0 ? dayDollar / (quotedValue - dayDollar) * 100 : null,
     limit,
   };
 }

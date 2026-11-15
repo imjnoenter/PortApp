@@ -5,7 +5,7 @@
   import { setContext, untrack } from 'svelte';
   import { DEFAULT_PORT } from '../../core/fifo.ts';
   import { date, pct, qty, sign, signedPct, usd } from '../../core/format.ts';
-  import { txMarketDate } from '../../core/market.ts';
+  import { tradeDate } from '../../core/market.ts';
   import { ALL } from '../../core/model.ts';
   import { nextTranche, planKey, trancheDollars } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -48,7 +48,7 @@
   const levels = $derived(planLevels(t, pos?.avgPrice, plan, tab === 'details' ? null : ws.newAvg));
   const trades = $derived(app.txs.filter(x => x.ticker === sym && x.portfolio === ws.portfolio)
     .sort((a, b) => (b.dateStr + b.time).localeCompare(a.dateStr + a.time) || b.row - a.row));
-  const marks = $derived(trades.filter(x => x.type === 'Buy' || x.type === 'Sell').map(x => ({ d: txMarketDate(x.dateStr, x.time), type: x.type, shares: x.shares, price: x.price })));
+  const marks = $derived(trades.filter(x => x.type === 'Buy' || x.type === 'Sell').map(x => ({ d: tradeDate(x.dateStr, x.time), type: x.type, shares: x.shares, price: x.price })));
 
   const target = $derived(pos?.target ?? m.watchlist.find(w => w.symbol === sym)?.target ?? 0);
   const td = $derived(target * m.investable);
@@ -86,7 +86,7 @@
     {#if sym && price != null}
       <div class="px">
         <div class="price">{usd(price)}</div>
-        {#if dayPct != null}<div class="small {sign(dayPct)}">{signedPct(dayPct)} {t('today')}</div>{/if}
+        {#if dayPct != null}<div class="small {sign(dayPct)}">{signedPct(dayPct)} {sym ? app.dayWord(sym) : t('today')}</div>{/if}
         {#if ext}<div class="small"><span class="muted">{ext.pre ? t('Pre-market') : t('After hours')}</span> <span class="strong">{usd(ext.price)}</span> <span class={sign(ext.pct)}>{signedPct(ext.pct)}</span></div>{/if}
       </div>
     {/if}

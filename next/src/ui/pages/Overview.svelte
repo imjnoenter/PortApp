@@ -36,11 +36,11 @@
   });
   const signedUsd = (n: number) => (n >= 0 ? '+' : '') + usd(n);
 
-  const days = $derived(dailyBars(app.series, 30, m.dayPct, app.today));
+  const days = $derived(dailyBars(app.series, 30, m.dayPct, app.quoteDay));
   const dayBars = $derived(days.map(b => ({
     v: b.r, hot: b.today,
     value: Math.abs(b.r).toFixed(1) + (b.today ? '%' : ''),
-    tip: `${b.today ? t('Today') : date(b.d)}\n${signedPct(b.r)}`,
+    tip: `${b.today && b.d === app.today ? t('Today') : date(b.d)}\n${signedPct(b.r)}`,
   })));
   const upDays = $derived(days.filter(b => b.r > 0).length);
 
@@ -55,9 +55,9 @@
     try {
       const row = (p: (typeof moved)[number]) => ({ symbol: p.symbol, pct: p.dayChangePct!, dollars: p.dayChange! * p.qty });
       const blob = await drawDayCard({
-        name: app.profile?.profileName || 'Portfolio', day: app.today,
+        name: app.profile?.profileName || 'Portfolio', day: app.quoteDay,
         dayChange: m.dayChange, dayPct: m.dayPct, fx: app.fx, spxPct: app.quotes['^GSPC']?.changePct ?? null,
-        bars: dailyBars(app.series, 20, m.dayPct, app.today).map(b => ({ r: b.r, today: b.today })),
+        bars: dailyBars(app.series, 20, m.dayPct, app.quoteDay).map(b => ({ r: b.r, today: b.today })),
         up: gainers.slice(0, 3).map(row), down: losers.slice(0, 3).map(row),
         value: m.totalCurrent, unrealizedPct: m.totalPnlPct,
         // The same two figures as the Total return card: profit against the baht paid in when that
@@ -65,7 +65,7 @@
         ...(bahtReturn ? { bahtReturn: bahtReturn.gain, bahtPct: bahtReturn.pct, bahtNote: 'paid-in' as const }
           : { bahtReturn: usdReturn * app.fx, bahtPct: usdReturnPct, bahtNote: 'converted' as const }),
       });
-      app.dialog = { kind: 'share', blob, name: `portfolio-${app.today}.png` };
+      app.dialog = { kind: 'share', blob, name: `portfolio-${app.quoteDay}.png` };
     } finally { drawing = false; }
   }
 
@@ -94,7 +94,7 @@
       <div class="day">
         {#if m.dayChange != null}
           <span class={sign(m.dayChange)}>{money.signed(m.dayChange)} ({signedPct(m.dayPct)})</span>
-          <span class="muted">{t('today')}</span>
+          <span class="muted">{app.dayWord()}</span>
         {:else}
           <span class="muted">{t('Waiting for today’s prices')}</span>
         {/if}

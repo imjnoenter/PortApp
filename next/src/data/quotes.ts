@@ -3,7 +3,7 @@
 // CNBC's public quote endpoint is the primary source: CORS-open from any origin, one batched request
 // for the whole portfolio, and the only browser-reachable source of pre/post-market prices. The
 // sheet's `Quotes` tab (Finnhub, written by Apps Script) only fills symbols CNBC didn't return.
-import { session } from '../core/market.ts';
+import { etToday, session } from '../core/market.ts';
 import type { Quote, Quotes } from '../core/types.ts';
 import { fetchTable, num, str } from './gviz.ts';
 
@@ -49,6 +49,9 @@ export async function fetchCnbc(symbols: readonly string[]): Promise<Quotes> {
         volume: n(q.fullVolume) ?? n(q.volume),
         high52: n(q.FundamentalData?.yrhiprice), low52: n(q.FundamentalData?.yrloprice),
         ext: extPrice != null && extPrice > 0 ? ext : null, extPrice,
+        // Stamped in New York time ("2026-11-13T16:00:00.000-0500"), so its first ten characters are
+        // the session's own date. On a weekend, a holiday or before the open it is the last session's.
+        day: /^\d{4}-\d{2}-\d{2}/.test(String(q.reg_last_time || '')) ? String(q.reg_last_time).slice(0, 10) : null,
       };
     }
   }));
@@ -67,7 +70,8 @@ export async function fetchSheetQuotes(sheetId: string): Promise<Quotes> {
     for (const r of t.rows) {
       const sym = str(r, c.sym), price = num(r, c.price);
       if (!sym || !(price! > 0)) continue;
-      out[sym] = { price, change: num(r, c.chg), changePct: num(r, c.pct), volume: null, high52: null, low52: null, ext: null, extPrice: null };
+      // Only read while the market is open, so the change is today's.
+      out[sym] = { price, change: num(r, c.chg), changePct: num(r, c.pct), volume: null, high52: null, low52: null, ext: null, extPrice: null, day: etToday() };
     }
     return out;
   } catch { return {}; }
@@ -92,7 +96,7 @@ export async function fetchQuotes(symbols: readonly string[], sheetId: string, s
     const sheet = await fetchSheetQuotes(sheetId);
     for (const s of symbols) {
       const q = sheet[s];
-      if (q) quotes[s] = { ...quotes[s], ...q, volume: quotes[s]?.volume ?? null, high52: quotes[s]?.high52 ?? null, low52: quotes[s]?.low52 ?? null, ext: null, extPrice: null };
+      if (q) quotes[s] = { ...quotes[s], ...q, day: q.day, volume: quotes[s]?.volume ?? null, high52: quotes[s]?.high52 ?? null, low52: quotes[s]?.low52 ?? null, ext: null, extPrice: null };
     }
     return quotes;
   }

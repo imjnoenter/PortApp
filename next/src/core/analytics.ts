@@ -1,7 +1,7 @@
 // Everything computed from the ledger + price history. None of it depends on live quotes except
 // where a caller passes today's figure in, so a quote tick recomputes almost nothing here.
 import { feesOn } from './fees.ts';
-import { addDays, sessionDay, txMarketDate, weekStart } from './market.ts';
+import { addDays, sessionDay, tradeDate, weekStart } from './market.ts';
 import type { FifoResult } from './fifo.ts';
 import type { Contribution, History, Tx } from './types.ts';
 
@@ -97,14 +97,20 @@ const shareDelta = (t: Tx) => t.type === 'Buy' || t.type === 'Transfer-In' ? t.s
 function byTicker(txs: readonly Tx[]) {
   const m = new Map<string, Tx[]>();
   for (const t of txs) { let a = m.get(t.ticker); if (!a) m.set(t.ticker, a = []); a.push(t); }
-  for (const a of m.values()) a.sort((x, y) => x.dateStr < y.dateStr ? -1 : x.dateStr > y.dateStr ? 1 : 0);
+  const at = (t: Tx) => t.dateStr + ' ' + (t.time || '');
+  for (const a of m.values()) a.sort((x, y) => at(x) < at(y) ? -1 : at(x) > at(y) ? 1 : 0);
   return m;
 }
 
 export interface DividendEvent { date: string; ticker: string; shares: number; gross: number; net: number }
 export interface Dividends { gross: number; net: number; byTicker: Map<string, { gross: number; net: number }>; events: DividendEvent[] }
 
-/** Estimated from price-history ex-dates × the shares held that day; not the broker's actual payouts. */
+/**
+ * Estimated from price-history ex-dates × the shares owned going into the ex-date; not the broker's
+ * actual payouts. Ownership goes by each trade's own trade date: a share bought before the ex-date
+ * earns, after-hours on the day before included; one bought on the ex-date (pre-market included, or
+ * overnight the evening before) earns nothing; one sold on the ex-date still earns.
+ */
 export function computeDividends(txs: readonly Tx[], history: History): Dividends {
   const out: Dividends = { gross: 0, net: 0, byTicker: new Map(), events: [] };
   const grouped = byTicker(txs);
@@ -115,7 +121,10 @@ export function computeDividends(txs: readonly Tx[], history: History): Dividend
     const dates = Object.keys(history.dividends[sym]).sort();
     let i = 0, held = 0, g = 0;
     for (const d of dates) {
-      while (i < list.length && list[i].dateStr <= d) { const t = list[i++]; held = Math.max(0, held + shareDelta(t) * splitFactor(history.splits, sym, t.dateStr)); }
+      while (i < list.length && tradeDate(list[i].dateStr, list[i].time) < d) {
+        const t = list[i++], day = tradeDate(t.dateStr, t.time);
+        held = Math.max(0, held + shareDelta(t) * splitFactor(history.splits, sym, day));
+      }
       if (held <= 1e-9) continue;
       const gross = held * history.dividends[sym][d];
       g += gross;
@@ -162,10 +171,11 @@ export function computeIRR(txs: readonly Tx[], dividends: Dividends, holdingsVal
   for (const t of txs) {
     const tv = t.tradeValue != null ? t.tradeValue : t.shares * t.price;
     if (!tv || !t.dateStr) continue;
-    if (t.type === 'Buy') { flows.push({ t: ms(t.dateStr), v: -tv }); invested += tv; }
-    else if (t.type === 'Sell') { flows.push({ t: ms(t.dateStr), v: tv }); proceeds += tv; }
-    else if (t.type === 'Transfer-Out') { flows.push({ t: ms(t.dateStr), v: tv }); transfersNet += tv; }
-    else if (t.type === 'Transfer-In') { flows.push({ t: ms(t.dateStr), v: -tv }); transfersNet -= tv; }
+    const when = ms(sessionDay(t.dateStr, t.time));
+    if (t.type === 'Buy') { flows.push({ t: when, v: -tv }); invested += tv; }
+    else if (t.type === 'Sell') { flows.push({ t: when, v: tv }); proceeds += tv; }
+    else if (t.type === 'Transfer-Out') { flows.push({ t: when, v: tv }); transfersNet += tv; }
+    else if (t.type === 'Transfer-In') { flows.push({ t: when, v: -tv }); transfersNet -= tv; }
   }
   if (!flows.length) return null;
   for (const e of dividends.events) flows.push({ t: ms(e.date), v: e.net });
@@ -275,15 +285,16 @@ export function monthlyReturns(s: ReturnSeries | null): MonthlyReturns | null {
 export interface DayBar { r: number; d: string; today?: boolean }
 
 /**
- * The last n trading days in percent, ending on today's live move. A history entry already dated
- * today (the close can land in the History sheet after 16:00 ET) is dropped so the final bar is
- * always the same number as the headline day change.
+ * The last n trading days in percent, ending on the live move. `day` is the session that move
+ * belongs to: today while the market trades, the last session's date on a weekend, a holiday or
+ * before the open. History for that day or later is dropped, so a session is never shown twice and
+ * the final bar is always the same number as the headline day change.
  */
-export function dailyBars(s: ReturnSeries | null, n: number, dayPct: number | null, today: string): DayBar[] {
+export function dailyBars(s: ReturnSeries | null, n: number, dayPct: number | null, day: string): DayBar[] {
   const hist: DayBar[] = [];
-  if (s) for (let i = 0; i < s.dts.length; i++) if (s.dts[i] < today) hist.push({ r: s.rp[i] * 100, d: s.dts[i] });
+  if (s) for (let i = 0; i < s.dts.length; i++) if (s.dts[i] < day) hist.push({ r: s.rp[i] * 100, d: s.dts[i] });
   if (dayPct == null) return hist.slice(-n);
-  return [...hist.slice(-(n - 1)), { r: dayPct, d: today, today: true }];
+  return [...hist.slice(-(n - 1)), { r: dayPct, d: day, today: true }];
 }
 
 export const RISK_FREE_RATE = 0.045;
@@ -343,7 +354,7 @@ export interface CashFlow {
 
 /**
  * Money in and out of the wallet. Account-wide by nature: there is one wallet and contributions
- * belong to the whole account. Trades bucket by US market date, so a Saturday 03:00 Thai buy is
+ * belong to the whole account. Trades bucket by their trade date, so a Saturday 03:00 Thai buy is
  * Friday's. Sale proceeds are recomputed (trade value − fee): the sheet's Trade_Value+Fee column
  * adds the fee on both sides.
  */
@@ -359,7 +370,7 @@ export function cashFlow(txs: readonly Tx[], contribs: readonly Contribution[], 
     if (t.type !== 'Buy' && t.type !== 'Sell') continue;
     const tv = t.tradeValue != null ? t.tradeValue : t.shares * t.price;
     const fee = feesOn(tv, t.commissionFree).total;
-    const d = txMarketDate(t.dateStr, t.time);
+    const d = tradeDate(t.dateStr, t.time);
     if (!firstTrade || d < firstTrade) firstTrade = d;
     for (const b of [bucket(weeks, weekStart(d)), bucket(months, d.slice(0, 7))]) {
       if (t.type === 'Buy') b.bought += tv + fee; else b.sold += tv - fee;

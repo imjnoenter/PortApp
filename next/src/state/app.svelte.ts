@@ -5,7 +5,7 @@
 // nothing that hangs off the ledger: FIFO, the return series, dividends and cash flow stay cached.
 import { PriceIndex, cashFlow, computeDividends, computeIRR, monthlyReturns, netContributedTHB, realizedSales, realizedTotals, returnSeries, riskStats } from '../core/analytics.ts';
 import { DEFAULT_PORT, fifoBasis, fifoWalk } from '../core/fifo.ts';
-import { moneyFormatter } from '../core/format.ts';
+import { date, moneyFormatter } from '../core/format.ts';
 import { etToday, session } from '../core/market.ts';
 import { ALL, buildModel, computeLimits } from '../core/model.ts';
 import type { Book } from '../core/model.ts';
@@ -180,6 +180,8 @@ class AppState {
   dividends = $derived(computeDividends(this.viewTxs, this.history));
   irr = $derived(computeIRR(this.viewTxs, this.dividends, this.model.stockTotal));
   today = $derived(etToday(new Date(this.now)));
+  /** The session the live day change belongs to: the latest one any quote reports, else today. */
+  quoteDay = $derived(Object.values(this.quotes).reduce<string | null>((d, q) => q.day && (!d || q.day > d) ? q.day : d, null) ?? this.today);
   flow = $derived(cashFlow(this.txs, this.contribs, this.fx, this.limits.spendable, this.today));
   paidInTHB = $derived(netContributedTHB(this.contribs, this.fx));
   concentration = $derived(concentration(this.model));
@@ -200,6 +202,11 @@ class AppState {
 
   /** Translate. English is the key; anything without a Thai entry stays English. */
   t = (s: string) => this.prefs.lang === 'th' ? TH[s] ?? s : s;
+  /** What a day change is from: "today", or the date of the last session on a weekend, holiday or before the open. */
+  dayWord = (sym?: string) => {
+    const d = sym ? this.quotes[sym]?.day ?? this.today : this.quoteDay;
+    return d === this.today ? this.t('today') : date(d);
+  };
 
   // ── loading ──
   #token = 0;

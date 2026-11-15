@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fifoKey } from '../core/fifo.ts';
   import { baht, date, pct, qty, sign, signedPct, usd } from '../core/format.ts';
-  import { txMarketDate } from '../core/market.ts';
+  import { tradeDate } from '../core/market.ts';
   import { ALL } from '../core/model.ts';
   import { nextTranche, planKey, trancheDollars } from '../core/plan.ts';
   import { pictureUrls } from '../data/pictures.ts';
@@ -67,7 +67,7 @@
   const total = $derived((pos?.pnl ?? 0) + realized + divNet);
 
   // ── Chart extras: buys and sales marked on their US market day, and a candle view ──
-  const marks = $derived(trades.filter(x => x.type === 'Buy' || x.type === 'Sell').map(x => ({ d: txMarketDate(x.dateStr, x.time), type: x.type, shares: x.shares, price: x.price })));
+  const marks = $derived(trades.filter(x => x.type === 'Buy' || x.type === 'Sell').map(x => ({ d: tradeDate(x.dateStr, x.time), type: x.type, shares: x.shares, price: x.price })));
   const levels = $derived(planLevels(t, pos?.avgPrice, plan));
 
   // ── Where it sits: its share of the tab, and of each tag it carries ──
@@ -123,7 +123,7 @@
     drawing = true;
     try {
       const blob = await drawSymbolCard({
-        symbol: sym, name: info?.name || '', price: usd(price), dayPct, dayLabel: t('today'),
+        symbol: sym, name: info?.name || '', price: usd(price), dayPct, dayLabel: app.dayWord(sym),
         points, avg: pos?.avgPrice ?? null, marks,
         labels: { avg: t('Avg cost'), buy: t('Buy'), sell: t('Sell') },
         facts: [
@@ -156,7 +156,7 @@
     </div>
     <div class="px">
       <div class="price">{price == null ? '—' : usd(price)}</div>
-      {#if dayPct != null}<div class="small {sign(dayPct)}">{dayAbs == null ? '' : (dayAbs > 0 ? '+' : '') + usd(dayAbs) + ' '}({signedPct(dayPct)}) {t('today')}</div>{/if}
+      {#if dayPct != null}<div class="small {sign(dayPct)}">{dayAbs == null ? '' : (dayAbs > 0 ? '+' : '') + usd(dayAbs) + ' '}({signedPct(dayPct)}) {app.dayWord(sym)}</div>{/if}
       {#if pos?.ext}<div class="small ext {sign(pos.extPct)}">{pos.ext === 'PRE' ? t('Pre') : t('After')} {usd(pos.extPrice)} {signedPct(pos.extPct)}</div>{/if}
     </div>
     <button class="icon-btn" onclick={close} aria-label={t('Close')}>

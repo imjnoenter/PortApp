@@ -70,14 +70,16 @@
   const drawCandles = $derived(kind === 'candles' && canCandle && !!bars?.size);
 
   const price = $derived(app.quotes[sym]?.price ?? app.rows.find(r => r.symbol === sym)?.price ?? null);
-  // Every close on record, today's live price on the tail. The moving averages need all of it.
+  // Every close on record, the live price on the tail. The moving averages need all of it. The live
+  // price is dated by the session it is from, so a weekend or holiday adds no flat extra day.
+  const liveDay = $derived(app.quotes[sym]?.day ?? app.today);
   const all = $derived.by(() => {
     const map = app.history.prices[sym];
     if (!map) return [];
     const pts = Object.keys(map).sort().map(d => ({ d, v: map[d] })).filter(p => p.v > 0);
     if (price != null && price > 0) {
-      if (pts.length && pts[pts.length - 1].d >= app.today) pts[pts.length - 1] = { d: app.today, v: price };
-      else pts.push({ d: app.today, v: price });
+      if (pts.length && pts[pts.length - 1].d >= liveDay) pts[pts.length - 1] = { d: liveDay, v: price };
+      else pts.push({ d: liveDay, v: price });
     }
     return pts;
   });

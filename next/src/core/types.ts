@@ -57,6 +57,8 @@ export interface Quote {
   low52: number | null;
   ext: 'PRE' | 'POST' | null; // live extended-hours session, if any
   extPrice: number | null;
+  /** The New York date of the regular session the change belongs to, when the source says. */
+  day?: string | null;
 }
 export type Quotes = Record<string, Quote>;
 

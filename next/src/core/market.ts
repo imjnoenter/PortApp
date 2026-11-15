@@ -35,28 +35,38 @@ export function isOvernight(now = new Date()): boolean {
 /** Today's date on the US market calendar, yyyy-MM-dd. */
 export const etToday = (now = new Date()) => ET_DATE.format(now);
 
-/**
- * The ledger's Date/Time are Thai (UTC+7) and the US session runs past Thai midnight, so a
- * "17 Oct 03:10" buy belongs to 16 Oct's session. A row with no time keeps its date.
- */
-export function txMarketDate(dateStr: string, time: string): string {
+/** A ledger Date/Time (Thai, UTC+7) as the instant it names, or null when there is no time. */
+function ledgerInstant(dateStr: string, time: string): Date | null {
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(time || '');
-  if (!m) return dateStr;
+  if (!m) return null;
   const [y, mo, d] = dateStr.split('-').map(Number);
-  return ET_DATE.format(new Date(Date.UTC(y, mo - 1, d, Number(m[1]) - 7, Number(m[2]), Number(m[3] || 0))));
+  return new Date(Date.UTC(y, mo - 1, d, Number(m[1]) - 7, Number(m[2]), Number(m[3] || 0)));
+}
+
+/**
+ * The trade's own date, as the broker and the exchange record it. The ledger's Date/Time are
+ * Thai and the US day runs past Thai midnight, so a "17 Oct 03:10" buy is a 16 Oct trade. Pre-market
+ * and after-hours trades carry that New York day's date; the overnight session (from 20:00 New York)
+ * trades for the next day. This is the date that decides a dividend, and where a chart flag goes.
+ * A row with no time keeps its date.
+ */
+export function tradeDate(dateStr: string, time: string): string {
+  const at = ledgerInstant(dateStr, time);
+  if (!at) return dateStr;
+  const day = ET_DATE.format(at);
+  return etClock(at).min >= 1200 ? addDays(day, 1) : day;
 }
 
 /**
  * The US session a trade's shares are first held through. Before 16:00 New York that is the same
  * New York day; a trade made after the close (after-hours, or overnight) is not in that day's
- * closing value, so it belongs to the next one. The result can be a weekend or a holiday: whoever
+ * closing value, so it belongs to the next one. This decides which day's return a trade is part of;
+ * for its date as the broker records it, see tradeDate. The result can be a weekend or a holiday: whoever
  * walks a list of trading days takes the first one on or after it. A row with no time keeps its date.
  */
 export function sessionDay(dateStr: string, time: string): string {
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(time || '');
-  if (!m) return dateStr;
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  const at = new Date(Date.UTC(y, mo - 1, d, Number(m[1]) - 7, Number(m[2]), Number(m[3] || 0)));
+  const at = ledgerInstant(dateStr, time);
+  if (!at) return dateStr;
   const day = ET_DATE.format(at);
   return etClock(at).min >= 960 ? addDays(day, 1) : day;
 }

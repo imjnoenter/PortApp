@@ -5,7 +5,7 @@ import { fifoWalk, fifoBasis, fifoAfterTrade, fifoKey } from './fifo.ts';
 import { buildModel, computeLimits, rowsForView, targetDollar } from './model.ts';
 import type { Book } from './model.ts';
 import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMoves, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';
-import { session, sessionDay, txMarketDate, weekStart } from './market.ts';
+import { session, sessionDay, tradeDate, weekStart } from './market.ts';
 import { squarify } from './treemap.ts';
 import { driftAlert, planAlerts } from './alerts.ts';
 import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
@@ -158,8 +158,12 @@ test('market clock and ledger dates', () => {
   assert.equal(session(new Date('2026-11-10T13:00:00Z')), 'pre');
   assert.equal(session(new Date('2026-11-10T22:00:00Z')), 'post');
   assert.equal(session(new Date('2026-11-14T15:00:00Z')), 'closed');  // Saturday
-  assert.equal(txMarketDate('2026-10-17', '03:10:00'), '2026-10-16'); // Thai small hours = previous US session
-  assert.equal(txMarketDate('2026-10-17', ''), '2026-10-17');
+  // The trade date, as the broker records it. New York is 11 hours behind Bangkok in October.
+  assert.equal(tradeDate('2026-10-17', '03:10:00'), '2026-10-16');   // 16:10 New York: after-hours, still the 16th
+  assert.equal(tradeDate('2026-10-16', '16:20:00'), '2026-10-16');   // 05:20 New York: pre-market
+  assert.equal(tradeDate('2026-10-17', '08:00:00'), '2026-10-17');   // 21:00 New York on the 16th: overnight, trades for the 17th
+  assert.equal(tradeDate('2026-10-17', '14:30:00'), '2026-10-17');   // 03:30 New York: still the overnight session for the 17th
+  assert.equal(tradeDate('2026-10-17', ''), '2026-10-17');
   // The session a trade is first held through. New York is 11 hours behind Bangkok in October.
   assert.equal(sessionDay('2026-10-16', '21:00:00'), '2026-10-16');   // 10:00 New York, market open
   assert.equal(sessionDay('2026-10-17', '02:59:00'), '2026-10-16');   // 15:59 New York, the last minute
@@ -197,6 +201,12 @@ test('time-weighted returns ignore deposits', () => {
   const bars = dailyBars(s, 30, 0.5, '2026-12-31');
   assert.equal(bars.length, 30);
   assert.ok(bars[29].today);
+  // On a weekend the live move is the last session's: it replaces that day, never sits beside it.
+  const last = s.dts[s.dts.length - 1], wk = dailyBars(s, 30, 0.5, last);
+  assert.equal(wk.length, 30);
+  assert.equal(wk.filter(b => b.d === last).length, 1);
+  assert.equal(wk[29].r, 0.5);
+  assert.equal(wk[28].d, s.dts[s.dts.length - 2]);
 });
 
 test('returns: trades land in their own session, transfers and splits are not gains', () => {
@@ -229,6 +239,21 @@ test('returns: trades land in their own session, transfers and splits are not ga
   near(at(dates[30]), -fee(400) / 1500, 1e-12);        // 1 share at 400 is worth 4 × 100, not 1 × 100
   near(at(dates[40]), 0, 1e-12);                       // the split day is flat
   near(at(dates[45]), 0, 1e-12);                       // shares moved in are capital at the close, with no fee
+});
+
+test('dividends: a share counts if it was held at the close before the ex-date, by New York time', () => {
+  const history = { prices: {}, dividends: { A: { '2026-05-01': 1 } } };
+  const run = (txs: Tx[]) => computeDividends(txs, history).gross;
+  // Sold on the ex-date itself, during the session (21:43 Bangkok): still paid on those shares.
+  assert.equal(run([tx('2026-04-20', 'Buy', 'A', 10, 1), tx('2026-05-01', 'Sell', 'A', 4, 1, 'Long-Term', { time: '21:43:00' })]), 10);
+  // Bought on the ex-date, pre-market (16:20 Bangkok): not paid.
+  assert.equal(run([tx('2026-05-01', 'Buy', 'A', 10, 1, 'Long-Term', { time: '16:20:00' })]), 0);
+  // Bought late in the session before (02:30 Bangkok on the ex-date's calendar day is 15:30 New York the day before): paid.
+  assert.equal(run([tx('2026-05-01', 'Buy', 'A', 10, 1, 'Long-Term', { time: '02:30:00' })]), 10);
+  // Bought after the close the day before (05:30 Bangkok = 18:30 New York on 30 Apr): a 30 Apr trade, paid.
+  assert.equal(run([tx('2026-05-01', 'Buy', 'A', 10, 1, 'Long-Term', { time: '05:30:00' })]), 10);
+  // Bought overnight the evening before (08:30 Bangkok = 21:30 New York on 30 Apr): a 1 May trade, not paid.
+  assert.equal(run([tx('2026-05-01', 'Buy', 'A', 10, 1, 'Long-Term', { time: '08:30:00' })]), 0);
 });
 
 test('IRR: one buy, doubled in a year', () => {
