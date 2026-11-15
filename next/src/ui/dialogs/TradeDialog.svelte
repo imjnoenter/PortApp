@@ -158,6 +158,15 @@
   const focus = (el: HTMLInputElement) => { el.focus(); };
 </script>
 
+{#snippet resultBox(r: NonNullable<typeof result>)}
+  <div class="result {sign(r.pnl)}">
+    <span class="lab">{r.sale ? t('Profit on this sale') : t('This lot at today’s price')}</span>
+    <strong>{(r.pnl >= 0 ? '+' : '') + usd(r.pnl)}</strong>
+    <span class="pc">{signedPct(r.pct)}</span>
+    <span class="small muted why">{r.sale ? `${t('against a cost of')} ${usd(r.cost)}, ${t('after the selling fee')}` : `${t('bought at')} ${usd(price)}, ${t('now')} ${usd(live)}`}</span>
+  </div>
+{/snippet}
+
 <Dialog title={t('Record a trade')} onclose={close}>
   <form onsubmit={submit}>
     <div class="row">
@@ -206,6 +215,8 @@
         <span>{t('Amount in dollars')}</span>
         <input class="input" inputmode="decimal" value={amountShown} oninput={e => { amountText = e.currentTarget.value; last = 'amount'; }} placeholder="0.00" />
       </label>
+      <!-- On a sale the profit is the answer to the amount just typed, so it sits right under it. -->
+      {#if type === 'Sell' && shares && price && result}<div class="wide">{@render resultBox(result)}</div>{/if}
     </div>
 
     {#if symbol && chips.length}
@@ -234,14 +245,7 @@
           <tr><th>{t('Cash')}, {cashSource}</th><td>{usd(cashNow)}</td><td class:loss={cashAfter < 0}>{usd(cashAfter)}</td></tr>
         </tbody>
       </table>
-      {#if result}
-        <div class="result {sign(result.pnl)}">
-          <span class="lab">{result.sale ? t('Profit on this sale') : t('This lot at today’s price')}</span>
-          <strong>{(result.pnl >= 0 ? '+' : '') + usd(result.pnl)}</strong>
-          <span class="pc">{signedPct(result.pct)}</span>
-          <span class="small muted why">{result.sale ? `${t('against a cost of')} ${usd(result.cost)}, ${t('after the selling fee')}` : `${t('bought at')} ${usd(price)}, ${t('now')} ${usd(live)}`}</span>
-        </div>
-      {/if}
+      {#if result && type !== 'Sell'}{@render resultBox(result)}{/if}
       <p class="small muted">{t('Trade value')} {usd(fx.tradeValue)}, {t('fees')} {usd(fx.fees.total)}, {type === 'Buy' ? t('you pay') : t('you receive')} {usd(fx.amount)}</p>
       {#if cashAfter < 0}<p class="small loss">{t('This takes the balance below zero. The trade is still recorded.')}</p>{/if}
       {#if funding}

@@ -7,6 +7,7 @@
   // to in dollars. In the workspace the chart and the target bar beside the form follow along.
   import { getContext, untrack } from 'svelte';
   import { pct, qty as fmtQty, sign, signedPct, usd } from '../../core/format.ts';
+  import { fifoAverages, fifoBasis } from '../../core/fifo.ts';
   import { MAX_TRANCHES, MAX_TRIMS, planKey } from '../../core/plan.ts';
   import type { Plan } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -106,6 +107,18 @@
     });
   });
 
+  // ── The average cost after each row, Compressed FIFO like the ledger. Buys run down the ladder from
+  // today's holding; sales run in their own order from today's holding, as their sizes above do. ──
+  const basis = $derived(fifoBasis(app.fifo, portfolio, symbol, heldQty));
+  const buyAvgs = $derived.by(() => {
+    const steps = buys.map(b => ({ type: 'Buy' as const, shares: b.at && b.shares > 0 ? b.shares : 0, price: b.at ?? 0 }));
+    return fifoAverages(basis, heldQty, avgCost, steps).map((a, i) => steps[i].shares > 0 ? a : null);
+  });
+  const saleAvgs = $derived.by(() => {
+    const steps = sales.map(s => ({ type: 'Sell' as const, shares: s.at && s.shares > 0 ? Math.min(s.shares, s.before) : 0, price: s.at ?? 0 }));
+    return fifoAverages(basis, heldQty, avgCost, steps).map((a, i) => steps[i].shares > 0 ? a : null);
+  });
+
   const draft = $derived<Plan>({
     sl: orNull(slText), note,
     tranches: buys.map(b => ({ price: b.at, cumPct: +b.cum.toFixed(4), ...(b.cum > 0 || !(b.dollars > 0) ? {} : { dollar: b.dollars }) })),
@@ -188,6 +201,7 @@
                 {#if b.at && b.shares > 0}
                   {@const g = lotNow(b.at, b.shares)}
                   <strong>{t('Buys')} {usd(b.dollars)}</strong>, {fmtQty(+b.shares.toFixed(4))} {t('shares')}{#if away(b.at)}, {away(b.at)}{/if}.
+                  {#if buyAvgs[i] != null}<span class="navg">{t('New avg')} {usd(buyAvgs[i])}</span>{/if}
                   {#if g && Math.abs(g.pnl) >= 0.005}<span class="pl {sign(g.pnl)}">{t('At today’s price')} {signedUsd(g.pnl)} ({signedPct(g.pct, 1)})</span>{/if}
                 {:else if b.at}<span class="muted">{away(b.at)}</span>{/if}
               </p>
@@ -217,6 +231,7 @@
                   {@const g = saleGain(s.at, Math.min(s.shares, s.before))}
                   <strong>{t('Sells')} {usd(s.dollars)}</strong>, {fmtQty(+s.shares.toFixed(4))} {t('shares')}{#if away(s.at)}, {away(s.at)}{/if}.
                   {#if g}<span class="pl {sign(g.pnl)}">{t('Profit')} {signedUsd(g.pnl)} ({signedPct(g.pct, 1)})</span>{/if}
+                  {#if saleAvgs[i] != null}<span class="navg">{t('New avg')} {usd(saleAvgs[i])}</span>{/if}
                   {#if s.over}<span class="loss">{t('more than is held then')} ({fmtQty(+s.before.toFixed(4))}).</span>{/if}
                 {:else if s.at}<span class="muted">{away(s.at)}</span>{/if}
               </p>
@@ -250,4 +265,5 @@
   .read { grid-column: 1 / -1; margin: 0; color: var(--ink-2); line-height: 1.5; min-height: 1.5em; }
   .read strong { color: var(--ink); font-weight: 600; }
   .pl { font-weight: 650; white-space: nowrap; }
+  .navg { color: var(--ink); font-weight: 600; white-space: nowrap; }
 </style>

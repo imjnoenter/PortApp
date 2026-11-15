@@ -1,7 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { feesOn } from './fees.ts';
-import { fifoWalk, fifoBasis, fifoAfterTrade, fifoKey } from './fifo.ts';
+import { fifoWalk, fifoBasis, fifoAfterTrade, fifoAverages, fifoKey } from './fifo.ts';
+
+test('fifoAverages: planned buys average in, planned sales retire the oldest lots', () => {
+  const basis = { qty: 20, cost: 300, avg: 15, lots: [[10, 10, '2026-01-01', 0], [10, 20, '2026-02-01', 0]] as [number, number, string, number][] };
+  // Buys: 20 @ 15 avg, + 20 @ 5 → 400 / 40 = 10; then + 10 @ 4 → 440 / 50 = 8.8.
+  assert.deepEqual(fifoAverages(basis, 20, 15, [{ type: 'Buy', shares: 20, price: 5 }, { type: 'Buy', shares: 10, price: 4 }]), [10, 8.8]);
+  // Sales: selling 10 retires the $10 lot first, leaving the $20 one; selling the rest leaves nothing.
+  assert.deepEqual(fifoAverages(basis, 20, 15, [{ type: 'Sell', shares: 10, price: 30 }, { type: 'Sell', shares: 10, price: 40 }]), [20, null]);
+  // Without a ledger basis: the holding as one lot, so a sale leaves the average where it was.
+  assert.deepEqual(fifoAverages(null, 20, 15, [{ type: 'Sell', shares: 5, price: 30 }]), [15]);
+});
 import { buildModel, computeLimits, rowsForView, targetDollar } from './model.ts';
 import type { Book } from './model.ts';
 import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMoves, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';

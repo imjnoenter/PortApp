@@ -158,7 +158,30 @@ export function fifoAfterTrade(basis: Basis | null, type: 'Buy' | 'Sell', shares
   return { qty, avg: qty > 1e-9 ? cost / qty : 0 };
 }
 
-export const isTransfer = (t: { type?: string }) => {
+/**
+ * The average cost after each of a run of hypothetical trades, applied in order. Each buy is its own
+ * lot; each sale retires the oldest lots first, so under FIFO a sale can move the average too. With
+ * no ledger basis it starts from the holding as one lot at its stored average. An entry is null when
+ * nothing would be left held.
+ */
+export function fifoAverages(basis: Basis | null, qty0: number, avg0: number, trades: readonly { type: 'Buy' | 'Sell'; shares: number; price: number }[]): (number | null)[] {
+  const L: [number, number][] = basis ? basis.lots.map(l => [l[0], l[1]]) : qty0 > EPS ? [[qty0, avg0]] : [];
+  return trades.map(t => {
+    if (t.type === 'Buy') { if (t.shares > EPS) L.push([t.shares, t.price]); }
+    else {
+      let rem = t.shares;
+      while (rem > EPS && L.length) {
+        const take = Math.min(rem, L[0][0]);
+        L[0][0] -= take; rem -= take;
+        if (L[0][0] <= EPS) L.shift();
+      }
+    }
+    const qty = L.reduce((s, l) => s + l[0], 0);
+    return qty > 1e-9 ? L.reduce((s, l) => s + l[0] * l[1], 0) / qty : null;
+  });
+}
+
+export const isTransfer =(t: { type?: string }) => {
   const ty = (t.type || '').toLowerCase();
   return ty === 'transfer-out' || ty === 'transfer-in';
 };

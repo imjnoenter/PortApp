@@ -167,7 +167,7 @@
   <div class="body">
     {#if app.canWrite}
       <div class="acts">
-        <button class="btn primary" onclick={() => app.dialog = { kind: 'trade', symbol: sym, type: 'Buy' }}>{t('Buy')}</button>
+        <button class="btn" onclick={() => app.dialog = { kind: 'trade', symbol: sym, type: 'Buy' }}>{t('Buy')}</button>
         {#if pos}<button class="btn" onclick={() => app.dialog = { kind: 'trade', symbol: sym, type: 'Sell' }}>{t('Sell')}</button>{/if}
         <button class="btn" onclick={() => app.dialog = { kind: 'plan', symbol: sym, portfolio: home }}>{plan ? t('Edit plan') : t('Make a plan')}</button>
         {#if canMove}<button class="btn" onclick={() => app.dialog = { kind: 'transfer', symbol: sym }}>{t('Move shares')}</button>{/if}
