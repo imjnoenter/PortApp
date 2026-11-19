@@ -29,7 +29,7 @@ import type { Targets } from '../data/sheets.ts';
 import type { CalEvent, GicsMap, Returns } from '../data/sheets.ts';
 import {
   addSymbolParams, appendTradeParams, avgParams, capParams, contribAddParams, contribDeleteParams, contribUpdateParams,
-  ask, detailsParams, holdingParams, ledgerNow, planClearParams, planParams, removeSymbolParams, reserveParams, send,
+  ask, detailsParams, fairValueParams, holdingParams, ledgerNow, planClearParams, planParams, removeSymbolParams, reserveParams, send,
   targetParams, targetsParams, transferParams, txDeleteParams, txNoteParams, txUpdateParams, walletParams,
 } from '../data/write.ts';
 import type { Params } from '../data/write.ts';
@@ -246,8 +246,7 @@ class AppState {
     try {
       const [rows, registry] = await Promise.all([loadHoldings(p.sheetId, fresh), loadRegistry(p.sheetId, fresh)]);
       if (!mine()) return;
-      this.targets = targetsBySymbol(rows);
-      if (this.#free('rows')) this.rawRows = pinRows(rows, this.#pins, Date.now());
+      if (this.#free('rows')) { this.rawRows = pinRows(rows, this.#pins, Date.now()); this.targets = targetsBySymbol(rows); }
       if (this.#free('registry')) this.registry = pinWallet(registry, this.#pins, Date.now());
       this.status = 'ready'; this.error = '';
       this.#sheetAt = Date.now();
@@ -584,6 +583,15 @@ class AppState {
     this.plans = plans;
     this.#pins.rows.delete(portfolio + '|' + symbol);
     this.#push(`Remove ${symbol}`, [removeSymbolParams(portfolio, symbol)], ['rows', 'plans']);
+  }
+
+  /** Morningstar's fair value, typed in the app. Shows at once; the sheet catches up behind it. */
+  saveFairValue(symbol: string, value: number | null) {
+    if (!this.#writable) return;
+    const cur = { ...this.targets[symbol] };
+    if (value == null) delete cur.ms; else cur.ms = value;
+    this.targets = { ...this.targets, [symbol]: cur };
+    this.#push(`Fair value for ${symbol}`, [fairValueParams(symbol, value)], ['rows']);
   }
 
   saveDetails(portfolio: string, symbol: string, d: Details) {

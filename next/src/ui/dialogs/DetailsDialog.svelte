@@ -21,9 +21,15 @@
   let qtyText = $state(numText(row?.qty));
   let avgText = $state(numText(row?.avgPrice));
 
+  // Morningstar's fair value, typed by hand. Per symbol: saved to every row of it. Blank clears it.
+  const msNow = untrack(() => app.targets[symbol]?.ms ?? null);
+  let msText = $state(numText(msNow));
+  const ms = $derived(msText.trim() ? parseNum(msText) : null);
+  const msOk = $derived(ms == null || ms > 0);
+
   const qty = $derived(qtyText.trim() ? parseNum(qtyText) : 0);
   const avg = $derived(avgText.trim() ? parseNum(avgText) : 0);
-  const valid = $derived(qty >= 0 && avg >= 0);
+  const valid = $derived(qty >= 0 && avg >= 0 && msOk);
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -33,6 +39,7 @@
     if (Math.abs(qty - (row.qty || 0)) > 1e-9) d.qty = qty;
     if (Math.abs(avg - (row.avgPrice || 0)) > 1e-9) d.avgPrice = avg;
     app.saveDetails(portfolio, symbol, d);
+    if ((ms ?? null) !== msNow) app.saveFairValue(symbol, ms);
     close();
   }
 </script>
@@ -55,6 +62,13 @@
         <datalist id="details-group">{#each groups as g (g)}<option value={g}></option>{/each}</datalist>
       </div>
       <p class="muted">{t('The two tags describe the symbol, so they apply in every portfolio that has it.')}</p>
+
+      <div class="fgrid">
+        <label class="field"><span>{t('Morningstar fair value')}</span>
+          <input class="input" inputmode="decimal" bind:value={msText} placeholder="—" aria-invalid={!msOk} />
+        </label>
+      </div>
+      <p class="muted">{t('Typed from Morningstar. Like the tags, it applies in every portfolio; leave it blank to clear it.')}</p>
 
       <details>
         <summary>{t('Correct the shares or the average cost')}</summary>

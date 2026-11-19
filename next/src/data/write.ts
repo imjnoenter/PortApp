@@ -71,7 +71,11 @@ export const targetParams = (portfolio: string, symbol: string, target: number):
 export const targetsParams = (portfolio: string, targets: Readonly<Record<string, number>>): Params =>
   ({ action: 'updateTargets', portfolio, targets: Object.entries(targets).map(([s, v]) => `${s}:${+v.toFixed(6)}`).join(',') });
 
-export const transferParams = (symbol: string, shares: number, from: string, to: string, price: number): Params =>
+/** The hand-typed Morningstar fair value; written to every row of the symbol. Null clears it. */
+export const fairValueParams = (symbol: string, value: number | null): Params =>
+  ({ action: 'setFairValue', symbol, value: value == null ? '' : String(+value.toFixed(4)) });
+
+export const transferParams =(symbol: string, shares: number, from: string, to: string, price: number): Params =>
   ({ action: 'transferShares', symbol, shares: shares.toFixed(6), fromPortfolio: from, toPortfolio: to, price: price.toFixed(6) });
 
 export const addSymbolParams = (portfolio: string, symbol: string): Params => ({ action: 'addSymbol', symbol, portfolio });
