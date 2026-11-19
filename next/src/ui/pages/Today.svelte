@@ -4,7 +4,7 @@
   // kept in this browser, per account; nothing here writes to the sheet.
   import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone, ZONE_COLORS } from '../../core/board.ts';
   import type { Board, Zone } from '../../core/board.ts';
-  import { pct, sign, signedPct, usd } from '../../core/format.ts';
+  import { pct, qty as fmtQty, sign, signedPct, usd } from '../../core/format.ts';
   import { ALL } from '../../core/model.ts';
   import { planKey, trancheDollars } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -72,10 +72,19 @@
     const target = p?.target ?? m.watchlist.find(w => w.symbol === sym)?.target ?? 0, td = target * m.investable;
     const dollars = trancheDollars(plan.tranches, td > 0 ? (p?.currentValue ?? 0) / td * 100 : 0, td);
     const gap = (level: number) => price ? (level / price - 1) * 100 : null;
-    const out: { kind: 'profit' | 'entry' | 'stop'; label: string; price: number; size: string; gap: number | null; due: boolean }[] = [];
-    plan.trims.forEach((x, i) => { if (x.price) out.push({ kind: 'profit', label: `${t('Sell')} ${i + 1}`, price: x.price, size: x.pct ? `${+x.pct.toFixed(1)}% ${t('of target')}` : '', gap: gap(x.price), due: !!price && !!p && price >= x.price }); });
-    plan.tranches.forEach((x, i) => { if (x.price) out.push({ kind: 'entry', label: `${t('Buy')} ${i + 1}`, price: x.price, size: dollars[i] > 0 ? usd(dollars[i]) : x.cumPct > 0 ? `${t('to')} ${+x.cumPct.toFixed(0)}%` : '', gap: gap(x.price), due: !!price && price <= x.price }); });
-    if (plan.sl) out.push({ kind: 'stop', label: t('Stop loss'), price: plan.sl, size: '', gap: gap(plan.sl), due: !!price && !!p && price <= plan.sl });
+    const out: { kind: 'profit' | 'entry' | 'stop'; label: string; price: number; size: string; qty: number | null; gap: number | null; due: boolean }[] = [];
+    // Sales come out of what is held, in the order they were planned, so none sells more than is left
+    // (the plan window sizes them the same way).
+    let left = p?.qty ?? 0;
+    plan.trims.forEach((x, i) => {
+      if (!x.price) return;
+      const want = x.pct && td > 0 ? x.pct / 100 * td / x.price : 0, n = Math.min(want, left);
+      left -= n;
+      out.push({ kind: 'profit', label: `${t('Sell')} ${i + 1}`, price: x.price, size: x.pct ? `${+x.pct.toFixed(1)}% ${t('of target')}` : '', qty: n > 0 ? n : null, gap: gap(x.price), due: !!price && !!p && price >= x.price });
+    });
+    plan.tranches.forEach((x, i) => { if (x.price) out.push({ kind: 'entry', label: `${t('Buy')} ${i + 1}`, price: x.price, size: dollars[i] > 0 ? usd(dollars[i]) : x.cumPct > 0 ? `${t('to')} ${+x.cumPct.toFixed(0)}%` : '', qty: dollars[i] > 0 ? dollars[i] / x.price : null, gap: gap(x.price), due: !!price && price <= x.price }); });
+    // A stop sells the whole holding.
+    if (plan.sl) out.push({ kind: 'stop', label: t('Stop loss'), price: plan.sl, size: '', qty: p?.qty || null, gap: gap(plan.sl), due: !!price && !!p && price <= plan.sl });
     return out.sort((a, b) => b.price - a.price);
   }
 
@@ -205,6 +214,7 @@
           <span class="what">{l.label}</span>
           <span class="at">{usd(l.price)}</span>
           <span class="size">{l.size}</span>
+          <span class="qty">{l.qty == null ? '' : `${fmtQty(+l.qty.toFixed(2))} ${t('shares')}`}</span>
           <span class="gap">{l.due ? t('reached') : l.gap == null ? '' : signedPct(l.gap, 1)}</span>
         </li>
       {/each}
@@ -418,7 +428,8 @@
   dd { margin: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* The plan's levels, highest price first, so the list reads like the chart: sales above, buys below. */
   .plan { list-style: none; margin: 0; padding: 5px 0 0; border-top: 1px solid var(--line-soft); display: grid; gap: 2px; }
-  .plan li { display: grid; grid-template-columns: minmax(0, 1.5fr) auto minmax(0, 1.2fr) auto; align-items: baseline; gap: 6px; font-size: 11px; }
+  .plan li { display: grid; grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1.2fr) auto auto; align-items: baseline; gap: 6px; font-size: 11px; }
+  .plan .qty { color: var(--ink-2); text-align: right; white-space: nowrap; }
   .plan .what { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .plan .profit .what { color: var(--gain); } .plan .entry .what { color: var(--accent-ink); } .plan .stop .what { color: var(--loss); }
   .plan .at { font-weight: 650; }
