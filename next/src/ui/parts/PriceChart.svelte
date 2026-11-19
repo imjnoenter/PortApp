@@ -135,16 +135,25 @@
   }
   const emas = $derived(ema ? EMAS.map(n => ({ n, v: average(n).slice(win.from, win.to) })).filter(e => e.v.some(x => x != null)) : []);
 
-  const g = $derived.by(() => {
-    if (shown.length < 2) return null;
+  // ── The scale, worked out in three steps so a plan being typed redraws only its own lines. The
+  // levels come in on every keystroke of the plan form; the price line, the averages and the candles
+  // (thousands of nodes over a long range) are rebuilt only when the scale itself has to move. ──
+  const sticks = $derived(drawCandles && shown.length >= 2 ? shown.map(p => bars!.get(p.d) ?? null) : null);
+  /** The data's own low and high, before any level stretches them. */
+  const data = $derived.by(() => {
     let lo = Infinity, hi = -Infinity;
     for (const p of shown) { if (p.v < lo) lo = p.v; if (p.v > hi) hi = p.v; }
     for (const e of emas) for (const v of e.v) if (v != null) { if (v < lo) lo = v; if (v > hi) hi = v; }
-    const sticks = drawCandles ? shown.map(p => bars!.get(p.d) ?? null) : null;
     if (sticks) for (const b of sticks) if (b) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; }
-    // A level far off the chart would flatten the price line, so only nearby ones stretch the scale.
-    const near = (v: number) => v > lo * 0.6 && v < hi * 1.4;
-    for (const l of levels) if (near(l.value)) { if (l.value < lo) lo = l.value; if (l.value > hi) hi = l.value; }
+    return { lo, hi };
+  });
+  // A level far off the chart would flatten the price line, so only nearby ones stretch the scale.
+  // Plain numbers: a level typed inside the range leaves them equal, and nothing below re-runs.
+  const lo = $derived(levels.reduce((m, l) => l.value > data.lo * 0.6 && l.value < data.hi * 1.4 ? Math.min(m, l.value) : m, data.lo));
+  const hi = $derived(levels.reduce((m, l) => l.value > data.lo * 0.6 && l.value < data.hi * 1.4 ? Math.max(m, l.value) : m, data.hi));
+
+  const g = $derived.by(() => {
+    if (shown.length < 2) return null;
     const span = hi - lo || 1;
     const x = (i: number) => PAD + i / (shown.length - 1) * (W - PAD * 2);
     const y = (v: number) => PAD + (1 - (v - lo) / span) * (H - PAD * 2);
@@ -152,8 +161,13 @@
     const line = path(shown.map(p => p.v));
     // The same scale read backwards: the price at a height on the chart, for the crosshair.
     const inv = (yv: number) => lo + (1 - (yv - PAD) / (H - PAD * 2)) * span;
-    const step = (W - PAD * 2) / (shown.length - 1);
-    return { lo, hi, x, y, inv, path, line, sticks, body: Math.max(0.6, step * 0.66), scale: ticks(inv(H), inv(0)), dates: dateTicks(shown.map(p => p.d)), area: `${line}L${x(shown.length - 1).toFixed(1)} ${H}L${x(0).toFixed(1)} ${H}Z`, inside: (v: number) => v >= lo && v <= hi };
+    const step = (W - PAD * 2) / (shown.length - 1), body = Math.max(0.6, step * 0.66);
+    // Every candle's geometry, worked out once here rather than in the markup.
+    const candles = sticks ? sticks.flatMap((b, i) => b ? [{
+      i, up: b.c >= b.o, x: x(i), top: y(b.h), bottom: y(b.l), bx: x(i) - body / 2,
+      by: y(Math.max(b.o, b.c)), bh: Math.max(1, Math.abs(y(b.o) - y(b.c))),
+    }] : []) : null;
+    return { lo, hi, x, y, inv, line, candles, body, emaPaths: emas.map(e => ({ n: e.n, d: path(e.v) })), scale: ticks(inv(H), inv(0)), dates: dateTicks(shown.map(p => p.d)), area: `${line}L${x(shown.length - 1).toFixed(1)} ${H}L${x(0).toFixed(1)} ${H}Z`, inside: (v: number) => v >= lo && v <= hi };
   });
 
   // A marker sits on the close of its day, at the price line. It carries no text of its own: with
@@ -236,18 +250,15 @@
       onpointermove={track} onpointerdown={grab} onpointerup={() => drag = null} onpointercancel={() => drag = null} onpointerleave={leave} ondblclick={() => view = null}>
       {#each g.scale as v (v)}<line x1="0" x2={W} y1={g.y(v)} y2={g.y(v)} class="grid" vector-effect="non-scaling-stroke" />{/each}
       {#each g.dates as d (d.i)}<line x1={g.x(d.i)} x2={g.x(d.i)} y1="0" y2={H} class="grid" vector-effect="non-scaling-stroke" />{/each}
-      {#if !g.sticks}<path d={g.area} class="area" />{/if}
-      {#each emas as e (e.n)}<path d={g.path(e.v)} class="ema e{e.n}" vector-effect="non-scaling-stroke" />{/each}
+      {#if !g.candles}<path d={g.area} class="area" />{/if}
+      {#each g.emaPaths as e (e.n)}<path d={e.d} class="ema e{e.n}" vector-effect="non-scaling-stroke" />{/each}
       {#each lines as l (l.label)}<line x1="0" x2={W} y1={l.y} y2={l.y} class="level {l.tone}" vector-effect="non-scaling-stroke" />{/each}
-      {#if g.sticks}
+      {#if g.candles}
         <!-- The close line stays, faint, so days with no candle (and today's live price) still connect. -->
         <path d={g.line} class="line faint" vector-effect="non-scaling-stroke" />
-        {#each g.sticks as b, i (i)}
-          {#if b}
-            {@const up = b.c >= b.o}
-            <line x1={g.x(i)} x2={g.x(i)} y1={g.y(b.h)} y2={g.y(b.l)} class="wick {up ? 'up' : 'down'}" vector-effect="non-scaling-stroke" />
-            <rect x={g.x(i) - g.body / 2} width={g.body} y={g.y(Math.max(b.o, b.c))} height={Math.max(1, Math.abs(g.y(b.o) - g.y(b.c)))} class="candle {up ? 'up' : 'down'}" />
-          {/if}
+        {#each g.candles as c (c.i)}
+          <line x1={c.x} x2={c.x} y1={c.top} y2={c.bottom} class="wick {c.up ? 'up' : 'down'}" vector-effect="non-scaling-stroke" />
+          <rect x={c.bx} width={g.body} y={c.by} height={c.bh} class="candle {c.up ? 'up' : 'down'}" />
         {/each}
       {:else}
         <path d={g.line} class="line" vector-effect="non-scaling-stroke" />

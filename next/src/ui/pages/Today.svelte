@@ -36,12 +36,15 @@
   // York, as the broker dates a trade), in the portfolio in view ──
   const traded = $derived.by(() => {
     const day = tradeToday(new Date(app.now));
-    const out = { day, bought: 0, sold: 0, buys: 0, sells: 0 };
+    const out = { day, bought: 0, sold: 0, buys: 0, sells: 0, list: [] as { tx: (typeof app.viewTxs)[number]; value: number }[] };
     for (const x of app.viewTxs) {
       if ((x.type !== 'Buy' && x.type !== 'Sell') || tradeDate(x.dateStr, x.time) !== day) continue;
       const v = x.tradeValue ?? x.shares * x.price;
       if (x.type === 'Buy') { out.bought += v; out.buys++; } else { out.sold += v; out.sells++; }
+      out.list.push({ tx: x, value: v });
     }
+    // Latest first: the ledger's Thai date and time sort in the order the trades were made.
+    out.list.sort((a, b) => (b.tx.dateStr + b.tx.time).localeCompare(a.tx.dateStr + a.tx.time) || b.tx.row - a.tx.row);
     return out;
   });
   const dayLabel = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(app.prefs.lang === 'th' ? 'th-TH' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -272,6 +275,22 @@
       <span class="v">{traded.sold - traded.bought > 0 ? '+' : ''}{usd(traded.sold - traded.bought)}</span>
       <span class="small muted">{t('sold minus bought')}</span>
     </div>
+    {#if traded.list.length}
+      <ul class="tlist">
+        {#each traded.list as { tx, value } (tx.row)}
+          <li>
+            <button onclick={() => app.symbol = tx.ticker} title={tx.note || undefined}>
+              <span class="ttime">{tx.time ? tx.time.slice(0, 5) : ''}</span>
+              <span class="ttype {tx.type === 'Buy' ? 'buy' : 'sell'}">{t(tx.type)}</span>
+              <Logo sym={tx.ticker} size={18} />
+              <strong>{tx.ticker}</strong>
+              <span class="tqty">{fmtQty(+tx.shares.toFixed(4))} × {usd(tx.price)}</span>
+              <span class="tval">{usd(value)}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 
   <!-- The same list as on the Overview: what has reached its level, and what is close. -->
@@ -393,7 +412,17 @@
   .tfig { display: grid; gap: 1px; min-width: 96px; }
   .tfig .k { font-size: 11px; color: var(--muted); }
   .tfig .v { font-size: 18px; font-weight: 650; line-height: 1.2; }
-  @media (max-width: 640px) { .tday { flex-basis: 100%; } .tfig { flex: 1; min-width: 0; } }
+  /* Today's trades, latest first, under the totals: a short list, scrolling past about six. */
+  .tlist { flex-basis: 100%; list-style: none; margin: 0; padding: var(--sp-2) 0 0; border-top: 1px solid var(--line-soft); display: grid; gap: 2px; max-height: 210px; overflow-y: auto; }
+  .tlist button { width: 100%; display: grid; grid-template-columns: 3.2em 3.6em 18px minmax(3.5em, auto) minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--radius-xs); text-align: left; font-size: 13px; }
+  .tlist button:hover { background: var(--sunk); }
+  .ttime { color: var(--muted); font-size: 12px; }
+  .ttype { font-size: 11px; font-weight: 650; padding: 1px 6px; border-radius: 999px; justify-self: start; }
+  .ttype.buy { background: var(--accent-soft); color: var(--accent-ink); }
+  .ttype.sell { background: var(--wash); color: var(--ink-2); }
+  .tqty { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tval { font-weight: 650; text-align: right; }
+  @media (max-width: 640px) { .tday { flex-basis: 100%; } .tfig { flex: 1; min-width: 0; } .ttime { display: none; } .tlist button { grid-template-columns: 3.6em 18px minmax(3.5em, auto) minmax(0, 1fr) auto; } }
   .picker { padding: var(--sp-4); display: grid; gap: var(--sp-3); }
   .prow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
   .prow > .input { flex: 1 1 220px; }

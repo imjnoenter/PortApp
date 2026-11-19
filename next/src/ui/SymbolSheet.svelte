@@ -360,7 +360,7 @@
 {/if}
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: var(--z-sheet); background: color-mix(in oklab, #060912 62%, transparent); backdrop-filter: blur(3px); animation: fade 0.2s var(--ease); }
+  .scrim { position: fixed; inset: 0; z-index: var(--z-sheet); background: color-mix(in oklab, #060912 66%, transparent); animation: fade 0.2s var(--ease); }
   /* A centred window on a desk-sized screen, a sheet rising from the bottom on a phone. */
   .sheet { position: fixed; z-index: var(--z-sheet); left: 50%; top: 50%; translate: -50% -50%; width: min(980px, calc(100vw - 32px)); max-height: min(92dvh, 940px); display: flex; flex-direction: column; overflow: hidden; background: var(--card); border-radius: 28px; box-shadow: var(--shadow); animation: rise 0.3s var(--ease); }
   @keyframes fade { from { opacity: 0; } }

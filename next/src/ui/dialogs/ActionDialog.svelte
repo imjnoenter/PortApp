@@ -180,7 +180,7 @@
 </div>
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: var(--z-dialog); background: color-mix(in oklab, #060912 62%, transparent); backdrop-filter: blur(3px); animation: fade 0.2s var(--ease); }
+  .scrim { position: fixed; inset: 0; z-index: var(--z-dialog); background: color-mix(in oklab, #060912 66%, transparent); animation: fade 0.2s var(--ease); }
   .work { position: fixed; z-index: var(--z-dialog); left: 50%; top: 50%; translate: -50% -50%; width: min(1180px, calc(100vw - 32px)); height: min(92dvh, 900px); display: flex; flex-direction: column; overflow: hidden; background: var(--card); border-radius: 28px; box-shadow: var(--shadow); animation: rise 0.3s var(--ease); }
   @keyframes fade { from { opacity: 0; } }
   @keyframes rise { from { transform: translateY(18px) scale(0.985); opacity: 0; } }

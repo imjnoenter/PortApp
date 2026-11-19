@@ -23,7 +23,9 @@
   const m = untrack(() => app.portModel(portfolio));
   const initial: AllocRow[] = untrack(() => [
     ...m.positions.map(p => ({ symbol: p.symbol, name: p.name, now: p.investWeightPct, saved: (p.target || 0) * 100, target: (p.target || 0) * 100, locked: false, category: p.category, custom: p.custom, myGroup: p.myGroup })),
-    ...m.watchlist.map(w => ({ symbol: w.symbol, name: w.name, now: 0, saved: (w.target || 0) * 100, target: (w.target || 0) * 100, locked: false, category: w.category, custom: w.custom, myGroup: w.myGroup })),
+    // Watched stocks start locked, so the tools (match current, equal weight, fill the rest, a group's
+    // slider) work on what is held. Unlock one to give it a target.
+    ...m.watchlist.map(w => ({ symbol: w.symbol, name: w.name, now: 0, saved: (w.target || 0) * 100, target: (w.target || 0) * 100, locked: true, category: w.category, custom: w.custom, myGroup: w.myGroup })),
   ].sort((a, b) => b.target - a.target || b.now - a.now || a.symbol.localeCompare(b.symbol)));
   let rows = $state.raw(initial);
   const sliderMax = new Map(initial.map(r => [r.symbol, Math.min(100, Math.max(20, Math.ceil(Math.max(r.saved, r.now) * 2 / 5) * 5))]));
@@ -190,7 +192,7 @@
 </div>
 
 <style>
-  .scrim { position: fixed; inset: 0; z-index: var(--z-dialog); background: color-mix(in oklab, #060912 62%, transparent); backdrop-filter: blur(3px); }
+  .scrim { position: fixed; inset: 0; z-index: var(--z-dialog); background: color-mix(in oklab, #060912 66%, transparent); }
   .editor { position: fixed; z-index: var(--z-dialog); left: 50%; top: 50%; translate: -50% -50%; width: min(1240px, calc(100vw - 32px)); height: min(92dvh, 920px); display: flex; flex-direction: column; overflow: hidden; background: var(--card); border-radius: 28px; box-shadow: var(--shadow); }
   header, footer { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) var(--sp-5) var(--sp-4) var(--sp-6); }
   h2 { font: 700 24px/1.1 var(--font-display); letter-spacing: -0.03em; }

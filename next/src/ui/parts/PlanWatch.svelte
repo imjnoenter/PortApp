@@ -14,7 +14,7 @@
     let room = all ? Infinity : MAX;
     return [
       { id: 'hit', title: t('Reached'), sub: t('the price is at or past the level'), items: app.alerts.filter(a => a.hit) },
-      { id: 'near', title: t('Not reached yet'), sub: t('close to a level, or off target'), items: app.alerts.filter(a => !a.hit) },
+      { id: 'near', title: t('Not reached yet'), sub: t('close to a level'), items: app.alerts.filter(a => !a.hit) },
     ].map(g => { const items = g.items.slice(0, Math.max(0, room)); room -= items.length; return { ...g, items, total: g.items.length }; })
       .filter(g => g.total);
   });

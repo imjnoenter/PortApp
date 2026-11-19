@@ -120,7 +120,6 @@
             <div class="mrow"><span>{t('Theme')}</span><Seg small bind:value={app.prefs.theme} options={[{ value: 'auto', label: t('Auto') }, { value: 'light', label: t('Light') }, { value: 'dark', label: t('Dark') }]} /></div>
             <div class="mrow"><span>{t('Prices from')}</span><Seg small bind:value={app.prefs.priceSource} onchange={() => app.refreshQuotes()} options={[{ value: 'auto', label: t('Auto') }, { value: 'cnbc', label: 'CNBC' }, { value: 'sheet', label: t('Sheet') }]} /></div>
             <div class="mrow"><span>{t('Notify at plan levels')}</span><Seg small value={app.prefs.notify ? 'on' : 'off'} onchange={setNotify} options={[{ value: 'off', label: t('Off') }, { value: 'on', label: t('On') }]} /></div>
-            <div class="mrow"><span>{t('Flag drift beyond')}</span><Seg small value={String(app.prefs.driftBand)} onchange={v => app.prefs.driftBand = Number(v)} options={[{ value: '0', label: t('Off') }, { value: '10', label: '10%' }, { value: '25', label: '25%' }, { value: '50', label: '50%' }]} /></div>
             {#if app.ports.length > 1}
               <div class="mlabel">{t('Portfolios in the switcher')}</div>
               <div class="mports">
@@ -132,14 +131,23 @@
             <hr>
             {#if app.profiles.length > 1}
               <div class="mlabel">{t('Account')}</div>
+              <!-- Every saved account has its own Edit, so one can be changed or forgotten without opening it
+                   first (an opened ?sheet= link can't be switched away from, and isn't saved itself). -->
               {#each app.profiles as p (p.id)}
-                <button class="mitem" class:on={p.id === app.profile?.id} onclick={() => { menu = false; app.switchProfile(p.id); }}>{p.profileName}</button>
+                <div class="prow">
+                  <button class="mitem" class:on={p.id === app.profile?.id} onclick={() => { menu = false; app.switchProfile(p.id); }}>
+                    {p.profileName}{#if p.ephemeral}<span class="muted small">{' '}{t('this link')}</span>{/if}
+                  </button>
+                  {#if !p.ephemeral}
+                    <button class="pedit" onclick={() => { menu = false; app.editing = p; app.status = 'setup'; }} aria-label="{t('Edit this account…')} {p.profileName}" title={t('Edit this account…')}>{t('Edit')}</button>
+                  {/if}
+                </div>
               {/each}
             {/if}
             {#if app.canWrite}
               <button class="mitem" onclick={() => { menu = false; app.dialog = { kind: 'cash' }; }}>{t('Cash and limits…')}</button>
             {/if}
-            {#if app.profile && !app.profile.ephemeral}
+            {#if app.profile && !app.profile.ephemeral && app.profiles.length <= 1}
               <button class="mitem" onclick={() => { menu = false; app.editing = app.profile; app.status = 'setup'; }}>{t('Edit this account…')}</button>
             {/if}
             <button class="mitem" onclick={() => { menu = false; app.editing = null; app.status = 'setup'; }}>{t('Add an account…')}</button>
@@ -253,6 +261,10 @@
   .mitem { display: block; width: 100%; text-align: left; padding: 8px var(--sp-2); border-radius: var(--radius-sm); font-size: 14px; color: var(--ink); text-decoration: none; }
   .mitem:hover { background: var(--wash); }
   .mitem.on { font-weight: 650; }
+  .prow { display: flex; align-items: center; gap: 4px; }
+  .prow .mitem { flex: 1; min-width: 0; }
+  .pedit { flex: none; padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--ink-2); background: var(--wash); }
+  .pedit:hover { color: var(--ink); }
   .mitem.on::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); margin-right: 8px; vertical-align: middle; }
   hr { border: 0; border-top: 1px solid var(--line-soft); margin: 0; width: 100%; }
 

@@ -9,7 +9,7 @@ import { date, moneyFormatter } from '../core/format.ts';
 import { etToday, session } from '../core/market.ts';
 import { ALL, buildModel, computeLimits } from '../core/model.ts';
 import type { Book } from '../core/model.ts';
-import { driftAlert, planAlerts } from '../core/alerts.ts';
+import { planAlerts } from '../core/alerts.ts';
 import type { PlanAlert } from '../core/alerts.ts';
 import type { EtfData } from '../core/etf.ts';
 import { betas, closedTrades, concentration, correlation, forwardIncome, holdingsPerf, rangeStress, stopCover, stressTest, worthSeries } from '../core/insights.ts';
@@ -152,7 +152,7 @@ class AppState {
   /** One model per portfolio, rebuilt only when the data changes. */
   portModels = $derived(new Map(this.ports.map(p => [p, buildModel(this.book, p, this.limits)])));
 
-  /** Plan levels reached or close, and holdings off target, most urgent first. */
+  /** Plan levels reached or close, most urgent first. Being over or under target is not flagged here. */
   alerts = $derived.by(() => {
     const out: PlanAlert[] = [];
     for (const [port, m] of this.portModels) {
@@ -165,7 +165,6 @@ class AppState {
         const td = (p.target || 0) * m.investable;
         const plan = this.plans[planKey(port, p.symbol)];
         if (plan) out.push(...planAlerts(port, p.symbol, plan, { price: this.quotes[p.symbol]?.price ?? p.price, qty, currentValue: value, targetDollar: td }));
-        if (qty > 0) { const d = driftAlert(port, p.symbol, value, td, this.prefs.driftBand); if (d) out.push(d); }
       }
     }
     return out.sort((a, b) => b.urgency - a.urgency || Math.abs(b.gap) - Math.abs(a.gap));
@@ -200,7 +199,9 @@ class AppState {
 
   session = $derived(session(new Date(this.now)));
   money = $derived(moneyFormatter(this.prefs.currency, this.fx));
-  profiles = $derived.by(() => { void this.profile; return listProfiles(); });
+  /** Bumped when a saved account other than the open one is changed or forgotten, so the list re-reads. */
+  #profilesRev = $state(0);
+  profiles = $derived.by(() => { void this.profile; void this.#profilesRev; return listProfiles(); });
   canWrite = $derived(canWrite(this.profile));
 
   /** Translate. English is the key; anything without a Thai entry stays English. */
@@ -628,14 +629,17 @@ class AppState {
   saveProfile(id: string, p: Omit<Profile, 'id'>) {
     const next = updateProfile(id, p);
     this.editing = null;
-    if (!next) return;
-    if (this.profile?.id === id) { this.profile = next; this.#reset(); }
+    this.#profilesRev++;
+    if (!next || this.profile?.id !== id) { this.status = this.rawRows.length ? 'ready' : 'loading'; void this.load(); return; }
+    this.profile = next; this.#reset();
     this.status = 'loading';
     void this.load();
   }
   forgetProfile(id: string) {
     const next = removeProfile(id);
     this.editing = null;
+    // Forgetting an account other than the one open leaves the open one as it is.
+    if (this.profile && this.profile.id !== id) { this.#profilesRev++; this.status = this.rawRows.length ? 'ready' : 'loading'; void this.load(); return; }
     this.profile = next;
     this.#reset();
     if (next) { this.status = 'loading'; void this.load(); } else this.status = 'setup';
