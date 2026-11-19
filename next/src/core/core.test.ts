@@ -13,6 +13,7 @@ test('fifoAverages: planned buys average in, planned sales retire the oldest lot
   assert.deepEqual(fifoAverages(null, 20, 15, [{ type: 'Sell', shares: 5, price: 30 }]), [15]);
 });
 import { buildModel, computeLimits, rowsForView, targetDollar } from './model.ts';
+import { activityFeed } from './feed.ts';
 import type { Book } from './model.ts';
 import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMoves, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';
 import { session, sessionDay, tradeDate, weekStart } from './market.ts';
@@ -649,4 +650,24 @@ test('board: a card is in one zone at a time, and zones keep their cards when ed
   const read = readBoard({ zones: [{ id: 'a', name: 'A', color: 8, cards: ['X', 'X', 3] }, { id: 'b', cards: ['X', 'Y'] }, null] });
   assert.deepEqual(read.zones.map(z => z.cards), [['X'], ['Y']]); assert.equal(read.zones[0].color, 2);
   assert.equal(readBoard(null).zones.length, 4); assert.equal(readBoard({ zones: [] }).zones.length, 0);
+});
+
+test('activity feed: open, add, trim and close, with weights, realized and the move between portfolios', () => {
+  const txs = [
+    tx('2026-03-02', 'Buy', 'AAA', 10, 10), tx('2026-03-03', 'Buy', 'BBB', 10, 10),
+    tx('2026-03-04', 'Buy', 'AAA', 5, 12), tx('2026-03-04', 'Buy', 'AAA', 5, 12),   // two fills, one order
+    tx('2026-03-05', 'Sell', 'AAA', 10, 15), tx('2026-03-06', 'Sell', 'AAA', 10, 20),
+    tx('2026-03-09', 'Transfer-Out', 'BBB', 4, 10), tx('2026-03-09', 'Transfer-In', 'BBB', 4, 10, 'Trade'),
+  ];
+  const prices = { AAA: { '2026-03-02': 10, '2026-03-03': 10, '2026-03-04': 12, '2026-03-05': 15, '2026-03-06': 20 }, BBB: { '2026-03-03': 10, '2026-03-04': 10, '2026-03-05': 10, '2026-03-06': 10 } };
+  const sales = realizedSales(fifoWalk(txs), 'ALL');
+  const feed = activityFeed({ txs, sales, dividends: [], contribs: [], idx: new PriceIndex(prices), fx: 32, all: true }).reverse();
+  assert.deepEqual(feed.map(e => e.kind), ['open', 'open', 'add', 'trim', 'close', 'move']);
+  near(feed[1].wAfter!, 50);                 // 100 of 200
+  assert.equal(feed[2].shares, 10);          // the two fills folded
+  near(feed[2].wBefore!, 120 / 220 * 100); near(feed[2].wAfter!, 240 / 340 * 100);
+  assert.equal(feed[2].largest, false);      // AAA was already the biggest
+  near(feed[3].pnl!, sales[0].pnl);
+  near(feed[4].pnl!, sales[0].pnl + sales[1].pnl); assert.equal(feed[4].holdDays, 4); assert.equal(feed[4].wAfter, 0);
+  assert.equal(feed[5].portfolio, 'Long-Term'); assert.equal(feed[5].to, 'Trade');
 });

@@ -5,7 +5,7 @@
   import { nextTranche } from '../../core/plan.ts';
   import type { Position, WatchItem } from '../../core/types.ts';
   import { PERIODS } from '../../data/sheets.ts';
-  import type { Period } from '../../data/sheets.ts';
+  import type { Period, TargetKey } from '../../data/sheets.ts';
   import { app } from '../../state/app.svelte.ts';
   import DeleteButton from '../parts/DeleteButton.svelte';
   import Logo from '../parts/Logo.svelte';
@@ -52,6 +52,12 @@
   const text = (id: string, label: string, pick: (p: Position) => string | null): Col =>
     ({ id, label, text: true, val: pick, cell: p => pick(p) ? { main: pick(p)!, tone: 'ink2' } : dash });
   const away = (level: number | null | undefined, p: Position) => level ? signedPct((p.price / level - 1) * 100, 1) : '';
+  const TARGET_COLS: [TargetKey, string][] = [
+    ['avg', 'Avg target'], ['median', 'Median target'], ['low', 'Low target'], ['high', 'High target'],
+    ['top', 'Top analyst target'], ['lynch', 'Peter Lynch value'], ['ms', 'Morningstar fair value'],
+  ];
+  /** Percent from today's price up (or down) to a target. */
+  const upside = (p: Position, k: TargetKey) => { const v = app.targets[p.symbol]?.[k]; return v && p.price ? (v / p.price - 1) * 100 : null; };
 
   const COLS: Col[] = [
     // While any holding has a pre-market or after-hours price, Price sorts by that move (percent, or
@@ -83,6 +89,9 @@
       cell: p => { const plan = app.planOf(p); const n = plan ? nextTranche(plan, p.price) : null; return n ? { main: usd(n.tranche.price), sub: `${t('Buy')} ${n.index + 1}, ${away(n.tranche.price, p)}` } : dash; } },
     ...PERIODS.map((period): Col => ({ id: 'r' + period, label: period, val: p => ret(p, period),
       cell: p => { const r = ret(p, period); return r == null ? dash : { main: signedPct(r, 1), tone: sign(r) }; } })),
+    // Price targets from the sheet (refreshed weekly by hand): the level, and how far it is from today's price.
+    ...TARGET_COLS.map(([k, label]): Col => ({ id: 't-' + k, label, val: p => upside(p, k), abs: p => app.targets[p.symbol]?.[k] ?? null,
+      cell: p => { const v = app.targets[p.symbol]?.[k]; const u = upside(p, k); return v ? { main: usd(v), sub: u == null ? undefined : signedPct(u, 1), subTone: sign(u) } : dash; } })),
     { id: 'cap', label: 'Market cap', val: p => p.marketCap, cell: p => p.marketCap ? { main: compactNum(p.marketCap) } : dash },
     { id: 'volume', label: 'Volume', val: p => p.volume, cell: p => p.volume ? { main: compactNum(p.volume), tone: 'ink2' } : dash },
     { id: 'fee', label: 'Fund fee', val: p => app.etf[p.symbol]?.expenseRatio ?? null, cell: p => { const v = app.etf[p.symbol]?.expenseRatio; return v == null ? dash : { main: pct(v * 100, 2) }; } },
@@ -111,7 +120,10 @@
   const TABS = {
     holdings: ['price', 'day', 'qty', 'avg', 'cost', 'value', 'unrealized', 'alloc', 'range'],
     performance: ['price', 'day', 'rYTD', 'r1M', 'r3M', 'r1Y', 'r3Y', 'r5Y', 'total', 'cap', 'volume'],
+    targets: ['price', 'day', 't-avg', 't-median', 't-low', 't-high', 't-top', 't-lynch', 't-ms', 'range'],
   };
+  type Fixed = keyof typeof TABS;
+  const FIXED: [Fixed, string][] = [['holdings', 'Holdings'], ['performance', 'Performance'], ['targets', 'Price targets']];
   /** A tab of the user's own: a name and the columns it shows, in order. */
   interface View { id: string; name: string; cols: string[] }
   const STARTER = ['price', 'day', 'value', 'unrealized', 'total', 'stop', 'entry', 'earnings'];
@@ -123,16 +135,31 @@
   let views = $state<View[]>(Array.isArray(saved.views) && saved.views.length
     ? saved.views.map((v: View, i: number) => ({ id: String(v.id || 'v' + i), name: String(v.name || ''), cols: known(v.cols) ?? STARTER }))
     : [{ id: 'v1', name: '', cols: known(saved.custom) ?? STARTER }]);   // the earlier single list becomes the first tab
-  let tab = $state<string>(untrack(() => saved.tab === 'custom' ? views[0].id : saved.tab === 'performance' || views.some(v => v.id === saved.tab) ? saved.tab : 'holdings'));
+  let tab = $state<string>(untrack(() => saved.tab === 'custom' ? views[0].id : saved.tab === 'performance' || saved.tab === 'targets' || views.some(v => v.id === saved.tab) ? saved.tab : 'holdings'));
   const view = $derived(views.find(v => v.id === tab) ?? null);
-  const custom = $derived(view?.cols ?? []);
-  const setCols = (cols: string[]) => { views = views.map(v => v.id === tab ? { ...v, cols } : v); };
+  /** The built-in tabs' columns can be edited too; each keeps its own list and can go back to the default. */
+  const fixedTab = $derived<Fixed>(view ? 'holdings' : TABS[tab as Fixed] ? tab as Fixed : 'holdings');
+  // A column added to a built-in tab's default later still shows up for someone who had edited that
+  // tab: `seen` is the default as it was at the last save, and anything new to it is appended.
+  let fixedCols = $state<Record<Fixed, string[]>>(untrack(() => Object.fromEntries(FIXED.map(([id]) => {
+    const mine = known(saved.fixed?.[id]);
+    if (!mine) return [id, [...TABS[id]]];
+    const seen: string[] = Array.isArray(saved.fixedSeen?.[id]) ? saved.fixedSeen[id] : mine;
+    return [id, [...mine, ...TABS[id].filter(c => !seen.includes(c) && !mine.includes(c))]];
+  })) as Record<Fixed, string[]>));
+  const custom = $derived(view ? view.cols : fixedCols[fixedTab]);
+  const setCols = (cols: string[]) => {
+    if (view) views = views.map(v => v.id === tab ? { ...v, cols } : v);
+    else fixedCols = { ...fixedCols, [fixedTab]: cols };
+  };
+  const isDefault = $derived(!view && custom.join() === TABS[fixedTab].join());
+  const resetCols = () => setCols([...TABS[fixedTab]]);
   const viewName = (v: View) => v.name || t('My columns');
 
   let renaming = $state<string | null>(null);
   function rename(id: string, name: string) { views = views.map(v => v.id === id ? { ...v, name: name.trim().slice(0, 24) } : v); renaming = null; }
   function addView() {
-    const v: View = { id: 'v' + Date.now(), name: '', cols: view ? [...view.cols] : cols.map(c => c.id).filter(id => id !== 'range') };
+    const v: View = { id: 'v' + Date.now(), name: '', cols: view ? [...view.cols] : custom.filter(id => id !== 'range') };
     views = [...views, v]; tab = v.id; renaming = v.id; colsOpen = true;
   }
   function removeView() {
@@ -141,9 +168,9 @@
   }
   const focusAll = (el: HTMLInputElement) => { el.focus(); el.select(); };
   let basis = $state<'pct' | 'abs'>(saved.basis === 'abs' ? 'abs' : 'pct');
-  $effect(() => { try { localStorage.setItem(KEY, JSON.stringify({ tab, basis, views })); } catch { /* storage full or blocked */ } });
+  $effect(() => { try { localStorage.setItem(KEY, JSON.stringify({ tab, basis, views, fixed: fixedCols, fixedSeen: TABS })); } catch { /* storage full or blocked */ } });
 
-  const cols = $derived((view ? view.cols : tab === 'performance' ? TABS.performance : TABS.holdings).map(id => byId.get(id)!));
+  const cols = $derived(custom.map(id => byId.get(id)!));
   let sortKey = $state('value');
   let dir = $state<1 | -1>(-1);
   let query = $state('');
@@ -196,7 +223,7 @@
   // list do the same for a keyboard. ──
   let drag = $state<{ id: string; x0: number; on: boolean; over: string | null; after: boolean } | null>(null);
   let dragged = false;
-  function dragStart(e: PointerEvent, id: string) { if (view && e.button === 0) drag = { id, x0: e.clientX, on: false, over: null, after: false }; }
+  function dragStart(e: PointerEvent, id: string) { if (e.button === 0) drag = { id, x0: e.clientX, on: false, over: null, after: false }; }
   function dragMove(e: PointerEvent) {
     if (!drag) return;
     if (!drag.on && Math.abs(e.clientX - drag.x0) < 6) return;
@@ -279,8 +306,9 @@
       {/if}
       <!-- Which table, beside the day's figure; the controls that act on it sit to the right. -->
       <div class="tabs" role="group" aria-label={t('Table layout')}>
-        <button class:on={tab === 'holdings'} aria-pressed={tab === 'holdings'} onclick={() => tab = 'holdings'}>{t('Holdings')}</button>
-        <button class:on={tab === 'performance'} aria-pressed={tab === 'performance'} onclick={() => tab = 'performance'}>{t('Performance')}</button>
+        {#each FIXED as [id, label] (id)}
+          <button class:on={tab === id} aria-pressed={tab === id} onclick={() => tab = id}>{t(label)}</button>
+        {/each}
         {#each views as v (v.id)}
           {#if renaming === v.id}
             <input class="rename" value={viewName(v)} maxlength="24" aria-label={t('Tab name')} use:focusAll
@@ -293,19 +321,23 @@
         <button class="add" onclick={addView} aria-label={t('Add a tab of your own')} title={t('Add a tab of your own')}>+</button>
       </div>
       <span class="spacer"></span>
-      {#if view}<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>{/if}
+<button class="btn" aria-expanded={colsOpen} onclick={() => colsOpen = !colsOpen}>{t('Choose columns')}</button>
       {#if rows.length}<button class="btn" onclick={sharePic} disabled={drawing}>{t('Share')}</button>{/if}
       {#if options.length}<button class="btn" class:on={active > 0} aria-expanded={filtersOpen} onclick={() => filtersOpen = !filtersOpen}>{t('Filter')}{active ? ` ${active}` : ''}</button>{/if}
       <Seg small label={t('Sort returns by')} bind:value={basis} options={[{ value: 'pct', label: t('Sort by %') }, { value: 'abs', label: t('Sort by $') }]} />
     </div>
 
-    {#if view && colsOpen}
+    {#if colsOpen}
       <div class="panel">
         <div class="viewtools">
           <span class="small muted">{t('Drag a column heading sideways to move it, or use the arrows here.')}</span>
           <span class="spacer"></span>
-          <button class="btn" onclick={() => renaming = view.id}>{t('Rename this tab')}</button>
-          {#if views.length > 1}<DeleteButton label={t('Delete this tab')} confirm={t('Press again to delete')} onconfirm={removeView} />{/if}
+          {#if view}
+            <button class="btn" onclick={() => renaming = view.id}>{t('Rename this tab')}</button>
+            {#if views.length > 1}<DeleteButton label={t('Delete this tab')} confirm={t('Press again to delete')} onconfirm={removeView} />{/if}
+          {:else}
+            <button class="btn" onclick={resetCols} disabled={isDefault}>{t('Reset to default')}</button>
+          {/if}
         </div>
         <ul class="colpick">
           {#each [...custom, ...COLS.map(c => c.id).filter(id => !custom.includes(id))] as id (id)}
@@ -343,7 +375,7 @@
             <tr>
               <th class="sortable" aria-sort={aria('symbol')}><button onclick={() => sortBy(null)}>{t('Symbol')}{#if sortKey === 'symbol'}<span aria-hidden="true">{' '}{dir === 1 ? '↑' : '↓'}</span>{/if}</button></th>
               {#each cols as c (c.id)}
-                <th class="sortable" class:n={!c.text && c.id !== 'range' && c.id !== 'alloc'} class:mine={!!view} class:lifting={drag?.on && drag.id === c.id}
+                <th class="sortable" class:n={!c.text && c.id !== 'range' && c.id !== 'alloc'} class:mine={true} class:lifting={drag?.on && drag.id === c.id}
                   class:before={drag?.on && drag.over === c.id && !drag.after && drag.id !== c.id} class:after={drag?.on && drag.over === c.id && drag.after && drag.id !== c.id}
                   data-col={c.id} aria-sort={aria(c.id)} onpointerdown={e => dragStart(e, c.id)}>
                   <button onclick={() => sortBy(c)}>{t(c.label)}{#if sortKey === c.id}<span aria-hidden="true">{' '}{dir === 1 ? '↑' : '↓'}{c.note ? (c.note() ? ` ${c.note()}${basis === 'abs' ? ' $' : ' %'}` : '') : c.abs ? (basis === 'abs' ? ' $' : ' %') : ''}</span>{/if}</button>

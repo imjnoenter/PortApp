@@ -5,6 +5,26 @@ import type { Plans } from '../core/plan.ts';
 import type { Contribution, History, HoldingRow, PortfolioRow, Tx } from '../core/types.ts';
 import { bool, date, fetchTable, num, raw, str, time } from './gviz.ts';
 
+/**
+ * Analyst and fair-value targets: sheet columns the user refreshes about weekly (VLOOKUPs into the
+ * 'from stock analysis' tab). Per symbol, not per row. A missing column or a blank / #N/A cell
+ * simply leaves that field out.
+ */
+export interface Targets { low?: number; median?: number; high?: number; avg?: number; top?: number; lynch?: number; ms?: number }
+export type TargetKey = keyof Targets;
+/** Field, then the header names it may go by. Morningstar's is typed in by hand, not looked up. */
+export const TARGET_FIELDS: [TargetKey, ...string[]][] = [
+  ['low', 'Price Target (Low)'], ['median', 'Price Target (Median)'], ['high', 'Price Target (High)'],
+  ['avg', 'Price Target'], ['top', 'Top Analyst Price Target'], ['lynch', 'Peter Lynch Fair Value'],
+  ['ms', 'Morningstar Fair', 'Morningstar Fair Value'],
+];
+/** One entry per symbol, field by field: a value typed on any of a symbol's rows counts for all of them. */
+export function targetsBySymbol(rows: readonly HoldingRow[]): Record<string, Targets> {
+  const out: Record<string, Targets> = {};
+  for (const r of rows) if (r.targets) out[r.symbol] = { ...r.targets, ...out[r.symbol] };
+  return out;
+}
+
 export async function loadHoldings(sheetId: string, fresh = false): Promise<HoldingRow[]> {
   const t = await fetchTable(sheetId, 'Claude', fresh);
   const c = {
@@ -14,11 +34,15 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
     cap: t.col('Market Cap'),
   };
   if (c.symbol < 0) throw new Error('The "Claude" tab has no Symbol column');
+  const tc = TARGET_FIELDS.map(([k, ...names]) => [k, t.col(...names)] as const).filter(([, i]) => i >= 0);
   const out: HoldingRow[] = [];
   for (const r of t.rows) {
     const symbol = str(r, c.symbol)?.toUpperCase();
     if (!symbol) continue;
+    const targets: Targets = {};
+    for (const [k, i] of tc) { const v = num(r, i); if (v != null && v > 0) targets[k] = v; }
     out.push({
+      ...(Object.keys(targets).length ? { targets } : {}),
       portfolio: str(r, c.portfolio) || DEFAULT_PORT, symbol,
       name: str(r, c.name), sector: str(r, c.sector), industry: str(r, c.industry),
       category: str(r, c.category), custom: str(r, c.custom), myGroup: str(r, c.myGroup),

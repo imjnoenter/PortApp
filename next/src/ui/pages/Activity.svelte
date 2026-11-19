@@ -1,10 +1,12 @@
 <script lang="ts">
   import { contribAmounts } from '../../core/analytics.ts';
+  import { activityFeed } from '../../core/feed.ts';
   import { feesOn } from '../../core/fees.ts';
   import { isTransfer } from '../../core/fifo.ts';
   import { baht, date, qty, sign, signedPct, usd } from '../../core/format.ts';
   import { ALL } from '../../core/model.ts';
   import { app } from '../../state/app.svelte.ts';
+  import ActivityFeed from '../parts/ActivityFeed.svelte';
   import Seg from '../parts/Seg.svelte';
   import { downloadCsv } from '../share.ts';
 
@@ -12,8 +14,10 @@
   const money = $derived(app.money);
   const PAGE = 100;
 
-  type Tab = 'trades' | 'realized' | 'closed' | 'dividends' | 'cash';
-  let tab = $state<Tab>('trades');
+  type Tab = 'feed' | 'trades' | 'realized' | 'closed' | 'dividends' | 'cash';
+  let tab = $state<Tab>('feed');
+  /** Which events the feed shows. */
+  let feedKind = $state<'all' | 'trades' | 'income' | 'cash'>('all');
   let query = $state('');
   let kind = $state<'all' | 'Buy' | 'Sell' | 'transfer'>('all');
   let shown = $state(PAGE);
@@ -35,10 +39,19 @@
   const divs = $derived(app.dividends.events.filter(d => hit(d.ticker)).sort((a, b) => b.date.localeCompare(a.date)));
   const cash = $derived(app.contribs.map(c => ({ c, ...contribAmounts(c, app.fx) })).sort((a, b) => b.c.date.localeCompare(a.c.date)));
 
+  // The same history as the tables, retold as events. Built once per data change; filtered cheaply.
+  const feedAll = $derived(app.ledgerLoaded ? activityFeed({
+    txs: app.viewTxs, sales: app.sales, dividends: app.dividends.events, contribs: app.contribs,
+    idx: app.priceIndex, splits: app.history.splits, fx: app.fx, all: app.view === ALL,
+  }) : []);
+  const feed = $derived(feedAll.filter(e =>
+    (!e.ticker ? !q : hit(e.ticker)) &&
+    (feedKind === 'all' || (feedKind === 'income' ? e.kind === 'dividend' : feedKind === 'cash' ? e.kind === 'deposit' || e.kind === 'withdraw' : !['dividend', 'deposit', 'withdraw'].includes(e.kind)))));
+
   const closed = $derived(app.journal.filter(c => hit(c.ticker)));
   const closedPnl = $derived(closed.reduce((s, c) => s + c.pnl, 0));
   const wins = $derived(closed.filter(c => c.pnl > 0).length);
-  const count = $derived({ trades: trades.length, realized: sales.length, closed: closed.length, dividends: divs.length, cash: cash.length }[tab]);
+  const count = $derived({ feed: feed.length, trades: trades.length, realized: sales.length, closed: closed.length, dividends: divs.length, cash: cash.length }[tab]);
 
   /** The rows on screen, every one of them (not just the page shown), in plain numbers. */
   function exportCsv() {
@@ -65,10 +78,16 @@
   <section class="card">
     <div class="bar">
       <Seg bind:value={tab} onchange={reset} options={[
-        { value: 'trades', label: t('Trades') }, { value: 'realized', label: t('Realized') }, { value: 'closed', label: t('Closed trades') },
+        { value: 'feed', label: t('Feed') }, { value: 'trades', label: t('Trades') }, { value: 'realized', label: t('Realized') }, { value: 'closed', label: t('Closed trades') },
         { value: 'dividends', label: t('Dividends') }, { value: 'cash', label: t('Cash in / out') },
       ]} />
       <span class="spacer"></span>
+      {#if tab === 'feed'}
+        <Seg small bind:value={feedKind} onchange={reset} options={[
+          { value: 'all', label: t('All') }, { value: 'trades', label: t('Trades') }, { value: 'income', label: t('Dividends') },
+          ...(app.view === ALL ? [{ value: 'cash' as const, label: t('Cash') }] : []),
+        ]} />
+      {/if}
       {#if tab === 'trades'}
         <Seg small bind:value={kind} onchange={reset} options={[
           { value: 'all', label: t('All') }, { value: 'Buy', label: t('Buy') }, { value: 'Sell', label: t('Sell') }, { value: 'transfer', label: t('Transfers') },
@@ -77,7 +96,7 @@
       {#if tab === 'cash' && app.canWrite}
         <button class="btn primary" onclick={() => app.dialog = { kind: 'contrib' }}>{t('Add deposit or withdrawal')}</button>
       {/if}
-      {#if count}<button class="btn" onclick={exportCsv}>{t('Export CSV')}</button>{/if}
+      {#if count && tab !== 'feed'}<button class="btn" onclick={exportCsv}>{t('Export CSV')}</button>{/if}
       {#if tab !== 'cash'}
         <input class="input search" type="search" bind:value={query} oninput={reset} placeholder={t('Search symbol')} aria-label={t('Search symbol')}>
       {/if}
@@ -88,6 +107,9 @@
     {:else if !count}
       <p class="empty">{t('Nothing to show here.')}</p>
     {:else}
+      {#if tab === 'feed'}
+        <ActivityFeed events={feed} {shown} {showPort} />
+      {:else}
       <div class="table-scroll">
         {#if tab === 'trades'}
           <table class="tbl">
@@ -185,6 +207,7 @@
           </table>
         {/if}
       </div>
+      {/if}
       {#if count > shown}
         <div class="more"><button class="btn" onclick={() => shown += PAGE}>{t('Show more')} ({count - shown} {t('left')})</button></div>
       {/if}

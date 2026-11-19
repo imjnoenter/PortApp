@@ -7,8 +7,8 @@
   import Logo from '../parts/Logo.svelte';
   import MonthlyHeatmap from '../parts/MonthlyHeatmap.svelte';
   import PlanWatch from '../parts/PlanWatch.svelte';
+  import PortBreakdown from '../parts/PortBreakdown.svelte';
   import Seg from '../parts/Seg.svelte';
-  import Stat from '../parts/Stat.svelte';
   import Treemap from '../parts/Treemap.svelte';
   import Upcoming from '../parts/Upcoming.svelte';
   import { drawDayCard } from '../share.ts';
@@ -79,7 +79,11 @@
     return { pre: live[0].ext === 'PRE', dollars, pct: base ? dollars / base * 100 : 0, count: live.length, value: m.totalCurrent + dollars, up: by(1), down: by(-1) };
   });
 
-  const top3 = $derived(m.positions.slice(0, 3).reduce((s, p) => s + p.stockWeightPct, 0));
+  /** The whole-account view with two or more portfolios holding stocks: the By portfolio card takes the
+   *  hero's right side and the tile map moves below. Otherwise the map stays in the hero. */
+  const showPorts = $derived(m.port === ALL && app.ports.filter(p => app.portModel(p).positions.length).length > 1);
+
+  const top3 =$derived(m.positions.slice(0, 3).reduce((s, p) => s + p.stockWeightPct, 0));
   const num = (n: number | null | undefined, dp = 2) => n == null ? '—' : n.toFixed(dp);
 </script>
 
@@ -99,12 +103,6 @@
           <span class="muted">{t('Waiting for today’s prices')}</span>
         {/if}
       </div>
-      {#if m.positions.length}
-        <div class="unreal">
-          <span class={sign(m.totalPnl)}>{money.signed(m.totalPnl)} ({signedPct(m.totalPnlPct)})</span>
-          <span class="muted">{t('Unrealized')}</span>
-        </div>
-      {/if}
       {#if extended}
         <div class="ext">
           <span class="muted">{extended.pre ? t('Pre-market') : t('After hours')}</span>
@@ -112,14 +110,56 @@
           <span class="muted">{t('would make it')} {money(extended.value)}</span>
         </div>
       {/if}
+      <!-- Everything else the account knows, three to a row: what it holds, then what it has made.
+           Label above figure, one or two quiet notes beneath; the full explanation is in the tooltip. -->
+      {#snippet cell(label: string, value: string, tone: string, notes: { text: string; tone?: string }[], tip = '')}
+        <div title={tip || undefined}>
+          <dt>{label}</dt><dd class={tone}>{value}</dd>
+          {#each notes as n}<span class="note {n.tone ?? ''}">{n.text}</span>{/each}
+        </div>
+      {/snippet}
       <dl class="split">
-        <div><dt>{t('In stocks')}</dt><dd>{money(m.stockTotal)}</dd></div>
-        <div><dt>{m.limit ? t('Room to buy') : t('Cash')}</dt><dd>{money(m.cash)}</dd></div>
-        <div><dt>{t('Cost of holdings')}</dt><dd>{money(m.costTotal)}</dd></div>
-        <div><dt>{t('Holdings')}</dt><dd>{m.positions.length}</dd></div>
+        {@render cell(t('In stocks'), money(m.stockTotal), '', [{ text: `${m.positions.length} ${t('holdings')}` }])}
+        {@render cell(t('Cost'), money(m.costTotal), '', [{ text: t('of holdings') }])}
+        {#if m.limit}
+          {@render cell(t('Room to buy'), money(m.cash), '', [{ text: `${t('Limit')} ${money(m.limit.dollar)} (${pct(m.limit.pct * 100, 0)})` },
+            m.limit.over > 0 ? { text: `${t('Over by')} ${money(m.limit.over)}`, tone: 'loss' }
+              : m.limit.unfunded > 0 ? { text: `${money(m.limit.unfunded)} ${t('unfunded')}`, tone: 'warn' } : { text: `${t('Used')} ${money(m.limit.used)}` }])}
+        {:else}
+          {@render cell(t('Cash'), money(m.cash), '', [
+            { text: `${m.totalCurrent ? pct(m.cash / m.totalCurrent * 100, 1) : '—'}, ${t('spendable')} ${money(app.limits.spendable)}` },
+            { text: `${t('Reserve')} ${money(app.limits.reserve)} (${pct(app.limits.reservePct * 100, 0)})` }])}
+        {/if}
+
+        {@render cell(t('Unrealized'), money.signed(m.totalPnl), sign(m.totalPnl), [{ text: signedPct(m.totalPnlPct), tone: sign(m.totalPnl) }], t('Against what the held shares cost'))}
+        {@render cell(t('Realized'), money.signed(app.realized.pnl), sign(app.realized.pnl),
+          [...(app.realized.pct == null ? [] : [{ text: signedPct(app.realized.pct), tone: sign(app.realized.pnl) }]), { text: `${t('fees')} ${money(app.realized.fee)}` }],
+          `${t('On cost sold')} ${money(app.realized.cost)}, ${t('fees')} ${money(app.realized.fee)}`)}
+        {@render cell(t('Dividends'), money(app.dividends.net), '', [{ text: `${t('Gross')} ${money(app.dividends.gross)}` }], t('After withholding'))}
+
+        {#if bahtReturn}
+          {@render cell(t('Total return'), signedUsd(usdReturn), sign(usdReturn), [
+            { text: `${bahtReturn.gain >= 0 ? '+' : ''}${baht(bahtReturn.gain)} (${signedPct(bahtReturn.pct)})`, tone: sign(bahtReturn.gain) },
+            { text: `FX ${signedUsd(bahtReturn.fx)}` }], `${t('Unrealized P/L')} + ${t('Realized P/L')} + ${t('Dividends')}`)}
+        {:else}
+          {@render cell(t('Total return'), money.signed(usdReturn), sign(usdReturn), [{ text: signedPct(usdReturnPct), tone: sign(usdReturn) }],
+            `${t('Unrealized P/L')} + ${t('Realized P/L')} + ${t('Dividends')}`)}
+        {/if}
+        {@render cell(t('Annualised IRR'), app.irr ? signedPct(app.irr.rate) : '—', app.irr ? sign(app.irr.rate) : '',
+          [{ text: app.irr ? `${app.irr.years.toFixed(1)} ${t('years')}` : t('Needs the trade ledger') }], t('Money-weighted'))}
+        <!-- Dividends above are what has been paid; this is the year ahead at the trailing rate on today's shares. -->
+        {@render cell(t('Income next 12 mo'), app.income ? money(app.income.net) : '—', '',
+          app.income ? [{ text: `${t('Yield')} ${pct(app.income.fwdYield, 2)}` }, { text: `${t('on cost')} ${pct(app.income.yieldOnCost, 2)}` }] : [{ text: t('No dividend payers') }],
+          t('A year of dividends at the last 12 months’ rate on the shares held now, after withholding'))}
       </dl>
     </div>
 
+    {#if showPorts}<div class="portsbox"><PortBreakdown /></div>{:else}{@render tileMap()}{/if}
+  </section>
+
+  {#if showPorts}<section class="card card-pad mapcard">{@render tileMap()}</section>{/if}
+
+  {#snippet tileMap()}
     <div class="mapbox">
       <div class="maphead">
         <Seg small label={t('Colour tiles by')} bind:value={mapMode} options={[{ value: 'day', label: t('Today') }, { value: 'total', label: t('Since bought') }]} />
@@ -130,42 +170,7 @@
       </div>
       <div class="mapfit"><Treemap positions={m.positions} mode={mapMode} /></div>
     </div>
-  </section>
-
-  <section class="figures" aria-label={t('Returns')}>
-    <Stat label={t('Unrealized')} value={money.signed(m.totalPnl)} tone={sign(m.totalPnl)} badge={signedPct(m.totalPnlPct)}>
-      {t('Against what the held shares cost')}
-    </Stat>
-    <Stat label={t('Realized')} value={money.signed(app.realized.pnl)} tone={sign(app.realized.pnl)} badge={app.realized.pct == null ? '' : signedPct(app.realized.pct)}>
-      {t('On cost sold')} {money(app.realized.cost)}, {t('fees')} {money(app.realized.fee)}
-    </Stat>
-    <Stat label={t('Dividends')} value={money(app.dividends.net)}>
-      {t('After withholding')}. {t('Gross')} {money(app.dividends.gross)}
-    </Stat>
-    {#if bahtReturn}
-      <Stat label={t('Total return')} value={signedUsd(usdReturn)} note={`(${signedUsd(bahtReturn.fx)})`} tone={sign(usdReturn)}
-        badge={`${bahtReturn.gain >= 0 ? '+' : ''}${baht(bahtReturn.gain)} (${signedPct(bahtReturn.pct)})`} badgeTone={sign(bahtReturn.gain)}>
-        {t('Unrealized P/L')} + {t('Realized P/L')} + {t('Dividends')}
-      </Stat>
-    {:else}
-      <Stat label={t('Total return')} value={money.signed(usdReturn)} tone={sign(usdReturn)} badge={signedPct(usdReturnPct)}>
-        {t('Unrealized P/L')} + {t('Realized P/L')} + {t('Dividends')}
-      </Stat>
-    {/if}
-    <Stat label={t('Annualised IRR')} value={app.irr ? signedPct(app.irr.rate) : '—'} tone={app.irr ? sign(app.irr.rate) : ''}>
-      {#if app.irr}{t('Money-weighted')}, {app.irr.years.toFixed(1)} {t('years')}{:else}{t('Needs the trade ledger')}{/if}
-    </Stat>
-    {#if m.limit}
-      <Stat label={t('Limit')} value={money(m.limit.dollar)} tone={m.limit.over > 0 ? 'loss' : ''} badge={`${pct(m.limit.pct * 100, 0)} ${t('of the account')}`}>
-        {#if m.limit.over > 0}<span class="loss">{t('Over by')} {money(m.limit.over)}</span>
-        {:else}{t('Used')} {money(m.limit.used)}{#if m.limit.unfunded > 0}, <span class="warn">{money(m.limit.unfunded)} {t('unfunded')}</span>{/if}{/if}
-      </Stat>
-    {:else}
-      <Stat label={t('Cash')} value={money(m.cash)} badge={m.totalCurrent ? `${pct(m.cash / m.totalCurrent * 100, 1)} ${t('of the account')}` : ''}>
-        {t('Reserve')} {money(app.limits.reserve)} ({pct(app.limits.reservePct * 100, 0)}), {t('spendable')} {money(app.limits.spendable)}
-      </Stat>
-    {/if}
-  </section>
+  {/snippet}
 
   <PlanWatch />
 
@@ -275,25 +280,41 @@
   .day { font-size: 17px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .worth-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
   .shareday { padding: 5px 13px; font-size: 12px; }
-  .unreal { margin-top: 4px; font-size: 15px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .ext { margin-top: var(--sp-2); font-size: 14px; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0 8px; }
   .extsum { font: 650 18px/1.2 var(--font-display); letter-spacing: -0.02em; }
   .movers.two { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-6); }
   .movers.two ul + ul { padding-top: 0; border-top: 0; }
   @media (max-width: 700px) { .movers.two { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); } }
-  .split { margin: auto 0 0; padding-top: var(--sp-7); }
-  .split div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-4); padding: 11px 0; border-top: 1px solid var(--line); }
-  dt { color: var(--ink-2); font-size: 14px; }
-  dd { margin: 0; font-weight: 600; font-size: 15px; }
+  /* Three to a row: holdings, then returns. A hairline between columns and between rows, no boxes. */
+  .split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: auto 0 0; margin-top: var(--sp-6); border-top: 1px solid var(--line); }
+  .split div { display: grid; align-content: start; gap: 1px; min-width: 0; padding: var(--sp-3) var(--sp-3); border-left: 1px solid var(--line-soft); }
+  .split div:nth-child(3n + 1) { padding-left: 0; border-left: 0; }
+  .split div:nth-child(n + 4) { border-top: 1px solid var(--line-soft); }
+  .split dt { color: var(--muted); font-size: 12px; }
+  .split dd { margin: 0; font-weight: 650; font-size: 16px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .split .note { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .split .note.gain { color: var(--gain); } .split .note.loss { color: var(--loss); } .split .note.warn { color: var(--honey); }
+  /* A narrow hero column: two to a row rather than squeezing the figures. */
+  @container (max-width: 340px) {
+    .split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .split div, .split div:nth-child(3n + 1) { padding-left: var(--sp-3); border-left: 1px solid var(--line-soft); }
+    .split div:nth-child(2n + 1) { padding-left: 0; border-left: 0; }
+    .split div:nth-child(3) { border-top: 1px solid var(--line-soft); }
+  }
 
+  .portsbox { min-width: 0; display: flex; flex-direction: column; }
+  .portsbox > :global(.ports) { flex: 1; align-content: start; }
   .mapbox { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
   .maphead { display: flex; align-items: center; gap: var(--sp-3); }
-  .mapfit { flex: 1; min-height: clamp(300px, 36vw, 460px); display: flex; }
+  /* The map is pinned to this box rather than sized by `height: 100%`, which can't resolve against a
+     box that only has a min-height: it fell back to the map's own 300px and left a gap underneath. */
+  .mapfit { flex: 1; min-height: clamp(300px, 36vw, 460px); position: relative; }
+  .mapfit > :global(.map) { position: absolute; inset: 0 -3px -3px 0; width: auto; height: auto; min-height: 0; margin: 0; }
+  /* On its own full-width card the map has nothing beside it to take its height from, so it gets one. */
+  .mapcard .mapfit { height: clamp(320px, 34vw, 520px); min-height: 0; flex: none; }
   .scale { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .scale i { width: 96px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--loss-fill), var(--tile), var(--gain-fill)); }
 
-  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--sp-6) 0; padding: var(--sp-5) 0; border-block: 1px solid var(--line); }
-  .figures > :global(.stat) { padding-left: var(--sp-5); border-left: 1px solid var(--line); }
 
   .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); align-items: start; }
   .pair.wide-left { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: stretch; }

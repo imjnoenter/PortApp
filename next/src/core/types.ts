@@ -32,6 +32,8 @@ export interface HoldingRow {
   target: number | null;   // fraction of the tab's investable total
   price: number | null;    // the sheet's own Current price: fallback when there is no live quote
   marketCap: number | null;
+  /** Analyst / fair-value price targets from the sheet, when any are filled. */
+  targets?: { low?: number; median?: number; high?: number; avg?: number; top?: number; lynch?: number };
   /** Set when the ledger does not reconcile with qty, so avgPrice is the sheet's stored value. */
   basisFallback?: boolean;
 }

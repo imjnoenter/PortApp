@@ -24,7 +24,8 @@ import { activeProfile, addProfile, canWrite, listProfiles, removeProfile, setAc
 import type { Profile } from '../data/config.ts';
 import { INDEXES, fetchQuotes } from '../data/quotes.ts';
 import type { PriceSource } from '../data/quotes.ts';
-import { applyGics, loadCalendar, loadContributions, loadPlans, loadReturns, loadFxRate, loadGics, loadHistory, loadHoldings, loadRegistry, loadTransactions } from '../data/sheets.ts';
+import { applyGics, loadCalendar, loadContributions, loadPlans, loadReturns, loadFxRate, loadGics, loadHistory, loadHoldings, loadRegistry, loadTransactions, targetsBySymbol } from '../data/sheets.ts';
+import type { Targets } from '../data/sheets.ts';
 import type { CalEvent, GicsMap, Returns } from '../data/sheets.ts';
 import {
   addSymbolParams, appendTradeParams, avgParams, capParams, contribAddParams, contribDeleteParams, contribUpdateParams,
@@ -111,6 +112,8 @@ class AppState {
   contribs = $state.raw<Contribution[]>([]);
   plans = $state.raw<Plans>({});
   returns = $state.raw<Returns>({});
+  /** Price targets per symbol, from the holdings sheet. Kept apart from rows so a pinned row can't drop them. */
+  targets = $state.raw<Record<string, Targets>>({});
   calendar = $state.raw<CalEvent[]>([]);
   etf = $state.raw<EtfData>({});
   /** Closes for the Nasdaq yardstick, fetched only when the sheet's own history does not carry it. */
@@ -243,6 +246,7 @@ class AppState {
     try {
       const [rows, registry] = await Promise.all([loadHoldings(p.sheetId, fresh), loadRegistry(p.sheetId, fresh)]);
       if (!mine()) return;
+      this.targets = targetsBySymbol(rows);
       if (this.#free('rows')) this.rawRows = pinRows(rows, this.#pins, Date.now());
       if (this.#free('registry')) this.registry = pinWallet(registry, this.#pins, Date.now());
       this.status = 'ready'; this.error = '';
@@ -597,7 +601,7 @@ class AppState {
     this.ledgerLoaded = false; this.quotesAt = 0; this.#historyAt = 0; this.symbol = null;
     this.dialog = null; this.failed = []; this.#pins = newPins(); this.#failed.clear();
     this.nasdaqCloses = null; this.#nasdaqAsked = false;
-    this.plans = {}; this.returns = {}; this.calendar = []; this.etf = {}; this.etfSectors = {}; this.#hold = noHolds(); this.#holding = noHolds(); clearTimeout(this.#recheck);
+    this.plans = {}; this.returns = {}; this.targets = {}; this.calendar = []; this.etf = {}; this.etfSectors = {}; this.#hold = noHolds(); this.#holding = noHolds(); clearTimeout(this.#recheck);
     this.status = 'loading'; this.refreshing = false;
   }
   switchProfile(id: string) {
