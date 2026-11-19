@@ -3,6 +3,7 @@
   import { baht, date, pct, sign, signedPct, usd } from '../../core/format.ts';
   import { ALL } from '../../core/model.ts';
   import { app } from '../../state/app.svelte.ts';
+  import AllocBreakdown from '../parts/AllocBreakdown.svelte';
   import CashFlowCard from '../parts/CashFlowCard.svelte';
   import Logo from '../parts/Logo.svelte';
   import MonthlyHeatmap from '../parts/MonthlyHeatmap.svelte';
@@ -82,6 +83,9 @@
   /** The whole-account view with two or more portfolios holding stocks: the By portfolio card takes the
    *  hero's right side and the tile map moves below. Otherwise the map stays in the hero. */
   const showPorts = $derived(m.port === ALL && app.ports.filter(p => app.portModel(p).positions.length).length > 1);
+  /** A single portfolio keeps the same layout, with its own allocation where By portfolio would be. */
+  const showAlloc = $derived(m.port !== ALL && m.positions.length > 0);
+  const showSide = $derived(showPorts || showAlloc);
 
   const top3 =$derived(m.positions.slice(0, 3).reduce((s, p) => s + p.stockWeightPct, 0));
   const num = (n: number | null | undefined, dp = 2) => n == null ? '—' : n.toFixed(dp);
@@ -154,10 +158,10 @@
       </dl>
     </div>
 
-    {#if showPorts}<div class="portsbox"><PortBreakdown /></div>{:else}{@render tileMap()}{/if}
+    {#if showSide}<div class="portsbox">{#if showPorts}<PortBreakdown />{:else}<AllocBreakdown />{/if}</div>{:else}{@render tileMap()}{/if}
   </section>
 
-  {#if showPorts}<section class="card card-pad mapcard">{@render tileMap()}</section>{/if}
+  {#if showSide}<section class="card card-pad mapcard">{@render tileMap()}</section>{/if}
 
   {#snippet tileMap()}
     <div class="mapbox">
