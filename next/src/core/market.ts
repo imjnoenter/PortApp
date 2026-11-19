@@ -71,6 +71,12 @@ export function sessionDay(dateStr: string, time: string): string {
   return etClock(at).min >= 960 ? addDays(day, 1) : day;
 }
 
+/** The trading day a trade made right now would carry: tradeDate's rule applied to the clock. */
+export function tradeToday(now = new Date()): string {
+  const day = ET_DATE.format(now);
+  return etClock(now).min >= 1200 ? addDays(day, 1) : day;
+}
+
 /** Monday of the week containing dateStr. */
 export function weekStart(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);

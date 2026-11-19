@@ -78,6 +78,7 @@ export const TH: Record<string, string> = {
   'Follow a symbol without holding it. The sheet fills in its name and sector within a minute.': 'ติดตามหุ้นโดยไม่ต้องถือ ชีตจะเติมชื่อและกลุ่มธุรกิจภายในหนึ่งนาที',
   'Remove from the watchlist': 'นำออกจากรายการจับตา',
   'Plan for': 'แผนสำหรับ', 'Plan': 'แผน', 'Make a plan': 'สร้างแผน', 'Edit plan': 'แก้ไขแผน', 'Save plan': 'บันทึกแผน', 'Clear plan': 'ล้างแผน',
+  'Traded today': 'ซื้อขายวันนี้', 'US market time': 'ตามเวลาตลาดสหรัฐฯ', 'trade': 'รายการ', 'trades': 'รายการ', 'sold minus bought': 'ยอดขายหักยอดซื้อ',
   'Press again to clear': 'กดอีกครั้งเพื่อล้าง', 'Clear the board': 'ล้างกระดาน', 'Sort the list': 'เรียงรายการ', 'As listed': 'ตามลำดับเดิม',
   'Highest first': 'มากไปน้อย', 'Highest first. Press again for lowest first.': 'มากไปน้อย กดอีกครั้งเพื่อเรียงน้อยไปมาก',
   'Lowest first. Press again for highest first.': 'น้อยไปมาก กดอีกครั้งเพื่อเรียงมากไปน้อย', 'highest first': 'มากไปน้อย', 'lowest first': 'น้อยไปมาก', 'Target, % of': 'เป้าหมาย (% ของ)', 'Stop loss price': 'ราคาตัดขาดทุน', 'Stop loss': 'ตัดขาดทุน', 'None': 'ไม่มี',

@@ -5,6 +5,7 @@
   import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone, ZONE_COLORS } from '../../core/board.ts';
   import type { Board, Zone } from '../../core/board.ts';
   import { pct, qty as fmtQty, sign, signedPct, usd } from '../../core/format.ts';
+  import { tradeDate, tradeToday } from '../../core/market.ts';
   import { ALL } from '../../core/model.ts';
   import { planKey, trancheDollars } from '../../core/plan.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -30,6 +31,20 @@
     try { localStorage.setItem(KEY + (app.profile?.id ?? ''), JSON.stringify(next)); } catch { /* storage full or blocked: the board still works until the page closes */ }
   }
   const placed = $derived(onBoard(board));
+
+  // ── What was bought and sold today, by the US trading day (the ledger's Thai date/time moved to New
+  // York, as the broker dates a trade), in the portfolio in view ──
+  const traded = $derived.by(() => {
+    const day = tradeToday(new Date(app.now));
+    const out = { day, bought: 0, sold: 0, buys: 0, sells: 0 };
+    for (const x of app.viewTxs) {
+      if ((x.type !== 'Buy' && x.type !== 'Sell') || tradeDate(x.dateStr, x.time) !== day) continue;
+      const v = x.tradeValue ?? x.shares * x.price;
+      if (x.type === 'Buy') { out.bought += v; out.buys++; } else { out.sold += v; out.sells++; }
+    }
+    return out;
+  });
+  const dayLabel = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(app.prefs.lang === 'th' ? 'th-TH' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
   // The four starting zones are named in the app's language until one is renamed.
   const STARTERS = new Set(['Waiting to buy', 'Bought', 'Watching', 'Waiting to sell']);
   // 'Bought' is also the verb in a chart tooltip, where Thai wants a different word, so the zone has its own entry.
@@ -237,6 +252,28 @@
     <button class="btn primary" aria-expanded={adding} onclick={() => adding ? adding = false : openAdd()}>{adding ? t('Hide the list') : t('Add a stock')}</button>
   </header>
 
+  <section class="card traded" aria-label={t('Traded today')}>
+    <div class="tday">
+      <strong>{t('Traded today')}</strong>
+      <span class="small muted">{dayLabel(traded.day)}, {t('US market time')}</span>
+    </div>
+    <div class="tfig">
+      <span class="k">{t('Bought')}</span>
+      <span class="v">{usd(traded.bought)}</span>
+      <span class="small muted">{traded.buys} {traded.buys === 1 ? t('trade') : t('trades')}</span>
+    </div>
+    <div class="tfig">
+      <span class="k">{t('Sold')}</span>
+      <span class="v">{usd(traded.sold)}</span>
+      <span class="small muted">{traded.sells} {traded.sells === 1 ? t('trade') : t('trades')}</span>
+    </div>
+    <div class="tfig">
+      <span class="k">{t('Net')}</span>
+      <span class="v">{traded.sold - traded.bought > 0 ? '+' : ''}{usd(traded.sold - traded.bought)}</span>
+      <span class="small muted">{t('sold minus bought')}</span>
+    </div>
+  </section>
+
   <!-- The same list as on the Overview: what has reached its level, and what is close. -->
   <PlanWatch />
 
@@ -350,6 +387,13 @@
 {/if}
 
 <style>
+  .traded { padding: var(--sp-3) var(--sp-4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3) var(--sp-6); font-variant-numeric: tabular-nums; }
+  .tday { display: grid; gap: 2px; margin-right: auto; }
+  .tday strong { font-size: 14px; }
+  .tfig { display: grid; gap: 1px; min-width: 96px; }
+  .tfig .k { font-size: 11px; color: var(--muted); }
+  .tfig .v { font-size: 18px; font-weight: 650; line-height: 1.2; }
+  @media (max-width: 640px) { .tday { flex-basis: 100%; } .tfig { flex: 1; min-width: 0; } }
   .picker { padding: var(--sp-4); display: grid; gap: var(--sp-3); }
   .prow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
   .prow > .input { flex: 1 1 220px; }
