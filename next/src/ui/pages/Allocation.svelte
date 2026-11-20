@@ -95,7 +95,7 @@
       <div class="split" class:stack={bySymbol}>
         <div>
           <Donut slices={rows} bind:hover title={t('Breakdown')} {centre} onpick={pick}
-            logos={bySymbol} noLogo={[CASH]}
+            logos={bySymbol} noLogo={[CASH]} maxSize={560}
             onback={drill != null ? () => { drill = null; hover = null; } : undefined} backLabel={`${t('Back to')} ${t(FIELDS.find(f => f.value === field)!.label)}`} />
           {#if drill != null}
             <div class="back"><button class="btn" onclick={() => { drill = null; hover = null; }}>{t('Back to')} {t(FIELDS.find(f => f.value === field)!.label)}</button></div>
@@ -174,10 +174,12 @@
 <style>
   .allnote { margin: 0 0 var(--sp-4); max-width: 78ch; }
   .split { display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr); gap: var(--sp-6); align-items: center; }
-  /* By stock: the donut with its ring of logos is 440px square (Donut's cap), so its column is too. */
-  .split.stack { grid-template-columns: minmax(0, 440px) minmax(0, 1fr); }
+  /* By stock: the donut column takes half the card. Donut caps its height (maxSize below) and widens
+     its view box sideways rather than growing past it; the logos are a fixed pixel size. */
+  .split.stack { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   @media (max-width: 820px) { .split, .split.stack { grid-template-columns: minmax(0, 1fr); } }
   .legend { max-height: 420px; overflow-y: auto; }
+  .split.stack .legend { max-height: 540px; }
   .legend thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
   tr.lit td { background: var(--sunk); }

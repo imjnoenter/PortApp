@@ -5,7 +5,7 @@
 <script lang="ts">
   // A ring of slices with a centre readout. Hover is shared with the caller (bind:hover) so a
   // legend beside it can light up the same slice.
-  let { slices, hover = $bindable(null), title, centre, onpick, onback, backLabel = '', logos = false, noLogo = [] }: {
+  let { slices, hover = $bindable(null), title, centre, onpick, onback, backLabel = '', logos = false, noLogo = [], maxSize }: {
     slices: Slice[];
     hover?: string | null;
     title: string;
@@ -18,16 +18,22 @@
     logos?: boolean;
     /** Keys that get no logo (cash, say). */
     noLogo?: string[];
+    /** With logos: the tallest the donut may be, in px (default 440). Logos keep their size. */
+    maxSize?: number;
   } = $props();
 
   const R = 100, R0 = 72, GAP = 0.02;   // radians of surface between neighbours
-  // Room around the ring for the logos that sit outside it.
-  const VB = $derived(logos ? 142 : 104);
   // With logos the box takes the full width at a capped height, and the view box widens to match,
   // so the ring stays the same size and the outside logos spread into the sides.
-  const MAXH = 440;
+  const MAXH = $derived(maxSize ?? 440);
   let boxW = $state(0);
   const boxH = $derived(logos ? Math.min(MAXH, boxW || MAXH) : 0);
+  // Logos are a fixed size on screen, whatever the donut's: these are their radii in pixels (what
+  // they were on the original 440px donut). The view box then leaves just enough room round the
+  // ring for the outside ones: VB = R + 24 + 2·OLR, with OLR in view-box units.
+  const LR_PX = 10 * 440 / 284, OLR_PX = 9 * 440 / 284;
+  const VB = $derived(logos ? (R + 24) / (1 - 4 * OLR_PX / Math.max(220, boxH || MAXH)) : 104);
+  const unit = $derived(logos ? Math.max(220, boxH || MAXH) / (2 * VB) : 1);   // px per view-box unit
   const VBX = $derived(logos && boxW && boxH ? Math.max(VB, VB * boxW / boxH) : VB);
   const total = $derived(slices.reduce((s, x) => s + Math.max(0, x.value), 0));
   const arcs = $derived.by(() => {
@@ -47,8 +53,10 @@
   // Logo placement. A logo of radius LR sits mid-ring when the slice's chord there is wide enough;
   // the rest sit on one circle round the ring, each at its slice's angle, nudged apart only where
   // two would overlap.
-  const LR = 10, RM = (R + R0) / 2, OLR = 9, RO = R + 27;
-  const DA = 2 * Math.asin((OLR * 2 + 3) / 2 / RO);   // the least angle between two outside logos
+  const RM = (R + R0) / 2;
+  const LR = $derived(LR_PX / unit), OLR = $derived(OLR_PX / unit);
+  const RO = $derived(VB - OLR - 6);
+  const DA = $derived(2 * Math.asin(Math.min(1, (OLR * 2 + 3) / 2 / RO)));   // the least angle between two outside logos
   interface Mark { s: Slice; x: number; y: number; r: number; line?: string }
   const marks = $derived.by<Mark[]>(() => {
     if (!logos) return [];
