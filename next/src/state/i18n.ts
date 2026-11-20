@@ -176,6 +176,8 @@ export const TH: Record<string, string> = {
   'Scroll to zoom, drag to move.': 'เลื่อนล้อเมาส์เพื่อซูม ลากเพื่อเลื่อน', 'Zoomed. Double-click the chart or pick a range to reset.': 'ซูมอยู่ ดับเบิลคลิกกราฟหรือเลือกช่วงเพื่อรีเซ็ต',
   'Change today across the holdings of this portfolio': 'การเปลี่ยนแปลงวันนี้ของหุ้นในพอร์ตนี้',
   'Reached': 'ถึงแล้ว', 'Not reached yet': 'ยังไม่ถึง', 'the price is at or past the level': 'ราคาถึงหรือผ่านระดับแล้ว', 'close to a level, or off target': 'ใกล้ระดับ หรือเบี่ยงจากเป้าหมาย', 'close to a level': 'ใกล้ระดับ', 'this link': 'ลิงก์นี้',
+  'Slice colour for': 'สีของ', 'Pick a colour': 'เลือกสี', 'Your colour.': 'สีที่คุณตั้งเอง', 'Taken from the logo.': 'สีจากโลโก้',
+  'Reset to logo colour': 'กลับเป็นสีโลโก้', 'Done': 'เสร็จ',
   // today plan
   'Today Plan': 'แผนวันนี้', 'on the board': 'บนกระดาน', 'Add a zone': 'เพิ่มโซน', 'Add a stock': 'เพิ่มหุ้น', 'Hide the list': 'ซ่อนรายการ', 'Drag a stock onto a zone. A click puts it in': 'ลากหุ้นไปวางในโซน หรือคลิกเพื่อใส่ใน',
   'Waiting to buy': 'รอซื้อ', 'Bought, as a zone': 'ซื้อแล้ว', 'Watching': 'จับตา', 'Waiting to sell': 'รอขาย', 'New zone': 'โซนใหม่',

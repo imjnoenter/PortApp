@@ -75,6 +75,10 @@ export const targetsParams = (portfolio: string, targets: Readonly<Record<string
 export const fairValueParams = (symbol: string, value: number | null): Params =>
   ({ action: 'setFairValue', symbol, value: value == null ? '' : String(+value.toFixed(4)) });
 
+/** The Allocation donut slice colour (#rrggbb); written to every row of the symbol. Null clears it. */
+export const colorParams = (symbol: string, color: string | null): Params =>
+  ({ action: 'setColor', symbol, value: color ?? '' });
+
 export const transferParams =(symbol: string, shares: number, from: string, to: string, price: number): Params =>
   ({ action: 'transferShares', symbol, shares: shares.toFixed(6), fromPortfolio: from, toPortfolio: to, price: price.toFixed(6) });
 

@@ -7,6 +7,9 @@
   import LookThrough from '../parts/LookThrough.svelte';
   import type { Slice } from '../parts/Donut.svelte';
   import Seg from '../parts/Seg.svelte';
+  import ColorPick from '../parts/ColorPick.svelte';
+  import { ringColors, sliceColors } from '../../state/logoColors.svelte.ts';
+  import { theme } from '../../state/theme.svelte.ts';
   import { tip } from '../tip.ts';
 
   const t = app.t;
@@ -18,7 +21,7 @@
     { value: 'symbol', label: 'Symbol' }, { value: 'sector', label: 'Sector' }, { value: 'industry', label: 'Industry' },
     { value: 'category', label: 'Category' }, { value: 'custom', label: 'Custom' }, { value: 'myGroup', label: 'My group' },
   ];
-  let field = $state<Field>('sector');
+  let field = $state<Field>('symbol');
   let drill = $state<string | null>(null);
   let hover = $state<string | null>(null);
   const CASH = '\u0000cash';
@@ -26,6 +29,7 @@
   interface Row extends Slice { pnl: number | null; cost: number; count: number }
   const keyOf = (p: Position, f: Field) => f === 'symbol' ? p.symbol : p[f] || 'Other';
 
+  const bySymbol = $derived(field === 'symbol' || drill != null);
   const rows = $derived.by<Row[]>(() => {
     const by: Field = drill != null ? 'symbol' : field;
     const src = drill != null ? m.positions.filter(p => keyOf(p, field) === drill) : m.positions;
@@ -41,8 +45,14 @@
     if (drill == null && app.prefs.inclCash && m.cash > 0) {
       out.push({ key: CASH, label: m.limit ? t('Room to buy') : t('Cash'), value: m.cash, color: colorFor('Cash'), pnl: null, cost: 0, count: 0 });
     }
+    // By stock, each slice takes its logo's colour (or the user's own), kept apart from its neighbours.
+    if (bySymbol) {
+      const cols = ringColors(out.map(r => r.key), theme.dark, { [CASH]: colorFor('Cash') });
+      out.forEach((r, i) => r.color = cols[i]);
+    }
     return out;
   });
+  $effect(() => { if (bySymbol) for (const r of rows) if (r.key !== CASH) sliceColors.request(r.key); });
   // One denominator for the ring, the centre and the legend.
   const total = $derived(rows.reduce((s, r) => s + r.value, 0));
   const canDrill = $derived(field !== 'symbol' && drill == null);
@@ -82,9 +92,10 @@
     </div>
 
     {#if rows.length}
-      <div class="split">
+      <div class="split" class:stack={bySymbol}>
         <div>
           <Donut slices={rows} bind:hover title={t('Breakdown')} {centre} onpick={pick}
+            logos={bySymbol} noLogo={[CASH]}
             onback={drill != null ? () => { drill = null; hover = null; } : undefined} backLabel={`${t('Back to')} ${t(FIELDS.find(f => f.value === field)!.label)}`} />
           {#if drill != null}
             <div class="back"><button class="btn" onclick={() => { drill = null; hover = null; }}>{t('Back to')} {t(FIELDS.find(f => f.value === field)!.label)}</button></div>
@@ -98,7 +109,7 @@
                 <tr class:click={r.key !== CASH} class:lit={hover === r.key}
                   onpointerenter={() => hover = r.key} onpointerleave={() => hover = null} onclick={() => pick(r)}>
                   <td>
-                    <span class="sw" style:background={r.color}></span>
+                    {#if bySymbol && r.key !== CASH}<ColorPick sym={r.key} color={r.color} />{:else}<span class="sw" style:background={r.color}></span>{/if}
                     {#if r.key === CASH}{r.label}{:else}<button class="strong" onclick={e => { e.stopPropagation(); pick(r); }}>{r.label}</button>{/if}
                     {#if canDrill && r.count}<span class="muted small">{' '}{r.count}</span>{/if}
                   </td>
@@ -163,6 +174,9 @@
 <style>
   .allnote { margin: 0 0 var(--sp-4); max-width: 78ch; }
   .split { display: grid; grid-template-columns: minmax(240px, 380px) minmax(0, 1fr); gap: var(--sp-6); align-items: center; }
+  /* By stock: the donut with its ring of logos is 440px square (Donut's cap), so its column is too. */
+  .split.stack { grid-template-columns: minmax(0, 440px) minmax(0, 1fr); }
+  @media (max-width: 820px) { .split, .split.stack { grid-template-columns: minmax(0, 1fr); } }
   .legend { max-height: 420px; overflow-y: auto; }
   .legend thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
@@ -177,5 +191,4 @@
   .key { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-2); }
   .kbar { width: 16px; height: 8px; border-radius: 4px; background: var(--ink); }
   .ktick { width: 3px; height: 14px; border-radius: 2px; background: var(--accent); margin-left: var(--sp-3); }
-  @media (max-width: 820px) { .split { grid-template-columns: minmax(0, 1fr); } }
 </style>

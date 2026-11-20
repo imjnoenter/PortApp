@@ -27,6 +27,8 @@ export interface HoldingRow {
   category: string | null;
   custom: string | null;
   myGroup: string | null;
+  /** The Allocation donut slice colour the user picked (#rrggbb), on every row of the symbol. */
+  color?: string;
   qty: number | null;
   avgPrice: number | null;
   target: number | null;   // fraction of the tab's investable total

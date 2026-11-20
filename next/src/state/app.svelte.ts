@@ -29,7 +29,7 @@ import type { Targets } from '../data/sheets.ts';
 import type { CalEvent, GicsMap, Returns } from '../data/sheets.ts';
 import {
   addSymbolParams, appendTradeParams, avgParams, capParams, contribAddParams, contribDeleteParams, contribUpdateParams,
-  ask, detailsParams, fairValueParams, holdingParams, ledgerNow, planClearParams, planParams, removeSymbolParams, reserveParams, send,
+  ask, colorParams, detailsParams, fairValueParams, holdingParams, ledgerNow, planClearParams, planParams, removeSymbolParams, reserveParams, send,
   targetParams, targetsParams, transferParams, txDeleteParams, txNoteParams, txUpdateParams, walletParams,
 } from '../data/write.ts';
 import type { Params } from '../data/write.ts';
@@ -593,6 +593,24 @@ class AppState {
     if (value == null) delete cur.ms; else cur.ms = value;
     this.targets = { ...this.targets, [symbol]: cur };
     this.#push(`Fair value for ${symbol}`, [fairValueParams(symbol, value)], ['rows']);
+  }
+
+  /** The slice colours set in the sheet, per symbol. Gone with the symbol's last row. */
+  sheetColors = $derived.by(() => {
+    const out: Record<string, string> = {};
+    for (const r of this.rawRows) if (r.color && !out[r.symbol]) out[r.symbol] = r.color;
+    return out;
+  });
+  /** A slice colour picked in the app; null goes back to the logo's. Shows at once, sheet behind. */
+  saveColor(symbol: string, color: string | null, write = true) {
+    if (!this.#writable) return;
+    this.rawRows = this.rawRows.map(r => {
+      if (r.symbol !== symbol) return r;
+      const { color: _old, ...rest } = r;
+      return color ? { ...rest, color } : rest;
+    });
+    // While a picker is being dragged the caller shows each step and writes only the last.
+    if (write) this.#push(`Colour for ${symbol}`, [colorParams(symbol, color)], ['rows']);
   }
 
   saveDetails(portfolio: string, symbol: string, d: Details) {

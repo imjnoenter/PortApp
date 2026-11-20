@@ -31,7 +31,7 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
     portfolio: t.col('Portfolio'), symbol: t.col('Symbol'), name: t.col('Name'), sector: t.col('Sector'),
     industry: t.col('Industry'), category: t.col('Category'), custom: t.col('Custom'), myGroup: t.col('My Group'),
     qty: t.col('Qty'), avg: t.col('Avg price'), target: t.col('Target Allocation'), price: t.col('Current price'),
-    cap: t.col('Market Cap'),
+    cap: t.col('Market Cap'), color: t.col('Color'),
   };
   if (c.symbol < 0) throw new Error('The "Claude" tab has no Symbol column');
   const tc = TARGET_FIELDS.map(([k, ...names]) => [k, t.col(...names)] as const).filter(([, i]) => i >= 0);
@@ -41,8 +41,10 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
     if (!symbol) continue;
     const targets: Targets = {};
     for (const [k, i] of tc) { const v = num(r, i); if (v != null && v > 0) targets[k] = v; }
+    const color = str(r, c.color)?.trim().toLowerCase();
     out.push({
       ...(Object.keys(targets).length ? { targets } : {}),
+      ...(color && /^#[0-9a-f]{6}$/.test(color) ? { color } : {}),
       portfolio: str(r, c.portfolio) || DEFAULT_PORT, symbol,
       name: str(r, c.name), sector: str(r, c.sector), industry: str(r, c.industry),
       category: str(r, c.category), custom: str(r, c.custom), myGroup: str(r, c.myGroup),
