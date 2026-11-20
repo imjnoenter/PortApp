@@ -28,10 +28,10 @@
   const MAXH = $derived(maxSize ?? 440);
   let boxW = $state(0);
   const boxH = $derived(logos ? Math.min(MAXH, boxW || MAXH) : 0);
-  // Logos are a fixed size on screen, whatever the donut's: these are their radii in pixels (what
-  // they were on the original 440px donut). The view box then leaves just enough room round the
+  // Logos are a fixed size on screen, whatever the donut's: 22px across, the same as the Positions
+  // table's (Logo size 22, image inset 12%). The view box then leaves just enough room round the
   // ring for the outside ones: VB = R + 24 + 2·OLR, with OLR in view-box units.
-  const LR_PX = 10 * 440 / 284, OLR_PX = 9 * 440 / 284;
+  const LR_PX = 11, OLR_PX = 11;
   const VB = $derived(logos ? (R + 24) / (1 - 4 * OLR_PX / Math.max(220, boxH || MAXH)) : 104);
   const unit = $derived(logos ? Math.max(220, boxH || MAXH) / (2 * VB) : 1);   // px per view-box unit
   const VBX = $derived(logos && boxW && boxH ? Math.max(VB, VB * boxW / boxH) : VB);
@@ -114,7 +114,7 @@
         {#if failed[k.s.key]}
           <text x={k.x} y={k.y} class="letter" font-size={k.r * 0.95}>{k.s.label.slice(0, 1)}</text>
         {:else}
-          <image href={logoUrl(k.s.key)} x={k.x - k.r * 0.68} y={k.y - k.r * 0.68} width={k.r * 1.36} height={k.r * 1.36}
+          <image href={logoUrl(k.s.key)} x={k.x - k.r * 0.76} y={k.y - k.r * 0.76} width={k.r * 1.52} height={k.r * 1.52}
             preserveAspectRatio="xMidYMid meet" onerror={() => failed[k.s.key] = true} />
         {/if}</g>
     {/each}
@@ -143,7 +143,8 @@
   .mark.out { pointer-events: auto; }
   .mark.pick { cursor: pointer; }
   .mark.dim { opacity: 0.3; }
-  .leader { fill: none; stroke-width: 1.2; stroke-linejoin: round; }
+  /* In screen pixels, not view-box units, so it stays this thin whatever size the donut is drawn at. */
+  .leader { fill: none; stroke-width: 1px; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
   .chip { fill: var(--sunk); stroke: var(--card); stroke-width: 1.5; }
   .letter { fill: var(--ink-2); font-weight: 700; text-anchor: middle; dominant-baseline: central; }
   /* With logos round it, the ring is a smaller share of the box, so the hole is too. */
