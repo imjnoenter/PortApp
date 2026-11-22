@@ -124,7 +124,7 @@ export const TH: Record<string, string> = {
   'A quarter of spendable cash': 'หนึ่งในสี่ของเงินสดที่ใช้ได้', 'All spendable cash': 'เงินสดที่ใช้ได้ทั้งหมด', 'This takes': 'ทำให้', 'over its limit by': 'เกินวงเงิน',
   'This dips into the cash reserve by': 'กินเงินสดสำรองไป', 'Line': 'เส้น', 'Candles': 'แท่งเทียน', 'Chart type': 'ชนิดกราฟ', 'Where it sits': 'สัดส่วนในพอร์ต',
   'Share of': 'สัดส่วนใน', 'the holdings': 'หุ้นทั้งหมด', 'Research picture': 'ภาพประกอบการวิเคราะห์', 'Share': 'แชร์', 'Share today': 'แชร์วันนี้', 'Share a picture': 'แชร์รูปภาพ',
-  'Download': 'ดาวน์โหลด', 'Last 20 trading days': '20 วันทำการล่าสุด', 'Up most': 'ขึ้นมากสุด', 'Down most': 'ลงมากสุด', 'Ask about': 'ถามเกี่ยวกับ', 'Ask': 'ถาม',
+  'Download': 'ดาวน์โหลด', 'Copy the holdings for StockAnalysis': 'คัดลอกหุ้นที่ถือไปใช้ใน StockAnalysis', 'Copied': 'คัดลอกแล้ว', 'Could not copy': 'คัดลอกไม่ได้', 'Last 20 trading days': '20 วันทำการล่าสุด', 'Up most': 'ขึ้นมากสุด', 'Down most': 'ลงมากสุด', 'Ask about': 'ถามเกี่ยวกับ', 'Ask': 'ถาม',
   'What do you want to know?': 'อยากรู้อะไร', 'Thinking': 'กำลังคิด', 'Answers come from a language model and can be wrong. Nothing here is advice.': 'คำตอบมาจากโมเดลภาษาและอาจผิดได้ ไม่ใช่คำแนะนำการลงทุน',
   'Notify at plan levels': 'แจ้งเตือนเมื่อถึงระดับในแผน', 'Flag drift beyond': 'เตือนเมื่อเบี่ยงเกิน', 'Off': 'ปิด', 'On': 'เปิด', 'Portfolios in the switcher': 'พอร์ตที่แสดงในตัวเลือก', 'Futures': 'ฟิวเจอร์ส',
   'Spendable cash is short by': 'เงินสดที่ใช้ได้ขาดอยู่', 'Over target and could fund it': 'เกินเป้าหมายและนำมาใช้ได้', 'still short by': 'ยังขาดอีก',
