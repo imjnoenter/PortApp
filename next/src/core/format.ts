@@ -67,3 +67,24 @@ export function colorFor(key: string): string {
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) & 0x7fffffff;
   return PALETTE[h % PALETTE.length];
 }
+
+/**
+ * Colours for the slices of one chart, all different: each key keeps its own colorFor() unless an
+ * earlier (bigger) slice already took it, then it gets the next unused one. Only past 8 slices
+ * does a colour repeat.
+ */
+export function distinctColors(keys: readonly string[]): string[] {
+  const used = new Set<string>();
+  return keys.map(k => {
+    let c = colorFor(k);
+    if (used.has(c) && c !== colorFor('Cash')) {
+      const start = PALETTE.indexOf(c);
+      for (let i = 1; i < PALETTE.length; i++) {
+        const next = PALETTE[(start + i) % PALETTE.length];
+        if (!used.has(next)) { c = next; break; }
+      }
+    }
+    used.add(c);
+    return c;
+  });
+}

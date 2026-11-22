@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { allocChanges, allocEqual, allocFillRest, allocGroups, allocMatchCurrent, allocReset, allocRoom, allocScale, allocSet, allocTotal } from '../../core/alloc.ts';
   import type { AllocRow } from '../../core/alloc.ts';
-  import { colorFor, pct } from '../../core/format.ts';
+  import { colorFor, distinctColors, pct } from '../../core/format.ts';
   import { app } from '../../state/app.svelte.ts';
   import { numText, parseNum } from '../num.ts';
   import Logo from '../parts/Logo.svelte';
@@ -72,8 +72,11 @@
   const rest = $derived<RingSlice>({ key: '\u0000rest', label: t('Unallocated, cash'), color: 'var(--line)', outer: Math.max(0, 100 - total), inner: Math.max(0, 100 - rows.reduce((s, r) => s + r.now, 0)) });
   const symSlices = $derived([...rows].filter(r => r.target > 0 || r.now > 0).sort((a, b) => b.target - a.target || a.symbol.localeCompare(b.symbol))
     .map((r): RingSlice => ({ key: r.symbol, label: r.symbol, color: colorFor(r.symbol), outer: r.target, inner: r.now })).concat(rest));
-  const groupSlices = (field: 'category' | 'custom' | 'myGroup') =>
-    allocGroups(rows, field).filter(g => g.target > 0 || g.now > 0).map((g): RingSlice => ({ key: g.key, label: g.key, color: colorFor(g.key), outer: g.target, inner: g.now })).concat(rest);
+  const groupSlices = (field: 'category' | 'custom' | 'myGroup') => {
+    const gs = allocGroups(rows, field).filter(g => g.target > 0 || g.now > 0);
+    const cols = distinctColors(gs.map(g => g.key));
+    return gs.map((g, i): RingSlice => ({ key: g.key, label: g.key, color: cols[i], outer: g.target, inner: g.now })).concat(rest);
+  };
   const pick = (field: 'category' | 'custom' | 'myGroup') => (key: string) => {
     if (key === rest.key) return;
     filter = filter?.field === field && filter.key === key ? null : { field, key };

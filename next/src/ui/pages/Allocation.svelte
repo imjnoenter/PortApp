@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { colorFor, pct, sign, signedPct } from '../../core/format.ts';
+  import { colorFor, distinctColors, pct, sign, signedPct } from '../../core/format.ts';
   import { ALL, targetDollar } from '../../core/model.ts';
   import type { Position } from '../../core/types.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -48,6 +48,9 @@
     // By stock, each slice takes its logo's colour (or the user's own), kept apart from its neighbours.
     if (bySymbol) {
       const cols = ringColors(out.map(r => r.key), theme.dark, { [CASH]: colorFor('Cash') });
+      out.forEach((r, i) => r.color = cols[i]);
+    } else {
+      const cols = distinctColors(out.map(r => r.key === CASH ? 'Cash' : r.key));
       out.forEach((r, i) => r.color = cols[i]);
     }
     return out;

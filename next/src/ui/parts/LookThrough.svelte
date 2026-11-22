@@ -1,7 +1,7 @@
 <script lang="ts">
   // What the funds hold: the stocks inside them, and how that changes each stock's real weight.
   import { blendedHoldings, trueExposure } from '../../core/etf.ts';
-  import { colorFor, pct } from '../../core/format.ts';
+  import { distinctColors, pct } from '../../core/format.ts';
   import { app } from '../../state/app.svelte.ts';
   import Donut from './Donut.svelte';
   import type { Slice } from './Donut.svelte';
@@ -17,7 +17,9 @@
   const sectors = $derived.by(() => {
     const by = new Map<string, number>();
     for (const b of blend.rows) { const s = sectorOf(b.symbol); if (s) by.set(s, (by.get(s) || 0) + b.value); }
-    return [...by].sort((a, b) => b[1] - a[1]).map(([name, value]): Slice => ({ key: name, label: name, value, color: colorFor(name) }));
+    const sorted = [...by].sort((a, b) => b[1] - a[1]);
+    const cols = distinctColors(sorted.map(([name]) => name));
+    return sorted.map(([name, value], i): Slice => ({ key: name, label: name, value, color: cols[i] }));
   });
   const classified = $derived(sectors.reduce((s, x) => s + x.value, 0));
 </script>
