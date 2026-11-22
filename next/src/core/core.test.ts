@@ -144,6 +144,21 @@ test('limits: over the cap floors cash at zero', () => {
   near(m.limit!.dollar, 500); near(m.limit!.over, 500); near(m.cash, 0);
 });
 
+test('thesis: symbol-level fields fill sibling rows; in ALL, Long-Term\'s tier and score win', () => {
+  const b = book(
+    [row('Trade', 'A', 1, 10, 10, { thesis: { tier: 'Starter', score: '2/6', niche: '★ Chips' } }),
+     row('Long-Term', 'A', 4, 10, 10, { thesis: { tier: 'Core', milestone: 'Q4 beat' } }),
+     row('Long-Term', 'B', 1, 10, 10)],
+    [port('Long-Term'), port('Trade')],
+  );
+  const all = rowsForView(b, 'ALL');
+  assert.deepEqual(all.find(r => r.symbol === 'A')!.thesis, { niche: '★ Chips', milestone: 'Q4 beat', tier: 'Core', score: '2/6' });
+  assert.equal(all.find(r => r.symbol === 'B')!.thesis, undefined);
+  // A single tab keeps its own row's tier/score and picks up the symbol's niche/milestone from the sibling.
+  assert.deepEqual(rowsForView(b, 'Long-Term').find(r => r.symbol === 'A')!.thesis, { niche: '★ Chips', milestone: 'Q4 beat', tier: 'Core' });
+  assert.deepEqual(rowsForView(b, 'Trade')[0].thesis, { niche: '★ Chips', milestone: 'Q4 beat', tier: 'Starter', score: '2/6' });
+});
+
 test('ALL merges a symbol held in two portfolios; quotes override the sheet price', () => {
   const fifo = fifoWalk([tx('2026-01-02', 'Buy', 'A', 4, 100, 'Long-Term'), tx('2026-01-03', 'Buy', 'A', 1, 200, 'Trade')]);
   const b = book(

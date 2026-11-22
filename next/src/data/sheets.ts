@@ -2,7 +2,7 @@
 import { DEFAULT_PORT } from '../core/fifo.ts';
 import { cleanPlan, parseTranche, parseTrim, planKey } from '../core/plan.ts';
 import type { Plans } from '../core/plan.ts';
-import type { Contribution, History, HoldingRow, PortfolioRow, Tx } from '../core/types.ts';
+import type { Contribution, History, HoldingRow, PortfolioRow, Thesis, Tx } from '../core/types.ts';
 import { bool, date, fetchTable, num, raw, str, time } from './gviz.ts';
 
 /**
@@ -25,6 +25,11 @@ export function targetsBySymbol(rows: readonly HoldingRow[]): Record<string, Tar
   return out;
 }
 
+/** PortfolioTeam's thesis columns on the Claude tab (written through the `updateTags` action). */
+const THESIS_FIELDS: [keyof Thesis, string][] = [
+  ['tier', 'Tier'], ['score', 'Score'], ['niche', 'Niche'], ['milestone', 'Milestone'], ['kill', 'Kill Criteria'],
+];
+
 export async function loadHoldings(sheetId: string, fresh = false): Promise<HoldingRow[]> {
   const t = await fetchTable(sheetId, 'Claude', fresh);
   const c = {
@@ -35,6 +40,7 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
   };
   if (c.symbol < 0) throw new Error('The "Claude" tab has no Symbol column');
   const tc = TARGET_FIELDS.map(([k, ...names]) => [k, t.col(...names)] as const).filter(([, i]) => i >= 0);
+  const thc = THESIS_FIELDS.map(([k, name]) => [k, t.col(name)] as const).filter(([, i]) => i >= 0);
   const out: HoldingRow[] = [];
   for (const r of t.rows) {
     const symbol = str(r, c.symbol)?.toUpperCase();
@@ -42,8 +48,11 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
     const targets: Targets = {};
     for (const [k, i] of tc) { const v = num(r, i); if (v != null && v > 0) targets[k] = v; }
     const color = str(r, c.color)?.trim().toLowerCase();
+    const thesis: Thesis = {};
+    for (const [k, i] of thc) { const v = str(r, i)?.trim(); if (v) thesis[k] = v; }
     out.push({
       ...(Object.keys(targets).length ? { targets } : {}),
+      ...(Object.keys(thesis).length ? { thesis } : {}),
       ...(color && /^#[0-9a-f]{6}$/.test(color) ? { color } : {}),
       portfolio: str(r, c.portfolio) || DEFAULT_PORT, symbol,
       name: str(r, c.name), sector: str(r, c.sector), industry: str(r, c.industry),

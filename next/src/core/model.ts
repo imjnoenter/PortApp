@@ -4,7 +4,9 @@
 // every function is a pure derivation of it, so a quote tick is just "build again with new quotes".
 import { DEFAULT_PORT, fifoBasis } from './fifo.ts';
 import type { FifoResult } from './fifo.ts';
-import type { HoldingRow, Model, PortfolioRow, Position, Quotes, WatchItem } from './types.ts';
+import type { HoldingRow, Model, PortfolioRow, Position, Quotes, Thesis, WatchItem } from './types.ts';
+
+const THESIS_SYMBOL_KEYS = ['niche', 'milestone', 'kill'] as const;
 
 export const CAP_PORT = 'Trade';
 export const ETF_PORT = 'ETF';
@@ -104,10 +106,20 @@ export function rowsForView(book: Book, port: string): HoldingRow[] {
     if (!m) { meta.set(r.symbol, { ...r }); continue; }
     for (const k of META) if (m[k] == null && r[k] != null) (m as any)[k] = r[k];
   }
+  // Thesis: Niche / Milestone / Kill Criteria belong to the symbol, so any row's value fills a blank.
+  const symThesis = new Map<string, Thesis>();
+  for (const r of book.rows) for (const k of THESIS_SYMBOL_KEYS) {
+    const v = r.thesis?.[k];
+    if (!v) continue;
+    const t = symThesis.get(r.symbol) ?? {};
+    if (!t[k]) { t[k] = v; symThesis.set(r.symbol, t); }
+  }
   const fill = (r: HoldingRow): HoldingRow => {
     const m = meta.get(r.symbol)!;
     const out = { ...r };
     for (const k of ['name', 'sector', 'industry', 'price', 'marketCap'] as const) if (out[k] == null) (out as any)[k] = m[k];
+    const st = symThesis.get(r.symbol);
+    if (st) out.thesis = { ...st, ...r.thesis };
     return out;
   };
 
@@ -125,6 +137,11 @@ export function rowsForView(book: Book, port: string): HoldingRow[] {
     // Long-Term's target wins; otherwise the first row that has one.
     if (r.target != null && (raw.portfolio === DEFAULT_PORT || m.target == null)) m.target = r.target;
     for (const k of ['category', 'custom', 'myGroup'] as const) if (m[k] == null) m[k] = r[k];
+    // Tier / Score are per row: Long-Term's wins, otherwise the first row that has one.
+    for (const k of ['tier', 'score'] as const) {
+      const v = raw.thesis?.[k];
+      if (v && (raw.portfolio === DEFAULT_PORT || !m.thesis?.[k])) m.thesis = { ...m.thesis, [k]: v };
+    }
   }
   return [...merged.values()].map(({ _cost, ...m }) => ({ ...m, avgPrice: (m.qty || 0) > 0 ? _cost / (m.qty as number) : m.avgPrice }));
 }

@@ -36,6 +36,8 @@
   interface Cell { main: string; sub?: string; tone?: string; subTone?: string; strong?: boolean }
   interface Col {
     id: string; label: string; text?: boolean;
+    /** Free text that can run long: cut to one line, the whole of it on hover. */
+    wide?: boolean;
     /** What the column sorts by. */
     val: (p: Position) => number | string | null;
     /** Its dollar twin, used when sorting by amount. */
@@ -100,6 +102,11 @@
     { id: 'exdiv', label: 'Ex-dividend', text: true, val: p => exDivs.get(p.symbol) ?? null, cell: p => exDivs.has(p.symbol) ? { main: date(exDivs.get(p.symbol)!, true) } : dash },
     text('sector', 'Sector', p => p.sector), text('industry', 'Industry', p => p.industry), text('category', 'Category', p => p.category),
     text('custom', 'Theme', p => p.custom), text('group', 'Risk tier', p => p.myGroup),
+    // PortfolioTeam's thesis columns (Tier / Score per row, the rest per symbol).
+    text('tier', 'Tier', p => p.thesis?.tier ?? null), text('score', 'Score', p => p.thesis?.score ?? null),
+    text('niche', 'Niche', p => p.thesis?.niche ?? null),
+    { ...text('milestone', 'Milestone', p => p.thesis?.milestone ?? null), wide: true },
+    { ...text('kill', 'Kill criteria', p => p.thesis?.kill ?? null), wide: true },
     // The next two draw a bar in the table (see the markup); `cell` is their text form, for the picture.
     { id: 'alloc', label: 'Allocation', val: p => alloc(p).filled, abs: p => { const a = alloc(p); return a.want == null ? null : a.gap; },
       cell: p => { const a = alloc(p); return a.want == null ? { main: pct(a.now, 1) } : { main: `${pct(a.now, 1)} / ${pct(a.target!, 1)}`, sub: `${money.signed(a.gap)} (${a.filled!.toFixed(0)}%)` }; } },
@@ -427,7 +434,7 @@
                     </td>
                   {:else}
                     {@const x = c.cell(p)}
-                    <td class="{c.text ? '' : 'n'} {x.tone ?? ''}" class:strong={x.strong}>{x.main}{#if x.sub}<span class="sub {x.subTone ?? ''}">{x.sub}</span>{/if}</td>
+                    <td class="{c.text ? '' : 'n'} {x.tone ?? ''}" class:strong={x.strong} class:wide={c.wide} title={c.wide && x.main !== '—' ? x.main : undefined}>{x.main}{#if x.sub}<span class="sub {x.subTone ?? ''}">{x.sub}</span>{/if}</td>
                   {/if}
                 {/each}
               </tr>
@@ -531,6 +538,7 @@
   .symcell { display: flex; align-items: center; gap: 8px; }
   /* Half the room it had: the ticker is what is read, the name is a reminder. */
   .name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+  td.wide { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sym { position: sticky; left: 0; background: var(--card); z-index: 1; }
   tr.click:hover .sym { background: var(--sunk); }
   .sym .pill { margin-left: 4px; font-size: 10px; padding: 1px 5px; }

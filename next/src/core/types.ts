@@ -38,7 +38,14 @@ export interface HoldingRow {
   targets?: { low?: number; median?: number; high?: number; avg?: number; top?: number; lynch?: number };
   /** Set when the ledger does not reconcile with qty, so avgPrice is the sheet's stored value. */
   basisFallback?: boolean;
+  /**
+   * PortfolioTeam's thesis columns, when any are filled. Tier and Score belong to this row; Niche,
+   * Milestone and Kill Criteria to the symbol (the same on every row of it).
+   */
+  thesis?: Thesis;
 }
+
+export interface Thesis { tier?: string; score?: string; niche?: string; milestone?: string; kill?: string }
 
 /** One row of the `Portfolios` registry sheet. */
 export interface PortfolioRow {
