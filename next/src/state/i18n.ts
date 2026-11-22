@@ -37,7 +37,7 @@ export const TH: Record<string, string> = {
   'Average cost from the sheet: the trade history does not add up to this holding.': 'ต้นทุนเฉลี่ยจากชีต: ประวัติซื้อขายไม่ตรงกับจำนวนที่ถือ',
   // allocation
   'Group by': 'จัดกลุ่มตาม', 'Sector': 'กลุ่มอุตสาหกรรม', 'Industry': 'อุตสาหกรรม', 'Category': 'หมวด', 'Custom': 'กำหนดเอง',
-  'My group': 'กลุ่มของฉัน', 'Include cash': 'รวมเงินสด', 'Return': 'ผลตอบแทน', 'Other': 'อื่นๆ', 'Unassigned': 'ไม่ระบุ',
+  'My group': 'กลุ่มของฉัน', 'Risk tier': 'ระดับความเสี่ยง', 'Include cash': 'รวมเงินสด', 'Return': 'ผลตอบแทน', 'Other': 'อื่นๆ', 'Unassigned': 'ไม่ระบุ',
   'Targets': 'เป้าหมาย', 'Actual weight against target, as a share of investable': 'น้ำหนักจริงเทียบเป้าหมาย เป็นสัดส่วนของเงินลงทุน',
   'Actual': 'จริง', 'To target': 'ถึงเป้า', 'buy': 'ซื้อ', 'trim': 'ลด', 'No targets set.': 'ยังไม่ได้ตั้งเป้าหมาย',
   'Planned': 'วางแผนแล้ว', 'Unallocated': 'ยังไม่จัดสรร', 'Back': 'กลับ',

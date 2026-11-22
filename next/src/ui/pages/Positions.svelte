@@ -99,7 +99,7 @@
     { id: 'earnings', label: 'Next earnings', text: true, val: p => earnings.get(p.symbol) ?? null, cell: p => earnings.has(p.symbol) ? { main: date(earnings.get(p.symbol)!, true) } : dash },
     { id: 'exdiv', label: 'Ex-dividend', text: true, val: p => exDivs.get(p.symbol) ?? null, cell: p => exDivs.has(p.symbol) ? { main: date(exDivs.get(p.symbol)!, true) } : dash },
     text('sector', 'Sector', p => p.sector), text('industry', 'Industry', p => p.industry), text('category', 'Category', p => p.category),
-    text('custom', 'Custom tag', p => p.custom), text('group', 'My group', p => p.myGroup),
+    text('custom', 'Theme', p => p.custom), text('group', 'Risk tier', p => p.myGroup),
     // The next two draw a bar in the table (see the markup); `cell` is their text form, for the picture.
     { id: 'alloc', label: 'Allocation', val: p => alloc(p).filled, abs: p => { const a = alloc(p); return a.want == null ? null : a.gap; },
       cell: p => { const a = alloc(p); return a.want == null ? { main: pct(a.now, 1) } : { main: `${pct(a.now, 1)} / ${pct(a.target!, 1)}`, sub: `${money.signed(a.gap)} (${a.filled!.toFixed(0)}%)` }; } },
@@ -184,7 +184,7 @@
   // ── Filters: any of the chosen values within a group, all of the groups together ──
   const GROUPS = [
     { key: 'category', label: 'Category' }, { key: 'sector', label: 'Sector' }, { key: 'industry', label: 'Industry' },
-    { key: 'custom', label: 'Custom tag' }, { key: 'myGroup', label: 'My group' },
+    { key: 'custom', label: 'Theme' }, { key: 'myGroup', label: 'Risk tier' },
   ] as const;
   type GroupKey = (typeof GROUPS)[number]['key'];
   let filters = $state<Record<GroupKey, string[]>>({ category: [], sector: [], industry: [], custom: [], myGroup: [] });

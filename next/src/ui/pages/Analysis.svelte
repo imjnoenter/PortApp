@@ -217,7 +217,7 @@
         <span class="spacer"></span>
         <Seg small bind:value={groupBy} options={[
           { value: 'sector', label: t('Sector') }, { value: 'category', label: t('Category') }, { value: 'industry', label: t('Industry') },
-          { value: 'custom', label: t('Custom') }, { value: 'myGroup', label: t('My group') },
+          { value: 'custom', label: t('Theme') }, { value: 'myGroup', label: t('Risk tier') },
         ]} />
       </div>
       {#if groups.length}

@@ -9,11 +9,15 @@
 
   const t = app.t;
   const close = () => { app.dialog = null; };
-  const CATEGORIES = ['Big Name', 'Wait for sell', 'Medium Cap', 'Small Cap', 'Growth', 'Dividend', 'Other'];
+  // The sheet's own schema, in its priority order. A value outside it (an older label) is kept as an extra choice.
+  const CATEGORIES = ['Wait for sell', 'Mega-Cap', 'Growth', 'Value', 'Large-Cap', 'Mid-Cap', 'Small-Cap'];
+  const RISK_TIERS = ['Low', 'Medium', 'High', 'No-Profit'];
   const row = untrack(() => app.rawRows.find(r => r.symbol === symbol && r.portfolio === portfolio));
   const used = (pick: (r: (typeof app.rawRows)[number]) => string | null) => [...new Set(app.rawRows.map(pick).filter((x): x is string => !!x))].sort();
-  const customs = used(r => r.custom), groups = used(r => r.myGroup);
-  const categories = row?.category && !CATEGORIES.includes(row.category) ? [...CATEGORIES, row.category] : CATEGORIES;
+  const customs = used(r => r.custom);
+  const withOwn = (list: string[], v: string | null | undefined) => v && !list.includes(v) ? [...list, v] : list;
+  const categories = withOwn(CATEGORIES, row?.category);
+  const tiers = withOwn(RISK_TIERS, row?.myGroup);
 
   let category = $state(row?.category ?? '');
   let custom = $state(row?.custom ?? '');
@@ -56,10 +60,14 @@
             {#each categories as c (c)}<option value={c}>{c}</option>{/each}
           </select>
         </label>
-        <label class="field"><span>{t('Custom tag')}</span><input class="input" bind:value={custom} list="details-custom" /></label>
-        <label class="field"><span>{t('My group')}</span><input class="input" bind:value={myGroup} list="details-group" /></label>
+        <label class="field"><span>{t('Theme')}</span><input class="input" bind:value={custom} list="details-custom" /></label>
+        <label class="field"><span>{t('Risk tier')}</span>
+          <select class="input" bind:value={myGroup}>
+            <option value="">{t('None')}</option>
+            {#each tiers as g (g)}<option value={g}>{g}</option>{/each}
+          </select>
+        </label>
         <datalist id="details-custom">{#each customs as c (c)}<option value={c}></option>{/each}</datalist>
-        <datalist id="details-group">{#each groups as g (g)}<option value={g}></option>{/each}</datalist>
       </div>
       <p class="muted">{t('The two tags describe the symbol, so they apply in every portfolio that has it.')}</p>
 

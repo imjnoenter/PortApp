@@ -29,7 +29,7 @@ export async function loadHoldings(sheetId: string, fresh = false): Promise<Hold
   const t = await fetchTable(sheetId, 'Claude', fresh);
   const c = {
     portfolio: t.col('Portfolio'), symbol: t.col('Symbol'), name: t.col('Name'), sector: t.col('Sector'),
-    industry: t.col('Industry'), category: t.col('Category'), custom: t.col('Custom'), myGroup: t.col('My Group'),
+    industry: t.col('Industry'), category: t.col('Category'), custom: t.col('Theme', 'Custom'), myGroup: t.col('Risk Tier', 'My Group'),
     qty: t.col('Qty'), avg: t.col('Avg price'), target: t.col('Target Allocation'), price: t.col('Current price'),
     cap: t.col('Market Cap'), color: t.col('Color'),
   };

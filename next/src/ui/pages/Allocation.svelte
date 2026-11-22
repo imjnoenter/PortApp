@@ -19,7 +19,7 @@
   type Field = 'symbol' | 'sector' | 'industry' | 'category' | 'custom' | 'myGroup';
   const FIELDS: { value: Field; label: string }[] = [
     { value: 'symbol', label: 'Symbol' }, { value: 'sector', label: 'Sector' }, { value: 'industry', label: 'Industry' },
-    { value: 'category', label: 'Category' }, { value: 'custom', label: 'Custom' }, { value: 'myGroup', label: 'My group' },
+    { value: 'category', label: 'Category' }, { value: 'custom', label: 'Theme' }, { value: 'myGroup', label: 'Risk tier' },
   ];
   let field = $state<Field>('symbol');
   let drill = $state<string | null>(null);

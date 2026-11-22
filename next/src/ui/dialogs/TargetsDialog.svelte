@@ -146,7 +146,7 @@
       </div>
       <div class="tools">
         <span class="small muted">{t('Group by')}</span>
-        <Seg small bind:value={groupBy} options={[{ value: 'none', label: t('None') }, { value: 'category', label: t('Category') }, { value: 'custom', label: t('Custom') }, { value: 'myGroup', label: t('My group') }]} />
+        <Seg small bind:value={groupBy} options={[{ value: 'none', label: t('None') }, { value: 'category', label: t('Category') }, { value: 'custom', label: t('Theme') }, { value: 'myGroup', label: t('Risk tier') }]} />
         {#if filter}<button class="btn on" onclick={() => filter = null}>{filter.key}, {t('show all')}</button>{/if}
       </div>
       <div class="heads small muted">
@@ -178,8 +178,8 @@
     <div class="pies">
       <TwoRing title={t('By stock')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={symSlices} bind:hover onpick={focusRow} />
       <TwoRing title={t('Category')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('category')} onpick={pick('category')} />
-      <TwoRing title={t('Custom tag')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('custom')} onpick={pick('custom')} />
-      <TwoRing title={t('My group')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('myGroup')} onpick={pick('myGroup')} />
+      <TwoRing title={t('Theme')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('custom')} onpick={pick('custom')} />
+      <TwoRing title={t('Risk tier')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('myGroup')} onpick={pick('myGroup')} />
     </div>
   </div>
 
