@@ -14,6 +14,8 @@ export interface AllocRow {
   category: string | null;
   custom: string | null;
   myGroup: string | null;
+  /** The thesis Tier column. */
+  tier: string | null;
 }
 
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -79,7 +81,7 @@ export function allocChanges(rows: readonly AllocRow[]): Record<string, number> 
 }
 
 export interface AllocGroup { key: string; members: string[]; target: number; now: number; locked: boolean }
-export function allocGroups(rows: readonly AllocRow[], field: 'category' | 'custom' | 'myGroup'): AllocGroup[] {
+export function allocGroups(rows: readonly AllocRow[], field: 'category' | 'custom' | 'myGroup' | 'tier'): AllocGroup[] {
   const by = new Map<string, AllocGroup>();
   for (const r of rows) {
     const key = r[field] || 'Other';

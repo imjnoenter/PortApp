@@ -22,17 +22,17 @@
   // Rows and their order are fixed when the editor opens, so nothing jumps while a slider is held.
   const m = untrack(() => app.portModel(portfolio));
   const initial: AllocRow[] = untrack(() => [
-    ...m.positions.map(p => ({ symbol: p.symbol, name: p.name, now: p.investWeightPct, saved: (p.target || 0) * 100, target: (p.target || 0) * 100, locked: false, category: p.category, custom: p.custom, myGroup: p.myGroup })),
+    ...m.positions.map(p => ({ symbol: p.symbol, name: p.name, now: p.investWeightPct, saved: (p.target || 0) * 100, target: (p.target || 0) * 100, locked: false, category: p.category, custom: p.custom, myGroup: p.myGroup, tier: p.thesis?.tier ?? null })),
     // Watched stocks start locked, so the tools (match current, equal weight, fill the rest, a group's
     // slider) work on what is held. Unlock one to give it a target.
-    ...m.watchlist.map(w => ({ symbol: w.symbol, name: w.name, now: 0, saved: (w.target || 0) * 100, target: (w.target || 0) * 100, locked: true, category: w.category, custom: w.custom, myGroup: w.myGroup })),
+    ...m.watchlist.map(w => ({ symbol: w.symbol, name: w.name, now: 0, saved: (w.target || 0) * 100, target: (w.target || 0) * 100, locked: true, category: w.category, custom: w.custom, myGroup: w.myGroup, tier: w.thesis?.tier ?? null })),
   ].sort((a, b) => b.target - a.target || b.now - a.now || a.symbol.localeCompare(b.symbol)));
   let rows = $state.raw(initial);
   const sliderMax = new Map(initial.map(r => [r.symbol, Math.min(100, Math.max(20, Math.ceil(Math.max(r.saved, r.now) * 2 / 5) * 5))]));
 
-  type GroupBy = 'none' | 'category' | 'custom' | 'myGroup';
+  type GroupBy = 'none' | 'category' | 'custom' | 'myGroup' | 'tier';
   let groupBy = $state<GroupBy>('none');
-  let filter = $state<{ field: 'category' | 'custom' | 'myGroup'; key: string } | null>(null);
+  let filter = $state<{ field: 'category' | 'custom' | 'myGroup' | 'tier'; key: string } | null>(null);
   let hover = $state<string | null>(null);
   let sort = $state<{ key: 'symbol' | 'now' | 'target' | 'drift'; dir: 1 | -1 } | null>(null);
   let order = $state.raw(initial.map(r => r.symbol));
@@ -75,12 +75,12 @@
     const cols = distinctColors(shown.map(r => r.symbol));
     return shown.map((r, i): RingSlice => ({ key: r.symbol, label: r.symbol, color: cols[i], outer: r.target, inner: r.now })).concat(rest);
   });
-  const groupSlices = (field: 'category' | 'custom' | 'myGroup') => {
+  const groupSlices = (field: 'category' | 'custom' | 'myGroup' | 'tier') => {
     const gs = allocGroups(rows, field).filter(g => g.target > 0 || g.now > 0);
     const cols = distinctColors(gs.map(g => g.key));
     return gs.map((g, i): RingSlice => ({ key: g.key, label: g.key, color: cols[i], outer: g.target, inner: g.now })).concat(rest);
   };
-  const pick = (field: 'category' | 'custom' | 'myGroup') => (key: string) => {
+  const pick = (field: 'category' | 'custom' | 'myGroup' | 'tier') => (key: string) => {
     if (key === rest.key) return;
     filter = filter?.field === field && filter.key === key ? null : { field, key };
   };
@@ -152,7 +152,7 @@
       </div>
       <div class="tools">
         <span class="small muted">{t('Group by')}</span>
-        <Seg small bind:value={groupBy} options={[{ value: 'none', label: t('None') }, { value: 'category', label: t('Category') }, { value: 'custom', label: t('Theme') }, { value: 'myGroup', label: t('Risk tier') }]} />
+        <Seg small bind:value={groupBy} options={[{ value: 'none', label: t('None') }, { value: 'category', label: t('Category') }, { value: 'custom', label: t('Theme') }, { value: 'myGroup', label: t('Risk tier') }, { value: 'tier', label: t('Tier') }]} />
         {#if filter}<button class="btn on" onclick={() => filter = null}>{filter.key}, {t('show all')}</button>{/if}
       </div>
       <div class="heads small muted">
@@ -186,6 +186,7 @@
       <TwoRing title={t('Category')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('category')} onpick={pick('category')} />
       <TwoRing title={t('Theme')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('custom')} onpick={pick('custom')} />
       <TwoRing title={t('Risk tier')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('myGroup')} onpick={pick('myGroup')} />
+      <TwoRing title={t('Tier')} outerLabel={t('Outer ring: target')} innerLabel={t('now')} slices={groupSlices('tier')} onpick={pick('tier')} />
     </div>
   </div>
 
@@ -232,7 +233,7 @@
   .locked input { opacity: 0.5; }
   .undo1:disabled { visibility: hidden; }
 
-  .pies { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); padding: var(--sp-4) var(--sp-5); min-height: 0; overflow: hidden; }
+  .pies { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-4); padding: var(--sp-4) var(--sp-5); min-height: 0; overflow: hidden; }
 
   @media (max-width: 900px) {
     .editor { left: 0; right: 0; top: auto; bottom: 0; translate: none; width: 100%; height: 94dvh; border-radius: 24px 24px 0 0; }

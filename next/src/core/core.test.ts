@@ -544,7 +544,7 @@ test('etf: a stock held directly and inside a fund shows its real weight', () =>
 });
 
 const arow = (symbol: string, now: number, target: number, extra: Partial<AllocRow> = {}): AllocRow =>
-  ({ symbol, name: null, now, saved: target, target, locked: false, category: null, custom: null, myGroup: null, ...extra });
+  ({ symbol, name: null, now, saved: target, target, locked: false, category: null, custom: null, myGroup: null, tier: null, ...extra });
 
 test('targets: a row stops at the room left, and a locked row never moves', () => {
   const rows = [arow('A', 30, 40), arow('B', 20, 30), arow('C', 10, 20, { locked: true })];
