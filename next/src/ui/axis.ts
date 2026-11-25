@@ -29,7 +29,7 @@ export function dateTicks(days: readonly string[], max = 6): { i: number; label:
   let marks: number[] = [];
   for (let i = 1; i < n; i++) if (days[i].slice(0, 7) !== days[i - 1].slice(0, 7)) marks.push(i);
   const monthly = marks.length >= 2;
-  if (!monthly) { marks = []; for (let k = 0; k < 5; k++) marks.push(Math.round(k * (n - 1) / 4)); }
+  if (!monthly) marks = [...new Set([0, 1, 2, 3, 4].map(k => Math.round(k * (n - 1) / 4)))];
   while (marks.length > max) marks = marks.filter((_, k) => k % 2 === 0);
   const years = days[0].slice(0, 4) !== days[n - 1].slice(0, 4);
   // The year is printed on the first label and again wherever it changes, even after thinning.

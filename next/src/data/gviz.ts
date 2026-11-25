@@ -37,7 +37,7 @@ export function num(row: Cell[], i: number): number | null {
   return isFinite(n) ? n : null;
 }
 
-export const bool = (row: Cell[], i: number) => { const v = raw(row, i); return v === true || v === 'TRUE'; };
+export const bool = (row: Cell[], i: number) => { const v = raw(row, i); return v === true || String(v).toUpperCase() === 'TRUE'; };
 
 const parts = (v: unknown) => typeof v === 'string' && v.startsWith('Date(') ? v.slice(5, -1).split(',').map(Number) : null;
 
@@ -54,8 +54,10 @@ export function date(row: Cell[], i: number): string | null {
 export function time(row: Cell[], i: number): string {
   const v = raw(row, i);
   if (v == null) return '';
-  const p = parts(v);
   const pad = (n: number) => String(n || 0).padStart(2, '0');
+  // A time-of-day column arrives as [h, m, s, ms]; a date-time one as Date(...).
+  if (Array.isArray(v)) return `${pad(v[0])}:${pad(v[1])}:${pad(v[2])}`;
+  const p = parts(v);
   return p ? `${pad(p[3])}:${pad(p[4])}:${pad(p[5])}` : String(v);
 }
 

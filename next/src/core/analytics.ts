@@ -69,12 +69,12 @@ export interface Move {
  * Every row that changes a holding, in the order it happened, dated by the US session it belongs to.
  * The ledger's own date is Bangkok's, which runs a day ahead of New York for most of the session.
  */
-export function ledgerMoves(txs: readonly Tx[], splits?: Splits, transfers = true): Move[] {
+export function ledgerMoves(txs: readonly Tx[], splits?: Splits): Move[] {
   const out: Move[] = [];
   for (const t of txs) {
     if (!t.dateStr || !t.shares) continue;
     const trade = t.type === 'Buy' || t.type === 'Sell';
-    if (!trade && !(transfers && (t.type === 'Transfer-In' || t.type === 'Transfer-Out'))) continue;
+    if (!trade && t.type !== 'Transfer-In' && t.type !== 'Transfer-Out') continue;
     const dir = t.type === 'Buy' || t.type === 'Transfer-In' ? 1 : -1;
     const day = sessionDay(t.dateStr, t.time);
     const tv = t.tradeValue != null ? t.tradeValue : t.shares * t.price;
@@ -172,8 +172,11 @@ export function computeIRR(txs: readonly Tx[], dividends: Dividends, holdingsVal
     const tv = t.tradeValue != null ? t.tradeValue : t.shares * t.price;
     if (!tv || !t.dateStr) continue;
     const when = ms(sessionDay(t.dateStr, t.time));
-    if (t.type === 'Buy') { flows.push({ t: when, v: -tv }); invested += tv; }
-    else if (t.type === 'Sell') { flows.push({ t: when, v: tv }); proceeds += tv; }
+    // Cash that actually moved: a buy costs its fee too, a sale pays out after its fee. That keeps
+    // this in step with realized P&L, which nets fees on both legs.
+    const fee = t.type === 'Buy' || t.type === 'Sell' ? feesOn(tv, t.commissionFree).total : 0;
+    if (t.type === 'Buy') { flows.push({ t: when, v: -(tv + fee) }); invested += tv + fee; }
+    else if (t.type === 'Sell') { flows.push({ t: when, v: tv - fee }); proceeds += tv - fee; }
     else if (t.type === 'Transfer-Out') { flows.push({ t: when, v: tv }); transfersNet += tv; }
     else if (t.type === 'Transfer-In') { flows.push({ t: when, v: -tv }); transfersNet -= tv; }
   }

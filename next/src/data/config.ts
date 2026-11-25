@@ -16,6 +16,8 @@ interface Config { profiles: Profile[]; activeProfileId: string }
 
 const KEY = 'portfolioConfig.v1';
 const SHEET_ID = /^[A-Za-z0-9_-]{20,}$/;
+/** Storage can refuse (private mode, full): the account then lasts for this visit only. */
+const write = (cfg: Config) => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch { /* not kept */ } };
 
 function read(): Config | null {
   try {
@@ -51,7 +53,7 @@ export function activeProfile(): Profile | null {
 export function setActiveProfile(id: string) {
   const cfg = read();
   if (!cfg || !cfg.profiles.some(p => p.id === id)) return;
-  localStorage.setItem(KEY, JSON.stringify({ ...cfg, activeProfileId: id }));
+  write({ ...cfg, activeProfileId: id });
 }
 
 /** Accepts a bare id or a full Google Sheets URL. */
@@ -65,7 +67,7 @@ export function parseSheetId(input: string): string | null {
 export function addProfile(p: Omit<Profile, 'id'>): Profile {
   const cfg = read() || { profiles: [], activeProfileId: '' };
   const profile = { ...p, id: 'p' + Date.now() };
-  localStorage.setItem(KEY, JSON.stringify({ profiles: [...cfg.profiles, profile], activeProfileId: profile.id }));
+  write({ profiles: [...cfg.profiles, profile], activeProfileId: profile.id });
   return profile;
 }
 
@@ -76,7 +78,7 @@ export function updateProfile(id: string, patch: Omit<Profile, 'id'>): Profile |
   const cfg = read();
   if (!cfg || !cfg.profiles.some(p => p.id === id)) return null;
   const next = { ...cfg.profiles.find(p => p.id === id)!, ...patch, id };
-  localStorage.setItem(KEY, JSON.stringify({ ...cfg, profiles: cfg.profiles.map(p => p.id === id ? next : p) }));
+  write({ ...cfg, profiles: cfg.profiles.map(p => p.id === id ? next : p) });
   return next;
 }
 
@@ -86,6 +88,6 @@ export function removeProfile(id: string): Profile | null {
   if (!cfg) return null;
   const profiles = cfg.profiles.filter(p => p.id !== id);
   const active = cfg.activeProfileId === id ? profiles[0]?.id ?? '' : cfg.activeProfileId;
-  localStorage.setItem(KEY, JSON.stringify({ profiles, activeProfileId: active }));
+  write({ profiles, activeProfileId: active });
   return profiles.find(p => p.id === active) ?? null;
 }

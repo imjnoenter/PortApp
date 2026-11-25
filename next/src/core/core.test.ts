@@ -18,7 +18,7 @@ import type { Book } from './model.ts';
 import { PriceIndex, benchmark, cashFlow, computeDividends, computeIRR, ledgerMoves, monthlyReturns, realizedSales, realizedTotals, returnSeries, dailyBars } from './analytics.ts';
 import { session, sessionDay, tradeDate, weekStart } from './market.ts';
 import { squarify } from './treemap.ts';
-import { driftAlert, planAlerts } from './alerts.ts';
+import { planAlerts } from './alerts.ts';
 import { addZone, clearCards, moveCard, newBoard, onBoard, readBoard, removeCard, removeZone, shiftZone, updateZone } from './board.ts';
 import { blendedHoldings, trueExposure } from './etf.ts';
 import { betas, closedTrades, concentration, correlation, groupPnl, holdingsPerf, stopCover, stressTest } from './insights.ts';
@@ -61,6 +61,13 @@ test('fifo: same-day buys compress, sells retire oldest first', () => {
   near(b.qty, 1); near(b.avg, 130);
   near(r.sells[0].costOut, 2 * 105 + 130);
   // a rolling average would have said (100+110+260)/4 = 117.5 for the remainder
+});
+
+test('fifo: a sale bigger than the recorded lots realizes only what they cover', () => {
+  const r = fifoWalk([tx('2026-01-02', 'Buy', 'A', 2, 100), tx('2026-01-09', 'Sell', 'A', 5, 150)]);
+  near(r.sells[0].shares, 2);
+  near(r.sells[0].tradeValue, 300);
+  near(r.sells[0].costOut, 200);
 });
 
 test('fifo: lots never cross portfolios', () => {
@@ -282,10 +289,12 @@ test('dividends: a share counts if it was held at the close before the ex-date, 
   assert.equal(run([tx('2026-05-01', 'Buy', 'A', 10, 1, 'Long-Term', { time: '08:30:00' })]), 0);
 });
 
-test('IRR: one buy, doubled in a year', () => {
+test('IRR: one buy, doubled in a year, with its fee counted as money paid', () => {
   const now = new Date('2026-01-01T00:00:00Z');
   const irr = computeIRR([tx('2025-01-01', 'Buy', 'A', 1, 100)], { gross: 0, net: 0, byTicker: new Map(), events: [] }, 200, now)!;
-  near(irr.rate, 100, 1e-4);
+  const paid = 100 + feesOn(100).total;
+  near(irr.invested, paid);
+  near(irr.rate, (200 / paid - 1) * 100, 1e-4);
 });
 
 test('dividends pay on the shares held on the ex-date', () => {
@@ -474,9 +483,6 @@ test('alerts: a plan level reached, one merely close, and nothing while far away
   assert.deepEqual(at(89, 0), ['T1_HIT']);
   const entry = planAlerts('Long-Term', 'AAA', plan, { price: 94, qty: 10, currentValue: 940, targetDollar: 4000 }).find(a => a.kind === 'entry')!;
   near(entry.dollars, (50 - 23.5) / 100 * 4000);
-  assert.equal(driftAlert('Long-Term', 'AAA', 1100, 1000, 25), null);
-  near(driftAlert('Long-Term', 'AAA', 1400, 1000, 25)!.gap, 40);
-  assert.equal(driftAlert('Long-Term', 'AAA', 1400, 1000, 0), null);
 });
 
 test('insights: concentration, stop cover and a market shock', () => {

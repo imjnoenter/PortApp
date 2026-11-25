@@ -8,6 +8,7 @@
   import { DUST } from '../../core/trade.ts';
   import type { CashSource, TradeInput } from '../../core/trade.ts';
   import { ledgerNow } from '../../data/write.ts';
+  import { isTicker } from '../num.ts';
   import { app } from '../../state/app.svelte.ts';
   import Dialog from '../parts/Dialog.svelte';
   import Seg from '../parts/Seg.svelte';
@@ -89,7 +90,7 @@
 
   const problem = $derived.by(() => {
     if (!symbol || !shares || !price) return ' ';
-    if (!/^[A-Z0-9.^-]+$/.test(symbol)) return t('That is not a ticker symbol.');
+    if (!isTicker(symbol)) return t('That is not a ticker symbol.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !/^\d{2}:\d{2}(:\d{2})?$/.test(time)) return t('Enter the date and time of the trade.');
     if (type === 'Sell' && shares > fx.oldQty + DUST) return `${t('You hold only')} ${fmtQty(fx.oldQty)} ${t('in')} ${portfolio}.`;
     return '';

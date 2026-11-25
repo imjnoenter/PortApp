@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Plan levels the price has reached or is close to, and holdings that have drifted off target.
+  // Plan levels the price has reached or is close to.
   import type { PlanAlert } from '../../core/alerts.ts';
   import { pct, usd } from '../../core/format.ts';
   import { ALL } from '../../core/model.ts';
@@ -9,7 +9,7 @@
   const t = app.t;
   const MAX = 8;
   let all = $state(false);
-  // Two groups: levels the price has already reached, then the ones it is close to (and drift).
+  // Two groups: levels the price has already reached, then the ones it is close to.
   const groups = $derived.by(() => {
     let room = all ? Infinity : MAX;
     return [
@@ -23,18 +23,16 @@
   function label(a: PlanAlert) {
     if (a.kind === 'stop') return a.hit ? t('Stop loss reached') : t('Near stop loss');
     if (a.kind === 'profit') return `${t('Sell')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
-    if (a.kind === 'entry') return `${t('Buy')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
-    return a.gap > 0 ? t('Over target') : t('Under target');
+    return `${t('Buy')} ${a.step} ${a.hit ? t('reached') : t('close')}`;
   }
   function detail(a: PlanAlert) {
     const gap = pct(Math.abs(a.gap), 1);
-    if (a.kind === 'drift') return `${gap} ${a.gap > 0 ? t('above') : t('below')} ${t('target value')}, ${a.gap > 0 ? t('trim') : t('add')} ${app.money(a.dollars)}`;
     const side = a.gap >= 0 ? t('above') : t('below');
     return `${t('Level')} ${usd(a.level)}, ${t('price is')} ${gap} ${side}${a.kind === 'entry' && a.dollars > 0 ? `, ${t('buys')} ${usd(a.dollars)}` : ''}`;
   }
-  const tone = (a: PlanAlert) => a.kind === 'stop' ? 'loss' : a.kind === 'profit' ? 'gain' : a.kind === 'entry' ? 'accent' : 'warn';
+  const tone = (a: PlanAlert) => a.kind === 'stop' ? 'loss' : a.kind === 'profit' ? 'gain' : 'accent';
   function act(a: PlanAlert) {
-    if (!app.canWrite || a.kind === 'drift') { app.symbol = a.symbol; return; }
+    if (!app.canWrite) { app.symbol = a.symbol; return; }
     // A planned buy opens the buy form filled in with that entry: its price, and the dollars it buys.
     if (a.kind === 'entry') app.dialog = { kind: 'trade', symbol: a.symbol, type: 'Buy', portfolio: a.portfolio, price: a.level, amount: a.dollars > 0 ? a.dollars : undefined };
     else if (a.hit) app.dialog = { kind: 'trade', symbol: a.symbol, type: 'Sell', portfolio: a.portfolio };
@@ -85,7 +83,6 @@
   .d { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill { white-space: nowrap; }
   .pill.accent { background: var(--accent-soft); color: var(--accent-ink); }
-  .pill.warn { background: color-mix(in oklab, var(--honey) 16%, transparent); color: var(--honey); }
   .pill.solid.loss { background: var(--loss); color: #fff; }
   .pill.solid.gain { background: var(--gain); color: var(--card); }
   .pill.solid.accent { background: var(--accent); color: #fff; }

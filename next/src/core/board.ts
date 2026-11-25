@@ -50,7 +50,9 @@ export const clearCards = (b: Board): Board => ({ zones: b.zones.map(z => ({ ...
 export function addZone(b: Board, name: string): Board {
   const used = new Set(b.zones.map(z => z.color));
   const color = [...Array(ZONE_COLORS).keys()].find(c => !used.has(c)) ?? b.zones.length % ZONE_COLORS;
-  return { zones: [...b.zones, { id: 'z' + Date.now().toString(36), name, color, cards: [] }] };
+  let id = 'z' + Date.now().toString(36);
+  while (b.zones.some(z => z.id === id)) id += 'x';
+  return { zones: [...b.zones, { id, name, color, cards: [] }] };
 }
 
 export const updateZone = (b: Board, id: string, patch: Partial<Pick<Zone, 'name' | 'color'>>): Board =>

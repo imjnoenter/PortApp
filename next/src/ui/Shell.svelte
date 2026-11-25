@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { sign, signedPct } from '../core/format.ts';
+  import { sign, signedPct, usd } from '../core/format.ts';
   import { isOvernight } from '../core/market.ts';
   import { ALL } from '../core/model.ts';
-  import { usd } from '../core/format.ts';
   import { INDEXES, fetchFutures } from '../data/quotes.ts';
   import { PAGES, app } from '../state/app.svelte.ts';
   import type { PageId } from '../state/app.svelte.ts';
@@ -55,11 +54,16 @@
       for (const a of hits) {
         if (known.has(a.key)) continue;
         const what = a.kind === 'stop' ? t('Stop loss reached') : a.kind === 'profit' ? `${t('Sell')} ${a.step} ${t('reached')}` : `${t('Buy')} ${a.step} ${t('reached')}`;
-        new Notification(`${a.symbol}: ${what}`, { body: `${t('Level')} ${usd(a.level)}`, tag: a.key });
+        notify(`${a.symbol}: ${what}`, { body: `${t('Level')} ${usd(a.level)}`, tag: a.key });
       }
     }
     if (app.quotesAt) known = new Set(hits.map(a => a.key));
   });
+  /** Android Chrome refuses `new Notification` outright; there a notice has to go through the service worker. */
+  function notify(title: string, options: NotificationOptions) {
+    try { new Notification(title, options); }
+    catch { navigator.serviceWorker?.ready.then(r => r.showNotification(title, options)).catch(() => {}); }
+  }
   async function setNotify(on: string) {
     if (on === 'on' && 'Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
     app.prefs.notify = on === 'on' && 'Notification' in window && Notification.permission === 'granted';

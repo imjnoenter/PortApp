@@ -108,7 +108,8 @@ export function fifoWalk(txs: readonly FifoTx[]): FifoResult {
       const held = L.reduce((s, l) => s + l[0], 0);
       const sold = Math.min(t.shares || 0, held);
       const { cost, fee } = retire(L, sold);
-      const tv = tvOf(t, sold);
+      // A sale bigger than the lots (history incomplete) only realizes what the lots cover.
+      const tv = sold < (t.shares || 0) - EPS ? sold * (t.price || 0) : tvOf(t, sold);
       sells.push({
         dateStr: d, ticker: t.ticker, portfolio: t.portfolio || DEFAULT_PORT,
         shares: sold, price: t.price || 0, tradeValue: tv,
@@ -181,7 +182,7 @@ export function fifoAverages(basis: Basis | null, qty0: number, avg0: number, tr
   });
 }
 
-export const isTransfer =(t: { type?: string }) => {
+export const isTransfer = (t: { type?: string }) => {
   const ty = (t.type || '').toLowerCase();
   return ty === 'transfer-out' || ty === 'transfer-in';
 };

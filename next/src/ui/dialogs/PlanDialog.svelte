@@ -150,7 +150,7 @@
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!targetOk) return;
+    if (!targetOk || unsavable) return;
     app.savePlan(portfolio, symbol, draft, target);
     close();
   }

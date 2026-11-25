@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { cashEffect } from '../../core/edits.ts';
+  import { DUST } from '../../core/trade.ts';
   import { usd as fmtUsd } from '../../core/format.ts';
   import type { Tx } from '../../core/types.ts';
   import { app } from '../../state/app.svelte.ts';
@@ -32,6 +33,13 @@
     tradeValue: shares * price, commissionFree, note: note.trim().slice(0, 200),
   } : null);
   const cashDelta = $derived(old && next ? cashEffect(next) - cashEffect(old) : 0);
+  // The holding once this row reads differently. Below zero is allowed (a duplicated row being
+  // corrected) but said out loud: the holding stops at zero while the cash still moves.
+  const signed = (x: Tx) => x.type === 'Buy' ? x.shares : x.type === 'Sell' ? -x.shares : 0;
+  const heldNow = old ? app.rawRows.find(r => r.symbol === old.ticker && r.portfolio === old.portfolio)?.qty || 0 : 0;
+  const heldAfter = $derived(old && next ? heldNow - signed(old) + signed(next) : heldNow);
+  const short = $derived(heldAfter < -DUST);
+  const deleteShort = old ? heldNow - signed(old) < -DUST : false;
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -57,6 +65,8 @@
       <label class="check"><input type="checkbox" bind:checked={commissionFree} /> {t('No commission')}</label>
       <p class="muted">{t('The holding and the USD balance are corrected to match.')}
         {#if Math.abs(cashDelta) >= 0.005}{t('This change moves USD by')} {(cashDelta > 0 ? '+' : '') + fmtUsd(cashDelta)}.{/if}</p>
+      {#if short}<p class="small loss" role="alert">{t('Saving this takes the holding below zero, so it stops at zero. Check that later sales are recorded right.')}</p>
+      {:else if deleteShort}<p class="small loss">{t('Deleting this takes the holding below zero, so it stops at zero. Only right for a duplicated row.')}</p>{/if}
       <div class="form-foot">
         <DeleteButton label={t('Delete trade')} confirm={t('Press again to delete')} onconfirm={() => { app.replaceTx(old, null); close(); }} />
         <button type="button" class="btn" onclick={close}>{t('Cancel')}</button>

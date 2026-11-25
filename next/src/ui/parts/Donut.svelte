@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { ringArc } from '../arc.ts';
   // A ring of slices with a centre readout. Hover is shared with the caller (bind:hover) so a
   // legend beside it can light up the same slice.
   let { slices, hover = $bindable(null), title, centre, onpick, onback, backLabel = '', logos = false, noLogo = [], maxSize }: {
@@ -40,13 +41,9 @@
     let a = -Math.PI / 2;
     return slices.filter(s => s.value > 0).map(s => {
       const span = Math.min(s.value / total * Math.PI * 2, Math.PI * 2 - 0.0001);
-      const pad = span > GAP * 3 ? GAP / 2 : 0;
-      const a0 = a + pad, a1 = a + span - pad;
-      const mid = a + span / 2;
+      const mid = a + span / 2, d = ringArc(R, R0, a, span, GAP);
       a += span;
-      const p = (r: number, ang: number) => `${(r * Math.cos(ang)).toFixed(2)} ${(r * Math.sin(ang)).toFixed(2)}`;
-      const big = a1 - a0 > Math.PI ? 1 : 0;
-      return { s, span, mid, d: `M${p(R, a0)}A${R} ${R} 0 ${big} 1 ${p(R, a1)}L${p(R0, a1)}A${R0} ${R0} 0 ${big} 0 ${p(R0, a0)}Z` };
+      return { s, span, mid, d };
     });
   });
 

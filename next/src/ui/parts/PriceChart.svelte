@@ -29,7 +29,8 @@
   const t = app.t;
   const RANGES = [{ id: '3M', days: 92 }, { id: '1Y', days: 366 }, { id: 'All', days: 0 }] as const;
   let range = $state<(typeof RANGES)[number]['id']>('1Y');
-  let ema = $state(localStorage.getItem(EMA_KEY) !== '0');
+  const stored = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+  let ema = $state(stored(EMA_KEY) !== '0');
   $effect(() => { try { localStorage.setItem(EMA_KEY, ema ? '1' : '0'); } catch { /* blocked storage */ } });
   const W = 720, H = 260, PAD = 8;
 
@@ -37,7 +38,7 @@
   // the averages, the plan's levels and the trade flags. They are Heikin Ashi candles: each is
   // averaged with the one before it, which smooths the noise so a trend reads as a run of one colour.
   const canCandle = $derived(!!app.profile && canWrite(app.profile));
-  let kind = $state<'line' | 'candles'>(localStorage.getItem(KIND_KEY) === 'candles' ? 'candles' : 'line');
+  let kind = $state<'line' | 'candles'>(stored(KIND_KEY) === 'candles' ? 'candles' : 'line');
   $effect(() => { try { localStorage.setItem(KIND_KEY, kind); } catch { /* blocked storage */ } });
   let bars = $state.raw<Map<string, Bar> | null>(null);
   let candleError = $state(false);

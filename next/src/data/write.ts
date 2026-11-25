@@ -79,7 +79,7 @@ export const fairValueParams = (symbol: string, value: number | null): Params =>
 export const colorParams = (symbol: string, color: string | null): Params =>
   ({ action: 'setColor', symbol, value: color ?? '' });
 
-export const transferParams =(symbol: string, shares: number, from: string, to: string, price: number): Params =>
+export const transferParams = (symbol: string, shares: number, from: string, to: string, price: number): Params =>
   ({ action: 'transferShares', symbol, shares: shares.toFixed(6), fromPortfolio: from, toPortfolio: to, price: price.toFixed(6) });
 
 export const addSymbolParams = (portfolio: string, symbol: string): Params => ({ action: 'addSymbol', symbol, portfolio });

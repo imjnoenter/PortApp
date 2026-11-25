@@ -259,9 +259,13 @@ export function closedTrades(txs: readonly Tx[], sales: readonly RealizedSale[])
 
 export interface WorthSeries { dates: string[]; value: number[]; invested: number[] }
 
-/** Market value of the holdings each trading day, beside the net money put into them (buys less sales). */
+/**
+ * Market value of the holdings each trading day, beside the net money put into them (buys less
+ * sales). Shares moved between portfolios come and go at the cost they carry; in the combined view
+ * the two halves of a move cancel.
+ */
 export function worthSeries(txs: readonly Tx[], idx: PriceIndex, splits?: Splits): WorthSeries | null {
-  const moves = ledgerMoves(txs, splits, false);
+  const moves = ledgerMoves(txs, splits);
   if (!moves.length) return null;
   const days = idx.allDates.filter(d => d >= moves[0].day);
   if (days.length < 5) return null;

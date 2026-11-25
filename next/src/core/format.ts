@@ -8,7 +8,7 @@ const ok = (n: unknown): n is number => typeof n === 'number' && isFinite(n);
 
 /** Always dollars: per-share prices are inherently USD, whatever the display currency. */
 export const usd = (n: number | null | undefined) => ok(n) ? USD2.format(n) : DASH;
-export const baht = (n: number | null | undefined) => ok(n) ? (n < 0 ? '-' : '') + '฿' + INT.format(Math.abs(Math.round(n))) : DASH;
+export const baht = (n: number | null | undefined) => { if (!ok(n)) return DASH; const r = Math.round(n); return (r < 0 ? '-' : '') + '฿' + INT.format(Math.abs(r)); };
 
 export interface Money {
   (n: number | null | undefined): string;
@@ -31,8 +31,10 @@ export function moneyFormatter(currency: 'USD' | 'THB', fx: number): Money {
   return f;
 }
 
-export const pct = (n: number | null | undefined, dp = 2) => ok(n) ? n.toFixed(dp) + '%' : DASH;
-export const signedPct = (n: number | null | undefined, dp = 2) => ok(n) ? (n > 0 ? '+' : '') + n.toFixed(dp) + '%' : DASH;
+/** A figure that rounds to zero shows as 0, never as -0.00. */
+const fixed = (n: number, dp: number) => { const s = n.toFixed(dp); return +s === 0 ? (0).toFixed(dp) : s; };
+export const pct = (n: number | null | undefined, dp = 2) => ok(n) ? fixed(n, dp) + '%' : DASH;
+export const signedPct = (n: number | null | undefined, dp = 2) => { if (!ok(n)) return DASH; const s = fixed(n, dp); return (+s > 0 ? '+' : '') + s + '%'; };
 
 /** Share counts: up to 6 decimals, trailing zeros dropped. */
 export const qty = (n: number | null | undefined) => ok(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 6 }) : DASH;

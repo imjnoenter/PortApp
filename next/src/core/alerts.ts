@@ -1,9 +1,8 @@
-// What needs attention now: prices that have reached, or are close to, a level a plan set, and
-// holdings that have drifted from their target.
+// What needs attention now: prices that have reached, or are close to, a level a plan set.
 import type { Plan } from './plan.ts';
 import { trancheDollars } from './plan.ts';
 
-export type AlertKind = 'stop' | 'profit' | 'entry' | 'drift';
+export type AlertKind = 'stop' | 'profit' | 'entry';
 export interface PlanAlert {
   /** Stable for as long as the condition holds, so a notification fires once per event. */
   key: string;
@@ -57,12 +56,4 @@ export function planAlerts(portfolio: string, symbol: string, plan: Plan, c: Pla
     else if (gap <= NEAR_ENTRY) add('entry', 'T' + (i + 1), false, 0.5, i + 1, t.price, gap, dollars[i]);
   });
   return out;
-}
-
-/** A holding more than `band` percent away from its target value. A standing condition, never a notification. */
-export function driftAlert(portfolio: string, symbol: string, currentValue: number, targetDollar: number, band: number): PlanAlert | null {
-  if (!(targetDollar > 0) || !(band > 0)) return null;
-  const gap = currentValue / targetDollar * 100 - 100;
-  if (Math.abs(gap) < band) return null;
-  return { key: `${portfolio}:${symbol}:DRIFT`, portfolio, symbol, kind: 'drift', hit: false, urgency: 0.25, step: 0, level: targetDollar, gap, dollars: Math.abs(currentValue - targetDollar) };
 }

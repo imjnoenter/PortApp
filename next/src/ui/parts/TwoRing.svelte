@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { ringArc } from '../arc.ts';
   // Two rings sharing one set of slices: the outer ring is the plan, the inner ring is what is held
   // now. Seeing them nested shows at a glance which slices the plan grows and which it shrinks.
   let { slices, title, outerLabel, innerLabel, hover = $bindable(null), onpick }: {
@@ -20,10 +21,8 @@
       const v = Math.max(0, pick(s));
       if (!v) continue;
       const span = Math.min(v / total * Math.PI * 2, Math.PI * 2 - 0.0001);
-      const pad = span > GAP * 3 ? GAP / 2 : 0, a0 = a + pad, a1 = a + span - pad, big = a1 - a0 > Math.PI ? 1 : 0;
+      out.push({ key: s.key, color: s.color, d: ringArc(r1, r0, a, span, GAP) });
       a += span;
-      const p = (r: number, t: number) => `${(Math.cos(t) * r).toFixed(2)} ${(Math.sin(t) * r).toFixed(2)}`;
-      out.push({ key: s.key, color: s.color, d: `M${p(r1, a0)}A${r1} ${r1} 0 ${big} 1 ${p(r1, a1)}L${p(r0, a1)}A${r0} ${r0} 0 ${big} 0 ${p(r0, a0)}Z` });
     }
     return out;
   }

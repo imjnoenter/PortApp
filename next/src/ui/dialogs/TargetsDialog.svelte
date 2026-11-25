@@ -5,7 +5,7 @@
   import { untrack } from 'svelte';
   import { allocChanges, allocEqual, allocFillRest, allocGroups, allocMatchCurrent, allocReset, allocRoom, allocScale, allocSet, allocTotal } from '../../core/alloc.ts';
   import type { AllocRow } from '../../core/alloc.ts';
-  import { colorFor, distinctColors, pct } from '../../core/format.ts';
+  import { distinctColors, pct } from '../../core/format.ts';
   import { app } from '../../state/app.svelte.ts';
   import { numText, parseNum } from '../num.ts';
   import Logo from '../parts/Logo.svelte';
@@ -70,8 +70,11 @@
 
   // ── Pies: largest plan first, the unallocated remainder always last ──
   const rest = $derived<RingSlice>({ key: '\u0000rest', label: t('Unallocated, cash'), color: 'var(--line)', outer: Math.max(0, 100 - total), inner: Math.max(0, 100 - rows.reduce((s, r) => s + r.now, 0)) });
-  const symSlices = $derived([...rows].filter(r => r.target > 0 || r.now > 0).sort((a, b) => b.target - a.target || a.symbol.localeCompare(b.symbol))
-    .map((r): RingSlice => ({ key: r.symbol, label: r.symbol, color: colorFor(r.symbol), outer: r.target, inner: r.now })).concat(rest));
+  const symSlices = $derived.by(() => {
+    const shown = [...rows].filter(r => r.target > 0 || r.now > 0).sort((a, b) => b.target - a.target || a.symbol.localeCompare(b.symbol));
+    const cols = distinctColors(shown.map(r => r.symbol));
+    return shown.map((r, i): RingSlice => ({ key: r.symbol, label: r.symbol, color: cols[i], outer: r.target, inner: r.now })).concat(rest);
+  });
   const groupSlices = (field: 'category' | 'custom' | 'myGroup') => {
     const gs = allocGroups(rows, field).filter(g => g.target > 0 || g.now > 0);
     const cols = distinctColors(gs.map(g => g.key));

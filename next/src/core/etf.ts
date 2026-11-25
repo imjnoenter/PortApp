@@ -2,7 +2,7 @@
 //
 // Only each fund's published top holdings are known (about 20), so every figure here covers part of
 // the fund and says how much it could not see.
-import type { Model, Position } from './types.ts';
+import type { Model } from './types.ts';
 
 export interface EtfHolding { symbol: string; name: string; weight: number }   // weight is a fraction of the fund
 export interface EtfInfo {
@@ -16,9 +16,6 @@ export interface EtfInfo {
   topHoldings: EtfHolding[] | null;
 }
 export type EtfData = Record<string, EtfInfo | null>;
-
-export const isEtf = (p: Pick<Position, 'symbol' | 'industry' | 'portfolio'>, etf: EtfData) =>
-  p.industry === 'ETF' || p.portfolio === 'ETF' || !!etf[p.symbol];
 
 export interface Blended { symbol: string; name: string; value: number; via: string[] }
 

@@ -49,8 +49,6 @@ interface Prefs {
   lang: 'en' | 'th';
   view: string;
   inclCash: boolean;
-  /** A holding this many percent off its target value is flagged. 0 turns the flag off. */
-  driftBand: number;
   /** Portfolios left out of the switcher. They still count in the combined view. */
   hiddenPorts: string[];
   /** Whether plan levels being reached may raise a browser notification. */
@@ -58,7 +56,7 @@ interface Prefs {
   priceSource: PriceSource;
 }
 const PREFS_KEY = 'portapp.next.prefs.v1';
-const DEFAULT_PREFS: Prefs = { theme: 'auto', tone: 'warm', currency: 'USD', lang: 'en', view: ALL, inclCash: true, driftBand: 25, hiddenPorts: [], notify: false, priceSource: 'auto' };
+const DEFAULT_PREFS: Prefs = { theme: 'auto', tone: 'warm', currency: 'USD', lang: 'en', view: ALL, inclCash: true, hiddenPorts: [], notify: false, priceSource: 'auto' };
 
 function loadPrefs(): Prefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }; }

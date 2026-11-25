@@ -31,10 +31,12 @@ export async function fetchCnbc(symbols: readonly string[]): Promise<Quotes> {
   // Long URLs get rejected; 60 symbols a request is well inside the limit.
   const chunks: string[][] = [];
   for (let i = 0; i < symbols.length; i += 60) chunks.push(symbols.slice(i, i + 60));
+  // A chunk that fails costs only its own symbols; the caller falls back for them.
   await Promise.all(chunks.map(async chunk => {
     const url = 'https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols='
       + chunk.map(s => encodeURIComponent(toCnbc(s))).join('|') + '&exthrs=1&output=json';
-    const j = await (await fetch(url)).json();
+    let j;
+    try { const res = await fetch(url); if (!res.ok) return; j = await res.json(); } catch { return; }
     const res = j?.QuickQuoteResult?.QuickQuote ?? j?.FormattedQuoteResult?.FormattedQuote;
     for (const q of Array.isArray(res) ? res : res ? [res] : []) {
       const sym = back.get(String(q.symbol || '').toUpperCase());

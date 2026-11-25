@@ -87,7 +87,6 @@
   const showAlloc = $derived(m.port !== ALL && m.positions.length > 0);
   const showSide = $derived(showPorts || showAlloc);
 
-  const top3 =$derived(m.positions.slice(0, 3).reduce((s, p) => s + p.stockWeightPct, 0));
   const num = (n: number | null | undefined, dp = 2) => n == null ? '—' : n.toFixed(dp);
 </script>
 
@@ -262,7 +261,7 @@
       </div>
       <dl class="risk">
         <div><dt>{t('Largest position')}</dt><dd>{m.positions[0] ? `${m.positions[0].symbol} ${pct(m.positions[0].stockWeightPct, 1)}` : '—'}</dd></div>
-        <div><dt>{t('Top 3')}</dt><dd>{m.positions.length ? pct(top3, 1) : '—'}</dd></div>
+        <div><dt>{t('Top 3')}</dt><dd>{m.positions.length ? pct(app.concentration.top3, 1) : '—'}</dd></div>
         <div><dt>{t('Volatility')}</dt><dd>{app.risk ? pct(app.risk.volAnn, 1) : '—'}</dd></div>
         <div><dt>{t('Max drawdown')}</dt><dd>{app.risk ? pct(-Math.abs(app.risk.maxDD), 1) : '—'}</dd></div>
         <div><dt>{t('Sharpe')}</dt><dd>{num(app.risk?.sharpe)}</dd></div>

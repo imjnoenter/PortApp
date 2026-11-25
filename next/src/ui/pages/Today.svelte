@@ -61,7 +61,7 @@
   /** The most pressing plan level for each symbol; the alert list is already sorted by urgency. */
   const alert = $derived.by(() => {
     const by = new Map<string, (typeof app.alerts)[number]>();
-    for (const a of app.alerts) if (a.kind !== 'drift' && !by.has(a.symbol)) by.set(a.symbol, a);
+    for (const a of app.alerts) if (!by.has(a.symbol)) by.set(a.symbol, a);
     return by;
   });
   function facts(sym: string) {

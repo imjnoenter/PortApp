@@ -105,7 +105,7 @@ export const setTargets = (rows: readonly HoldingRow[], portfolio: string, targe
 
 export interface Details { category: string; custom: string; myGroup: string; qty?: number; avgPrice?: number }
 
-/** Category belongs to the one row; Custom and My Group describe the symbol, so every row of it gets them. */
+/** Category belongs to the one row; Theme and Risk tier describe the symbol, so every row of it gets them. */
 export function setDetails(rows: readonly HoldingRow[], portfolio: string, symbol: string, d: Details) {
   return rows.map(r => {
     if (r.symbol !== symbol) return r;
