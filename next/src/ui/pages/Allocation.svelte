@@ -16,10 +16,10 @@
   const m = $derived(app.model);
   const money = $derived(app.money);
 
-  type Field = 'symbol' | 'sector' | 'industry' | 'category' | 'custom' | 'myGroup';
+  type Field = 'symbol' | 'sector' | 'industry' | 'category' | 'custom' | 'myGroup' | 'tier';
   const FIELDS: { value: Field; label: string }[] = [
     { value: 'symbol', label: 'Symbol' }, { value: 'sector', label: 'Sector' }, { value: 'industry', label: 'Industry' },
-    { value: 'category', label: 'Category' }, { value: 'custom', label: 'Theme' }, { value: 'myGroup', label: 'Risk tier' },
+    { value: 'category', label: 'Category' }, { value: 'custom', label: 'Theme' }, { value: 'myGroup', label: 'Risk tier' }, { value: 'tier', label: 'Tier' },
   ];
   let field = $state<Field>('symbol');
   let drill = $state<string | null>(null);
@@ -27,7 +27,7 @@
   const CASH = '\u0000cash';
 
   interface Row extends Slice { pnl: number | null; cost: number; count: number }
-  const keyOf = (p: Position, f: Field) => f === 'symbol' ? p.symbol : p[f] || 'Other';
+  const keyOf = (p: Position, f: Field) => f === 'symbol' ? p.symbol : (f === 'tier' ? p.thesis?.tier : p[f]) || 'Other';
 
   const bySymbol = $derived(field === 'symbol' || drill != null);
   const rows = $derived.by<Row[]>(() => {
